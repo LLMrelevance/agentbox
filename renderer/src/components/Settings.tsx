@@ -2146,6 +2146,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
               <Row label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in.">
                 <Switch label="Rooms" on={!!w.alpha?.rooms} onChange={(v) => setWorkspace('alphaRooms', v)} />
               </Row>
+              <Row label="Teammates" desc="Agents with a standing job that work on their own, talk in one team chat and reach you only when they need you.">
+                <Switch label="Teammates" on={!!w.alpha?.teammates} onChange={(v) => setWorkspace('alphaTeammates', v)} />
+              </Row>
               <Row label="Multiplayer" desc="Share projects with your team and see their threads beside yours. Needs a sign-in.">
                 <Switch label="Multiplayer" on={!!w.alpha?.multiplayer} onChange={(v) => setWorkspace('alphaMultiplayer', v)} />
               </Row>

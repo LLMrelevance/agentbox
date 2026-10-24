@@ -111,7 +111,9 @@ export function namePrompt(item) {
     '',
     '--- opened with ---',
     cut(item?.title, 300),
-    cut(item?.body, 1200),
+    // A teammate's run is titled with its own part of a message that may have
+    // woken several (shared/teammates.mjs `runTitle`); the whole would mix them.
+    (item?.labels ?? []).some((l) => String(l).startsWith('teammate:')) ? '' : cut(item?.body, 1200),
     '--- latest ---',
     latest || '(nothing written yet)',
     '---',

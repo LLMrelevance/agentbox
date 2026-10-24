@@ -9,7 +9,7 @@ import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-q
 import { MainTests } from './main-went-red.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
-import { queuedReplyText } from './live-replies.mjs';
+import { queuedReplyText, submitReply } from './live-replies.mjs';
 import { taskCommand } from './task-commands.mjs';
 import { providerCommand, reviewTarget, nativeCommandNames } from '../shared/provider-commands.mjs';
 import {agentInstructionsUnified, readSystemTemplate, writeInstruction} from './instruction-settings.mjs';
@@ -62,6 +62,7 @@ import os from 'node:os';
 import { isUrgent, itemPriority, normalizeOrder, orderFromTiers, placedScore, productRankScore } from '../shared/rank.mjs';
 import { keysForAgents } from '../shared/shortcuts.mjs';
 import { isCleanRun, ruleIdOf } from '../shared/repeats.mjs';
+import { teammateIdOf, mentionsIn, teammatesOn, OFFER_LABEL } from '../shared/teammates.mjs';
 import { mayRunHere } from '../shared/team-rules.mjs';
 
 // WHO IS SIGNED IN, handed to the store server a worker talks through. An MCP
@@ -5202,7 +5203,7 @@ export class Supervisor {
   // one; a personal project, a command she typed, or a Remote Control session
   // stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
-    if (remoteOnly) return false;
+    if (remoteOnly || teammateIdOf(item)) return false;
     if (item?.id && (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {}))) return false;
     if (!product || !cwd || cwd === product.repoPath) return false;
     if (cwd === product.dir ? !item?.id || !this._cloudTakesPlain() : !product.repoPath) return false;
@@ -5254,6 +5255,7 @@ export class Supervisor {
     if (!this._cloudSetUp()) return null;
     if (!this._cloudFirst()) return { why: 'started-before' };
     if (item?.id && this.threadOnMac?.[item.id] === true) return { why: 'kept' };
+    if (teammateIdOf(item)) return { why: 'teammate' };
     if (item?.id && item.id in (this.movedToMac ?? {})) return this._movedWhy?.[item.id] ?? { why: 'handed-back', detail: null };
     if (this._mustRunHere(item, engine)) return { why: 'codex-reply' };
     if (!this._cloudTakesProject(product)) return { why: 'project' };
@@ -5669,6 +5671,8 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
+    // The team chat it talks through is files on this computer.
+    if (teammateIdOf(item)) return false;
     if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
     return this._cloudTakesProject(this.store.listProducts?.().find((p) => p.slug === item.product));
   }
@@ -6587,6 +6591,8 @@ export class Supervisor {
    */
   _isContinuation(item) {
     if (!item.answer) return false;
+    // The offer of a teammate is answered by the app (main/teammates.mjs), never by an agent.
+    if ((item.labels ?? []).includes(OFFER_LABEL)) return false;
     // A withdrawn reply (Z after send in the inbox) is a cancel, not an
     // answer; spawning on it would brief a worker with "(withdrawn)".
     if (item.answer === '(withdrawn)') return false;
@@ -6696,6 +6702,9 @@ export class Supervisor {
     // Repeating tasks first, so a run created on this tick is already in the
     // list the fresh-work pass below reads, rather than waiting for the next.
     await this.serveRepeats(now);
+    // Teammates next, for the same reason: a run a message or a schedule made
+    // on this tick is picked up by the pass below.
+    await this.serveTeammates(now);
     // And the folders of rows she has finished, put away. On a timer of its own
     // rather than every pass, because it is a walk of the disk and a tick is
     // fifteen seconds: she closes rows while nothing at all is running, which
@@ -7030,6 +7039,43 @@ export class Supervisor {
   // to Monday finds ONE period unserved, because four were never representable.
   // And nothing books the next run, so a run that dies costs one day rather
   // than costing the task.
+  // Your words to a teammate that is already on a run go into that run, the
+  // way a reply typed in its thread does, live if a session is up.
+  async serveTeammates(now = Date.now()) {
+    if (!teammatesOn(this.config)) return;
+    const TEAMMATE_REPLY_DEADLINE_MS = this.config.teammateReplyDeadlineMs ?? 30_000;
+    const teammates = this.store.teammates;
+    if (!teammates) return;
+    let items;
+    try {
+      items = this.store.listItems(now);
+    } catch (err) {
+      teammates.noteTrouble?.(`Teammates could not read your threads: ${err.message}`, now);
+      return;
+    }
+    // A reply to a live run can wait on that run; the tick never waits on it
+    // for long. Past the deadline the reply keeps going on its own and the
+    // page says it has not landed yet, rather than every teammate stopping.
+    const deliver = async (product, id, answer) => {
+      let timer;
+      const late = new Promise((resolve) => { timer = setTimeout(() => resolve('late'), TEAMMATE_REPLY_DEADLINE_MS); });
+      const sent = submitReply(this, { product, id, answer }, () => this.store.answerItem(product, id, { answer }));
+      const out = await Promise.race([sent, late]).finally(() => clearTimeout(timer));
+      if (out === 'late') {
+        sent.catch((err) => teammates.noteTrouble(`A message to a running teammate did not land: ${err.message}`));
+        teammates.noteTrouble('A message to a running teammate is taking a while to land.', now);
+      }
+      this.wake?.();
+      return out;
+    };
+    try {
+      const done = await teammates.tick({ items, now, deliver });
+      if (done.length) this.onChange?.();
+    } catch (err) {
+      teammates.noteTrouble?.(`Teammates could not wake: ${err.message}`, now);
+    }
+  }
+
   async serveRepeats(now = Date.now()) {
     if (!this.store.repeats) return;
     for (const product of this.store.listProducts()) {
@@ -7441,7 +7487,11 @@ export class Supervisor {
     // {{name}} and {{Name}} become the app's name here too, on the same rule as
     // buildBrief: these blocks are markdown files that cannot import it, and
     // her own copies keep the tokens so a rename reaches her edits as well.
-    const system = fillName([standing, project, messages, adhd].filter(Boolean).join('\n\n'));
+    // A teammate's standing brief, read fresh each spawn so its memory and the
+    // team chat are current on a reply too.
+    let teammate = null;
+    try { teammate = this.store.teammates?.briefFor(item) ?? null; } catch { teammate = null; }
+    const system = fillName([standing, project, teammate, messages, adhd].filter(Boolean).join('\n\n'));
     // `fork` IS THE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
     // resumed conversation is written on under a NEW id, so the row it came
     // from keeps its own thread untouched (MP-08). The builder drops it when
@@ -9819,16 +9869,37 @@ export class Supervisor {
   }
 
   /** What a reply sent to a running session carries: its files as a block (`attachmentBlock`), and its pictures for an engine that takes them in the turn. */
-  replyFiles(slug, answer, engine = DEFAULT_ENGINE) {
+  replyFiles(slug, answer, engine = DEFAULT_ENGINE, id = null) {
     let product = null;
     try { product = this.store.listProducts?.().find((p) => p.slug === slug) ?? null; } catch { /* none */ }
     if (!product?.dir) return { block: '', pictures: [] };
     const row = { answer };
-    return { block: this.attachmentBlock(row, product, [], engine), pictures: this.attachedPictures(row, product) };
+    let item = null;
+    try { item = id ? this.store.readItem?.(slug, id) ?? null : null; } catch { /* the hint is all that needs it */ }
+    const block = [this.attachmentBlock(row, product, [], engine), this.teammateNamedBlock(item, [answer])].filter(Boolean).join('\n\n');
+    return { block, pictures: this.attachedPictures(row, product) };
+  }
+
+  // A teammate named with @ in an ordinary thread is work for that teammate,
+  // handed over with team_pass rather than done here. Not on a teammate's own
+  // run: your message there already woke whoever it named.
+  teammateNamedBlock(item, texts) {
+    if (!teammatesOn(this.config) || teammateIdOf(item)) return '';
+    let team = [];
+    try { team = (this.store.teammates?.list?.() ?? []).filter((t) => t.status === 'active' && !t.endedAt); } catch { return ''; }
+    const named = [...new Set(texts.flatMap((t) => mentionsIn(String(t ?? ''), team)))].map((id) => team.find((t) => t.id === id)?.name).filter(Boolean);
+    if (!named.length) return '';
+    const who = named.join(' and ');
+    return [`## ${who}, a teammate, is named`,
+      `The person named their teammate ${who} with @. What they ask of ${named.length > 1 ? 'each' : who} is ${named.length > 1 ? 'theirs' : `${who}'s`}: hand it over with team_pass (a short title, and everything needed in details), say in one line that you did, and do not do that part yourself.`].join('\n');
   }
 
   /** The other threads these words name, summed up (shared/named-threads.mjs). */
   namedThreadsBlock(item, product, texts) {
+    return [this._namedThreads(item, product, texts), this.teammateNamedBlock(item, texts)].filter(Boolean).join('\n\n');
+  }
+
+  _namedThreads(item, product, texts) {
     const find = (id) => {
       const all = this.store?.listProducts?.() ?? [];
       for (const p of [...all.filter((x) => x.slug === item.product), ...all.filter((x) => x.slug !== item.product)]) {
@@ -9973,6 +10044,10 @@ export class Supervisor {
     template = ruleIdOf(item)
       ? template.replace(/<!-- repeat-rules:(start|end) -->\n?/g, '')
       : template.replace(/<!-- repeat-rules:start -->[\s\S]*?<!-- repeat-rules:end -->\n?/g, '');
+    // And a teammate's run: how it finishes, only where a teammate:<id> label says it is one.
+    template = teammateIdOf(item)
+      ? template.replace(/<!-- teammate-rules:(start|end) -->\n?/g, '')
+      : template.replace(/<!-- teammate-rules:start -->[\s\S]*?<!-- teammate-rules:end -->\n?/g, '');
     // And the fourth: her rule about when a piece of work gets its own row.
     // Always kept; only its markers come out.
     template = template.replace(/<!-- subagent-rule:(start|end) -->\n?/g, '');

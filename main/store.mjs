@@ -33,6 +33,7 @@ import { buildClaimLine, buildReleaseLine } from '../shared/work-items.mjs';
 import { isEffortWord } from '../shared/effort-levels.mjs';
 import { shippedNote } from '../shared/shipped-note.mjs';
 import { machineryPath, removeMachinery } from './store/home.mjs';
+import { Teammates } from './teammates.mjs';
 import {
   answerMode as readAnswerMode, answerModes, clearAnswerMode as clearAnswerModeFile, setAnswerMode,
   touchAnswerMode as touchAnswerModeFile,
@@ -58,6 +59,7 @@ export class Store {
   async init() {
     this.modules = await loadStore();
     this.repeats = new Repeats(this.modules);
+    this.teammates = this.config?.storeRoot && this.config?.accountId ? new Teammates(this) : null;
     // AND A PRACTICE PROJECT LEFT OVER FROM LAST TIME GOES NOW.A walk that was
     // quit, or a Mac that went to sleep in the middle of one, leaves the
     // practice project sitting in the account root, and everything downstream
@@ -672,6 +674,12 @@ export class Store {
     const note = movedAway(to.name ?? toSlug);
     this.modules.workItemsDisk.updateWorkItem(this.productDir(fromSlug), id, { status: 'done', note }, { source: 'system' });
     return { item: made, from: from?.name ?? fromSlug, to: to.name ?? toSlug, note };
+  }
+
+  /* ------------------------------- teammates ------------------------------ */
+  teammatesView(items, now = Date.now()) {
+    if (!this.teammates) return null;
+    return this.teammates.view(items ?? this.listItems(now), now);
   }
 
   /* ---------------------------- repeating tasks --------------------------- */
@@ -1591,6 +1599,20 @@ export class Store {
   watch() {
     this.unwatch();
     const dirs = [this.config.accountRoot, ...this.listProducts().map((p) => p.dir)];
+    // The team chat and the teammates, which agents write to through the store
+    // tools: watched so their words reach the screen as they are said.
+    if (this.teammates) {
+      try {
+        const dir = this.teammates.dir();
+        fs.mkdirSync(dir, { recursive: true });
+        const watcher = fs.watch(dir, () => this._notify());
+        watcher.on('error', () => {
+          try { watcher.close(); } catch {}
+          this.watchers = this.watchers.filter((w) => w !== watcher);
+        });
+        this.watchers.push(watcher);
+      } catch {}
+    }
     for (const dir of dirs) {
       try {
         const watcher = fs.watch(dir, (event, file) => {

@@ -46,14 +46,14 @@ describe('saving the switches', () => {
   };
 
   it('both are off until someone turns them on', () => {
-    expect(alphaFeatures({}, { packaged: true })).toEqual({ neo: false, rooms: false, multiplayer: false });
+    expect(alphaFeatures({}, { packaged: true })).toEqual({ neo: false, rooms: false, teammates: false, multiplayer: false });
   });
 
   it('Rooms on is written to the config file and read back', () => {
     const w = world();
     setWorkspaceSetting(w, { key: 'alphaRooms', value: true });
     expect(JSON.parse(fs.readFileSync(path.join(w.dir, 'zero.config.json'), 'utf8')).alphaRooms).toBe(true);
-    expect(alphaFeatures(w.config, { packaged: true })).toEqual({ neo: false, rooms: true, multiplayer: false });
+    expect(alphaFeatures(w.config, { packaged: true })).toEqual({ neo: false, rooms: true, teammates: false, multiplayer: false });
     setWorkspaceSetting(w, { key: 'alphaRooms', value: false });
     expect(alphaFeatures(w.config).rooms).toBe(false);
     fs.rmSync(w.dir, { recursive: true, force: true });
@@ -63,7 +63,7 @@ describe('saving the switches', () => {
     const w = world();
     setWorkspaceSetting(w, { key: 'alphaRooms', value: true });
     setWorkspaceSetting(w, { key: 'alphaNeo', value: true });
-    expect(alphaFeatures(w.config, { packaged: true })).toEqual({ neo: true, rooms: true, multiplayer: false });
+    expect(alphaFeatures(w.config, { packaged: true })).toEqual({ neo: true, rooms: true, teammates: false, multiplayer: false });
     fs.rmSync(w.dir, { recursive: true, force: true });
   });
 });

@@ -12,6 +12,7 @@
 // place a grant is reviewed; what changed is that she edits them as fields on
 // the project they belong to instead of in a text editor.
 
+import { teammatesOn } from '../shared/teammates.mjs';
 import { phoneChoiceOf, phoneProjectsOf, withPhoneAll, withPhoneProject, phoneEligible } from '../shared/phone-snapshot.mjs';
 import fs from 'node:fs';
 import { harnessFor } from './harnesses.mjs';
@@ -494,6 +495,7 @@ export function alphaFeatures(config, { packaged = isPackagedElectron() } = {}) 
   return {
     neo: config?.alphaNeo === true,
     rooms: config?.alphaRooms === true,
+    teammates: teammatesOn(config),
     multiplayer: packaged ? config?.alphaMultiplayer === true : config?.alphaMultiplayer !== false,
   };
 }
@@ -1331,6 +1333,11 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     case 'alphaRooms':
       saveConfig(config, { alphaRooms: !!value });
       supervisor.onChange?.();
+      break;
+    case 'alphaTeammates':
+      saveConfig(config, { alphaTeammates: !!value });
+      supervisor.onChange?.();
+      supervisor.wake?.();
       break;
     case 'alphaMultiplayer':
       saveConfig(config, { alphaMultiplayer: !!value });

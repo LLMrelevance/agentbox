@@ -24,7 +24,7 @@ export interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -76,6 +76,11 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   groups?: readonly { key: string; name: string }[];
   onGroups?: () => void;
   onPickGroup?: (key: string) => void;
+  /** Your teammates, or null where there are none to have. */
+  teammates?: readonly { id: string; name: string; role: string | null; paused?: boolean }[] | null;
+  /** 'team' for the team chat, 'roster' for the Teammates tab, or a teammate's id. */
+  onTeammates?: (which: string) => void;
+  onPauseTeammate?: (id: string, paused: boolean) => void;
   panelUp: boolean;
   keyHints: boolean;
   onSetKeyHints: (v: boolean) => void;
@@ -169,6 +174,16 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
       keywords: `rooms room groups chat channel messages dm ${g.name}`,
       run: () => onPickGroup(g.key),
     })) : []),
+    ...(teammates && onTeammates ? [
+      { id: 'view-teammates', label: 'Teammates', hint: 'the team chat', keywords: 'teammates team chat agents standing jobs', run: () => onTeammates('team') },
+      { id: 'new-teammate', label: 'New teammate', hint: 'start one or describe your own', keywords: 'teammate agent hire add make create start describe', run: () => onTeammates('roster') },
+      ...teammates.map((t) => ({ id: `teammate-${t.id}`, label: t.name, hint: t.role ?? 'teammate', keywords: `teammate ${t.name} ${t.role ?? ''}`, run: () => onTeammates(t.id) })),
+      ...(onPauseTeammate ? teammates.map((t) => ({
+        id: `teammate-pause-${t.id}`, label: `${t.paused ? 'Resume' : 'Pause'} ${t.name}`,
+        hint: t.paused ? 'it wakes for its schedule and the team again' : 'it wakes only when you write to it',
+        keywords: `teammate pause resume stop hold ${t.name}`, run: () => onPauseTeammate(t.id, !t.paused),
+      })) : []),
+    ] : []),
     // Every appearance row is built in ../palette-rows, which is pure so a test
     // can type into every look.
     ...lookRows(look, machine).map((r) => ({

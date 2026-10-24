@@ -24,6 +24,7 @@ const WORKSPACE = {
   adhdMode: bool,
   alphaNeo: bool,
   alphaRooms: bool,
+  alphaTeammates: bool,
   agentsAuto: bool,
   memoryGate: bool,
   cleanupLeftovers: bool,

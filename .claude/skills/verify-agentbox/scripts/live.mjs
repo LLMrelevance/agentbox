@@ -259,6 +259,10 @@ async function prepare(real, setupName = null, { logins = 2, codex = true, proje
       codexModel = { port: cport, url: `http://127.0.0.1:${cport}/v1` };
       layCodexHome(setup, { home, url: codexModel.url });
     }
+  } else if (real && process.env.VERIFY_CODEX_HOME) {
+    // A Mac whose ~/.codex has lapsed can lend the copy another Codex login.
+    codexBin = await realCodex();
+    codexHome = process.env.VERIFY_CODEX_HOME;
   } else if (!real) {
     const LOGINS = [['.claude', 'one'], ['.claude-second', 'two'], ['.claude-third', 'three'], ['.claude-fourth', 'four']];
     for (const [dir, n] of LOGINS.slice(0, Math.min(Math.max(1, logins), LOGINS.length))) {
