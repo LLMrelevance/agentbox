@@ -6163,6 +6163,7 @@ export default function App() {
             engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
             engine: snap.usage?.engine ?? null,
           })}
+          all={snap.usageByEngine ?? []}
         />}
         page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}

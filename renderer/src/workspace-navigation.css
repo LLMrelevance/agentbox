@@ -202,6 +202,9 @@
 /* Its limits open above it as wide as the sidebar, the way your account menu opens from your row. */
 .workspace-navigation .workspace-usage .usage-panel { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; border-radius: 0; }
 .workspace-navigation .usage-panel .usage-meter, .workspace-navigation .usage-panel .usage-meter > i { border-radius: 0; }
+/* Round 24's trial: a row for each agent stacks as the rows above do; a second agent in the panel sits under a hairline. */
+.workspace-navigation .workspace-usage { display: flex; flex-direction: column; gap: 2px; }
+.usage-panel .usage-other { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
 @media(max-width:700px) { .workspace-usage { display: none; } }
 /* THE INSTRUCTIONS PAGE IS ONE PAGE (w-4cbcd888ae, 2026-10-01). Picked from
    three drawn in the real app: a heading that says who the page is for and

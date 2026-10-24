@@ -34,6 +34,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { headlineLimit, limitRows, usageSentence } from '../../../shared/usage.mjs';
 import { agoQuiet } from '../format';
 import type { Usage } from '../types';
+import { engineLabel } from '../../../shared/engines.mjs';
 
 // It is the one threshold and it is deliberately high: a corner that shouts at
 // half is a corner that is shouting all day. Stated as what is SPENT, like
@@ -50,9 +51,27 @@ const LINGER_MS = 220;
 // name, and the percent where Inbox shows its count (w-dcaa2c122e, picked from five).
 const GaugeIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></svg>;
 
-export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = false }: {
+// ROUND 24'S TRIAL (localStorage usage.both): handed every agent's reading as
+// `all`, 'rows' draws a row for each and 'panel' one row whose panel lists them
+// all. Both name the agent off its own reading. With no key set, nothing changes.
+function readBoth(): string | null {
+  try { return localStorage.getItem('usage.both'); } catch { return null; }
+}
+export function UsagePill({ all = [], ...props }: Parameters<typeof UsageOne>[0] & { all?: Usage[] }) {
+  const both = props.sidebar ? readBoth() : null;
+  if (both !== 'rows' && both !== 'panel') return <UsageOne {...props} />;
+  const named = (u: Usage) => engineLabel(u.engine);
+  if (both === 'rows' && all.length > 1) return <>{all.map((u) => <UsageOne key={u.engine} {...props} usage={u} engineWord={named(u)} />)}</>;
+  const mine = props.usage;
+  const others = both === 'panel' && mine ? all.filter((u) => u.engine !== mine.engine).map((u) => ({ word: named(u), usage: u })) : [];
+  return <UsageOne {...props} engineWord={mine ? named(mine) : props.engineWord} others={others} />;
+}
+
+function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, others = [] }: {
   usage: Usage | null;
   sidebar?: boolean;
+  /** Round 24's trial: the other agents' readings, listed under this one's in its panel. */
+  others?: { word: string; usage: Usage }[];
   /**
    * Held by the caller so the reading moves with the rest of the app's clocks
    *  rather than starting a second one in the corner. */
@@ -172,6 +191,19 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
               {r.when && <div className="usage-lim-when">{r.when}</div>}
             </div>
           ))}
+          {others.map((o) => <div className="usage-other" key={o.word}>
+            <h3>{o.word}</h3>
+            {limitRows(o.usage.limits, now).map((r) => (
+              <div className="usage-lim" key={r.key}>
+                <div className="usage-lim-top">
+                  <span className="usage-lim-name">{r.name}</span>
+                  <span className="usage-lim-used">{r.used}% used</span>
+                </div>
+                <span className="usage-meter wide" aria-hidden="true"><i style={{ width: `${r.used}%` }} /></span>
+                {r.when && <div className="usage-lim-when">{r.when}</div>}
+              </div>
+            ))}
+          </div>)}
           {/* HOW OLD THE READING IS, because it is never live, and a panel that
               hides that can be quietly wrong for half an hour. `agoQuiet` is the
               app's own clock word: it says "now" under a minute and never counts
