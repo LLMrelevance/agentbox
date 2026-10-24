@@ -512,3 +512,7 @@ the whole of General got their thread names, old ones included. Agreed:
 - In such a group your own row shows what strangers see.
 - General is called Coworking (`20261026120000_general_is_coworking.sql`),
   picked from six names drawn in the app. Same id, so nobody moves.
+- `20261022000100` reached the hosted cloud two days late and moved every card
+  to `everyone`. `20261027000000_thread_names_stay_with_the_team.sql` moves
+  them back to `team`, makes `team` the cloud's default, and clears the thread
+  names their Macs last published. Turning names on is each person's to do.
