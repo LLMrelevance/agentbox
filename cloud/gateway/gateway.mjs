@@ -14,6 +14,7 @@ import { PLANS, RUN_CEILING_MS, SIGNIN_CEILING_MS, SIGNINS_AT_ONCE } from './pla
 import { TERMS_VERSION } from './terms.mjs';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
 import { PAYING, planOfLookupKey } from './stripe.mjs';
+import { createPhoneCarry } from './phone.mjs';
 
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESSION = /^[A-Za-z0-9_-]{1,180}$/;
@@ -113,7 +114,9 @@ export function memoryObjects() {
   };
 }
 
-export function createGateway({ agentcore, links, removeObject, objects, whoIs, stripe = null, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, storageBytes = STORAGE_BYTES, log = () => {} }) {
+export function createGateway({ agentcore, links, removeObject, objects, whoIs, stripe = null, now = Date.now, plans = PLANS, termsVersion = TERMS_VERSION, storageBytes = STORAGE_BYTES, log = () => {},
+  // The phone's replies with the computer shut (./phone.mjs): { db, runFiles, sendPush }.
+  phone = null }) {
   const termsRefusal = () => new Refusal(403, 'terms', `accept the terms of ${termsVersion} first`, { terms: termsVersion });
   const personKey = (person) => `ledger/people/${person}.json`;
   const deviceKey = (key) => `ledger/devices/${sha256(key)}.json`;
@@ -518,7 +521,32 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       settle(rec, ctx, t);
       for (const [sid, s] of Object.entries(rec.live)) if (s.kind === 'run' && s.runId === m[2]) end(rec, ctx, sid, t, 'done');
     });
+    if (carry) await carry.runEnded(m[1], m[2]).catch((err) => log(`phone: ${err?.message || err}`));
   }
+
+  // Whether a run could start for this person now, as `reserve` would say,
+  // without taking a place.
+  async function room(person) {
+    const rec = await recOf(person);
+    const t = now();
+    if (rec.disabled) return { ok: false, error: 'disabled' };
+    if (rec.terms?.version !== termsVersion) return { ok: false, error: 'terms' };
+    if ((await readJson(SWITCH))?.paused) return { ok: false, error: 'paused' };
+    const plan = planOf(rec);
+    if (!plan.agents) return { ok: false, error: 'plan' };
+    if (overHours(rec, t)) return { ok: false, error: 'hours' };
+    const running = live(rec, 'run').filter((s) => t - s.at < ceilingOf(s)).length;
+    if (running >= plan.agents) return { ok: false, error: 'agents' };
+    return { ok: true };
+  }
+
+  const carry = phone ? createPhoneCarry({
+    ...phone, links, objects, now, log, scopedKey, room,
+    start: (person, sessionId, payload) => invoke(person, { sessionId, payload }),
+    input: (person, sessionId, payload) => invoke(person, { sessionId, payload }),
+    stop: (person, sessionId) => stop(person, { sessionId }),
+  }) : null;
+  const phoneSweep = async () => (carry ? carry.sweep() : { ok: false, error: 'the phone is not set up on this server' });
 
   // On a clock, whoever is calling or not: ceilings, spent hours, a done.json
   // whose notice was missed, and stops AWS did not take.
@@ -618,7 +646,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return { ok: true };
   }
 
-  return { handle, objectCreated, sweep, admin };
+  return { handle, objectCreated, sweep, admin, phoneSweep };
 }
 
 /** The page a browser lands on after Stripe's checkout or billing page. */
