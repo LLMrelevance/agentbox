@@ -419,6 +419,9 @@ export function statusOf(teammate, items, now = Date.now()) {
 
 // The six a new person can start from. Copy is plain and specific about what
 // each one brings you, because that is what has to jump out.
+// Above the app's default, Medium: a teammate works with nobody watching.
+export const TEAMMATE_EFFORT = 'high';
+
 export const STARTERS = [
   {
     starter: 'quality', name: 'Ada', role: 'Quality lead',

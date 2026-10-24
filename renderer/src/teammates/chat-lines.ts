@@ -110,13 +110,20 @@ export function workingLine(
   t: Pick<Teammate, 'name' | 'running' | 'now'>,
   session: Pick<RunningSession, 'startedAt' | 'activity'> | null | undefined,
   now = Date.now(),
-): { state: 'working' | 'waiting'; lead: string; step: string } | null {
+): { state: 'working' | 'waiting'; text: string; aside: string } | null {
   if (!t.running) return null;
+  if (!session) return { state: 'waiting', text: 'Waiting for a free agent', aside: '' };
   const run = t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : 'its next run';
-  if (!session) return { state: 'waiting', lead: `${t.name} is waiting for a free agent to start`, step: run };
   const elapsed = Math.max(0, now - session.startedAt);
-  const step = session.activity?.at(-1)?.label?.trim() || run;
-  return { state: 'working', lead: elapsed < 60_000 ? `${t.name} just started` : `${t.name} is working, ${spanLabel(elapsed)} in`, step };
+  return { state: 'working', text: session.activity?.at(-1)?.label?.trim() || run, aside: elapsed < 60_000 ? 'just started' : `${spanLabel(elapsed)} in` };
+}
+
+// The same line in the team chat, said of the teammate by name: a step that
+// starts with a verb in -ing follows "is", and anything else is what it is on.
+export function teamWorkingLine(name: string, line: { state: 'working' | 'waiting'; text: string }): { lead: string; text: string } {
+  if (line.state === 'waiting') return { lead: `${name} is waiting for a free agent`, text: '' };
+  if (/^[A-Z][a-z]+ing\b/.test(line.text)) return { lead: `${name} is`, text: line.text[0].toLowerCase() + line.text.slice(1) };
+  return { lead: `${name} is on`, text: line.text };
 }
 
 export function longMessage(text: string): boolean {

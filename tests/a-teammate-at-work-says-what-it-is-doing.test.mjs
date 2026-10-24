@@ -14,17 +14,27 @@ const t = (over = {}) => ({ id: 't-aaaaaaaaaa', name: 'Juno', running: { id: 'w-
 const session = (over = {}) => ({ itemId: 'w-1', product: 'p', startedAt: NOW - 90_000, tail: [], ...over });
 
 describe('the line for a teammate at work', () => {
-  it('names the step it is on and how long it has been going', () => {
+  // The first cut read "Is working, 1 minute in Reading docs/launch-plan.md".
+  it('names the step it is on, then how long it has been going', () => {
     const line = workingLine(t(), session({ activity: [{ id: 'a', label: 'Reading marketing/relaunch-names.md', detail: '', startedAt: NOW }] }), NOW);
-    expect(line).toEqual({ state: 'working', lead: 'Juno is working, 1 minute in', step: 'Reading marketing/relaunch-names.md' });
+    expect(line).toEqual({ state: 'working', text: 'Reading marketing/relaunch-names.md', aside: '1 minute in' });
   });
 
   it('says it just started in its first minute, and falls back to the run between steps', () => {
-    expect(workingLine(t(), session({ startedAt: NOW - 5_000 }), NOW)).toEqual({ state: 'working', lead: 'Juno just started', step: 'Set up its job' });
+    expect(workingLine(t(), session({ startedAt: NOW - 5_000 }), NOW)).toEqual({ state: 'working', text: 'Set up its job', aside: 'just started' });
   });
 
-  it('says it is waiting for a free agent when nothing is running it yet', () => {
-    expect(workingLine(t(), null, NOW)).toEqual({ state: 'waiting', lead: 'Juno is waiting for a free agent to start', step: 'Set up its job' });
+  // The line above it already says which run it took on.
+  it('says it is waiting for a free agent when nothing is running it yet, without the run again', () => {
+    expect(workingLine(t(), null, NOW)).toEqual({ state: 'waiting', text: 'Waiting for a free agent', aside: '' });
+  });
+
+  // The team chat drew "Ada Waiting for a free agent" and "Ada Reading docs/x".
+  it('reads as a sentence about the teammate in the team chat', async () => {
+    const { teamWorkingLine } = await import('../renderer/src/teammates/chat-lines.ts');
+    expect(teamWorkingLine('Ada', { state: 'waiting', text: 'Waiting for a free agent', aside: '' })).toEqual({ lead: 'Ada is waiting for a free agent', text: '' });
+    expect(teamWorkingLine('Ada', { state: 'working', text: 'Reading docs/launch-plan.md', aside: '1 minute in' })).toEqual({ lead: 'Ada is', text: 'reading docs/launch-plan.md' });
+    expect(teamWorkingLine('Ada', { state: 'working', text: 'Set up its job', aside: 'just started' })).toEqual({ lead: 'Ada is on', text: 'Set up its job' });
   });
 
   it('says nothing for a teammate with nothing on, or one paused and idle', () => {

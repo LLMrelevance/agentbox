@@ -1,10 +1,11 @@
 // Pure rules for what each list shows, and what a click on a row or its select
 // box means.
 import { isCleanRun } from '../../shared/repeats.mjs';
+import { teammateIdOf } from '../../shared/teammates.mjs';
 import { answerSettled } from '../../shared/answers.mjs';
 import { saysARunGotNowhere } from '../../shared/spawn-trouble.mjs';
 import { notShippedLine } from '../../shared/not-shipped.mjs';
-import { firstRealLine, previewText } from './format';
+import { firstRealLine, previewText, searchText } from './format';
 import { TROUBLE_ID } from './trouble-row';
 import { DONE } from './done-word';
 
@@ -467,8 +468,13 @@ export function rowSummary(
 export function rowTitle(i: {
   title?: string;
   label?: string;
+  labels?: string[];
+  result?: string;
   wrote?: { title?: { ts: number; source?: string }; label?: { ts: number } };
 }): string {
+  // A teammate's thread reads as its message to you, and before it has said
+  // anything, as its own title, never a name guessed from its opening line.
+  if (teammateIdOf(i)) return (i.result ?? '').split('\n').map((l) => searchText(l).trim()).find(Boolean) || (i.title ?? '');
   const label = (i.label ?? '').trim();
   if (!label) return i.title ?? '';
   const theirs = i.wrote?.title;

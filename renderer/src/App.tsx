@@ -3584,9 +3584,12 @@ export default function App() {
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
+  const teammateModels = useMemo(() => ({ engine: snap?.engines?.workspace ?? null, codex: codexModels, codexDefault: codexModelDefault ?? null }), [snap?.engines?.workspace, codexModels, codexModelDefault]);
   const teammatesUi = useTeammates({
     view: snap?.teammates, asking: (snap?.approvals ?? []).map((a) => a.item), running: snap?.supervisor?.running ?? NO_RUNNING, products: snap?.products ?? [], engines: snap?.engines?.choices ?? [],
+    models: teammateModels,
     me: team?.byId.get(team.me ?? '')?.name ?? '',
+    mePic: team?.byId.get(team.me ?? '')?.avatarUrl ?? null,
     onEnter: () => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setFocusedRepeat(null); },
     onOpenThread: (product, id) => {
       const item = items.find((i) => i.id === id && i.product === product);

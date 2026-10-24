@@ -3,14 +3,16 @@
 // useRooms, whose every field App reads is pinned by its own tests.
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Product, RunningSession, TeammatesView } from '../types';
-import { TeammatesPage, TeammatesTitle } from './TeammatesPage';
+import { TeammatesPage, TeammatesTitle , type TeammateModels } from './TeammatesPage';
 import { TeammatesRail } from './TeammatesRail';
 import { asksYou, heldFor } from './chat-lines';
 
 /** 'team' is the team chat, 'roster' the Teammates tab, anything else a teammate's id. */
 export type TeammatesOpen = string | null;
 
-export function useTeammates({ view: stored, asking = [], running = [], products, engines, me, onEnter, onOpenThread, onChanged }: {
+export function useTeammates({ view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, onChanged }: {
+  models?: TeammateModels;
+  mePic?: string | null;
   view: TeammatesView | null | undefined;
   /** The agents running now (`snapshot.supervisor.running`). */
   running?: RunningSession[];
@@ -48,7 +50,7 @@ export function useTeammates({ view: stored, asking = [], running = [], products
   const railLit = shownOpen === 'roster' ? 'team' : shownOpen;
   const page: ReactNode = shownOpen && view
     ? <TeammatesPage view={view} open={shownOpen} products={products} engines={engines} me={me}
-        onTab={(tab) => setOpen(tab)} onOpenTeammate={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} />
+        onTab={(tab) => setOpen(tab)} onOpenTeammate={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} models={models} mePic={mePic} />
     : null;
   return {
     live,

@@ -1,4 +1,5 @@
 import { harnessFor } from './harnesses.mjs';
+import { teammateIdOf } from '../shared/teammates.mjs';
 // THE NAME ON THE ROW, WRITTEN RATHER THAN TAKEN FROM THE FIRST SENTENCE.
 //
 // A dictated message keeps its first line as its title, verbatim and forever
@@ -89,6 +90,7 @@ const LIVE = new Set(['open', 'claimed', 'blocked']);
  */
 export function wantsName(item) {
   if (!item || !LIVE.has(item.status)) return false;
+  if (teammateIdOf(item)) return false;
   if (!String(item.title ?? '').trim() && !String(item.body ?? '').trim()) return false;
   return !String(item.label ?? '').trim();
 }

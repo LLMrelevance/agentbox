@@ -46,6 +46,8 @@
 .rm-cm.tq-m .h > .rm-pic { width: 32px; height: 32px; line-height: 30px; font-size: 10px; }
 .rm-cm.tq-m .tx { font-size: 16px; line-height: 25px; }
 .rm-cm.tq-m .tx p { white-space: pre-wrap; }
+/* A pasted brief's headings are words in a message, not page titles. */
+.rm-cm.tq-m .tx :is(h1, h2, h3, h4) { font-size: 16px; line-height: 25px; font-weight: 500; margin: 0; }
 .rm-cm.tq-m .tx ul, .rm-cm.tq-m .tx ol { margin: 4px 0; padding-left: 22px; white-space: normal; }
 .tq-to { color: var(--text-faint); font-size: 13.5px; }
 
@@ -199,6 +201,7 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 /* A teammate at work: the foot of its chat says the step it is on. */
 .tq-live { color: var(--text-dim); }
 .tq-live.on { color: var(--text); }
+.tq-live .tq-when { margin-left: 10px; color: var(--text-faint); }
 .tq-dots.tq-moving { animation: tq-pulse 1.4s ease-in-out infinite; }
 @keyframes tq-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .tq-dots.tq-moving { animation: none; } }

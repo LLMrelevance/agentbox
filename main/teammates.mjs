@@ -4,7 +4,7 @@
 import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
-  offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW,
+  offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT,
 } from '../shared/teammates.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
 import {
@@ -114,12 +114,17 @@ export class Teammates {
       writeChat(this.dir(), { kind: 'act', from: id, verb: clean.paused ? 'paused' : 'resumed' }, now);
     }
     writeTeammate(this.dir(), id, clean, now);
-    // Its open runs follow it to the other agent from their next turn.
-    if ('engine' in clean && (clean.engine ?? null) !== (t.engine ?? null)) this._moveOpenRuns(id, clean.engine ?? null, now);
+    // Its open runs follow it from their next turn. A model is one engine's
+    // name, so a move to another engine clears it.
+    const effort = ('effort' in clean ? clean.effort : t.effort) || TEAMMATE_EFFORT;
+    if ('engine' in clean && (clean.engine ?? null) !== (t.engine ?? null)) this._moveOpenRuns(id, { engine: clean.engine ?? '', model: '', effort }, now);
+    else if (('model' in clean && (clean.model ?? null) !== (t.model ?? null)) || ('effort' in clean && (clean.effort ?? null) !== (t.effort ?? null))) {
+      this._moveOpenRuns(id, { model: ('model' in clean ? clean.model : t.model) ?? '', effort }, now);
+    }
     return this.get(id, now);
   }
 
-  _moveOpenRuns(id, engine, now) {
+  _moveOpenRuns(id, patch, now) {
     const { workItemsDisk } = this.store.modules;
     let items = [];
     try { items = this.store.listItems(now); } catch { return; }
@@ -127,7 +132,7 @@ export class Teammates {
       const dir = this.store.productDir?.(run.product);
       if (!dir) continue;
       try {
-        workItemsDisk.updateWorkItem(dir, run.id, { engine: engine ?? '', model: '', effort: '' }, { source: 'system', now });
+        workItemsDisk.updateWorkItem(dir, run.id, patch, { source: 'system', now });
       } catch (err) {
         this.noteTrouble(`A run of this teammate stayed on its old agent: ${err.message}`, now);
       }
@@ -247,7 +252,7 @@ export class Teammates {
               ...(a.start === 'later' ? { start: 'later' } : {}),
               ...(t.engine ? { engine: t.engine } : {}),
               ...(t.model ? { model: t.model } : {}),
-              ...(t.effort ? { effort: t.effort } : {}),
+              effort: t.effort || TEAMMATE_EFFORT,
             }, { source: 'system', now });
             // Your words go in as yours, the way a task you type does, so the
             // thread opens on them under your name.
@@ -291,9 +296,10 @@ export class Teammates {
         const listed = String(row.result ?? '').split('\n').filter((l) => l.startsWith('- '));
         const threads = this._threadsBehind(row, listed, items, chat);
         const asks = listed.join('\n');
+        const read = threads.length ? `\n\nRead all ${threads.length} threads behind them first, with everything I said in them.` : '';
         const text = tap.words
-          ? `${tap.words}\n\nLike these asks of mine, ${threads.length} threads in all:\n${asks}`
-          : `Someone to take on asks like these, which I keep making. Learn from the ${threads.length} threads first:\n${asks}`;
+          ? `${tap.words}\n\nLike these asks of mine:\n${asks}${read}`
+          : `Someone to take on asks like these, which I keep making:\n${asks}${read}`;
         this.describe({ text, product: row.product, threads }, now);
       }
       // Clean, so the answered offer leaves Needs you rather than waiting to be read.
