@@ -28,6 +28,7 @@ import { fileURLToPath } from 'node:url';
 import { createSandbox } from '../cloud/sandbox/server.mjs';
 import { cloudRun, IMPORT_FAILED } from '../main/cloud/run.mjs';
 import { readMarker, writeMarker, cloudWorkPending } from '../main/cloud/marker.mjs';
+import { waitFor } from './waiting.mjs';
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const FAKE_CLAUDE = here('./fixtures/cloud/fake-claude.mjs');
@@ -125,7 +126,7 @@ function launch({ message = 'please do it', extraArgs = [], signals = new EventE
 const resultOf = (out) => JSON.parse(JSON.parse(out.split('\n').find((l) => l.includes('"type":"result"'))).result);
 
 // The run has left with the folder as it was: only a change after this is one made while it was away.
-const untilAway = async () => { for (let i = 0; i < 600 && readMarker(mac)?.state !== 'running'; i += 1) await new Promise((r) => setTimeout(r, 25)); };
+const untilAway = () => waitFor('the run to be away in the cloud', () => readMarker(mac)?.state === 'running');
 
 describe('a cloud run', () => {
   it('streams the agent, runs its store call on the Mac, and lays its commit, its loose file and its transcript into the task folder', async () => {
@@ -202,8 +203,9 @@ describe('a cloud run', () => {
   it('when asked to stop, cancels the agent in the cloud and still brings its transcript home', async () => {
     const signals = new EventEmitter();
     const run = launch({ message: 'HANG please', signals });
-    // Wait until it is really running in the sandbox.
-    for (let i = 0; i < 100 && (await transport.invoke('x', { action: 'status' })).state !== 'running'; i += 1) await new Promise((r) => setTimeout(r, 50));
+    // Wait until it is really running in the sandbox. A stop that lands while
+    // it is still preparing cancels something else, which is not this test.
+    await waitFor('the agent to be running in the sandbox', async () => (await transport.invoke('x', { action: 'status' })).state === 'running');
     signals.emit('SIGTERM');
     const code = await run.done;
     expect(code).toBe(143);

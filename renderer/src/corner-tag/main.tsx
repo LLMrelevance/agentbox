@@ -14,7 +14,7 @@
 // - Off both the tag and the list for a moment, and the list shuts.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, tagSays } from '../../../shared/corner-tag.mjs';
+import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, inPoints, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
@@ -32,6 +32,8 @@ type Bridge = {
   onReset: (fn: () => void) => () => void;
   onDragging: (fn: (dragging: boolean) => void) => () => void;
   onTone?: (fn: (tone: Tone) => void) => () => void;
+  onMeasure?: (fn: () => void) => () => void;
+  zoom?: () => number;
   ready: (part: Part) => Promise<unknown>;
   size: (part: Part, w: number, h: number, glass?: { x: number; y: number; width: number; height: number }, radius?: number) => Promise<unknown>;
   clickable: (on: boolean) => Promise<unknown>;
@@ -131,12 +133,26 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
       const glassEl = (el.querySelector('.ct-tag') ?? el) as HTMLElement;
       const g = glassEl.getBoundingClientRect();
       const radius = parseFloat(getComputedStyle(glassEl).borderTopLeftRadius);
-      bridge.size(which, r.width, r.height, { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height }, Number.isFinite(radius) ? radius : undefined);
+      const m = inPoints({
+        width: r.width, height: r.height,
+        glass: { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height },
+        radius: Number.isFinite(radius) ? radius : undefined,
+      }, bridge.zoom?.());
+      bridge.size(which, m.width, m.height, m.glass, m.radius);
     };
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);
-    return () => ro.disconnect();
+    // A page that redrew while its window was hidden may not have said so,
+    // and the Mac's glass is placed from what it says (w-93b3a1a796).
+    const onVisible = () => { if (document.visibilityState === 'visible') report(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const offMeasure = bridge.onMeasure?.(report);
+    return () => {
+      ro.disconnect();
+      document.removeEventListener('visibilitychange', onVisible);
+      offMeasure?.();
+    };
   }, [key]);
 }
 
@@ -261,6 +277,9 @@ function CardBody({ state }: { state: State }) {
   const { lines, more } = cardLines(state.ready, state.now);
   return (
     <>
+      {/* Her pick of five (w-93b3a1a796): the tray counts only these, so the
+          list says so. */}
+      {lines.length > 0 && <div className="ct-quiet ct-static ct-head">New since you left</div>}
       {lines.map((l) => (
         <button key={l.id} className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
           <span className="ct-pip" />

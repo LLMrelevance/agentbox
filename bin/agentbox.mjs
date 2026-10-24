@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { bootHeadless, createServer, newToken } from '../main/serve.mjs';
+import { bootHeadless, createServer, newToken, picturesTheAppOwns } from '../main/serve.mjs';
 import { appHome } from '../main/store/home.mjs';
 import { learnShellDataDirs } from '../main/shell-path.mjs';
 import { startFreezeRecorder } from '../main/freeze-recorder.mjs';
@@ -90,6 +90,10 @@ const server = createServer({
   token,
   listeners: booted.window.listeners,
   dist,
+  // The pictures in a thread: a tab cannot open `agentbox-img://`, which only
+  // the desktop window answers, so without this door every local picture is
+  // drawn as missing.
+  files: picturesTheAppOwns(booted),
 });
 
 const wanted = Number(flag('port', 0)) || 0;

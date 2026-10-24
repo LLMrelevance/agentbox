@@ -35,6 +35,7 @@ import { resultLeads } from '../recap';
 import { withoutTrailingWork } from '../trailing-work';
 import { marksFor, readUndoMarks, UNDO_MARKS_EVENT, type UndoMark } from '../undo-marks';
 import { ranWords } from '../byline';
+import { notShipped } from '../../../shared/not-shipped.mjs';
 import type { ModelChoice } from '../models';
 import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
@@ -324,6 +325,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
     ranWords({ engineChoice, ran: e.ran, codexModels, codexDefault: codexModelDefault });
   const ranSaid = outcome ? ranOf(outcome) : null;
   const answerAt = answerTurn(events, omitted, chat);
+  const unshipped = outcome?.field === 'note' && !!notShipped(item);
   const answer = outcome && (
     resultLeads(item) && outcome.field === 'result'
       ? <div className="outcome" data-exchange={answerAt}>{md(clean(outcome.text))}</div>
@@ -332,8 +334,8 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
           {/* The newest answer is lifted out of the stream to the foot of the
               page, so it is signed in the label it already has rather than in
               a byline of its own. */}
-          <div className="appendix-label">
-            {outcome.field === 'result' ? 'Result' : 'Latest checkpoint'}
+          <div className={unshipped ? 'appendix-label appendix-unshipped' : 'appendix-label'}>
+            {outcome.field === 'result' ? 'Result' : unshipped ? 'Not shipped' : 'Latest checkpoint'}
             {ranSaid && <span className="appendix-ran">{ranSaid}</span>}
           </div>
           {md(clean(outcome.text))}

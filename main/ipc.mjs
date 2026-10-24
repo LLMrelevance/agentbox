@@ -67,6 +67,7 @@ import { machineryPath } from './store/home.mjs';
 import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
+import { closeRefusal, closedAnywayNote } from '../shared/not-shipped.mjs';
 import { saveAttachments } from './save-attachments.mjs';
 import { stageAttachment } from './stage-attachment.mjs';
 
@@ -285,8 +286,14 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     },
   });
 
-  ipcMain.handle('zero:refresh-usage', async event => {
+  ipcMain.handle('zero:refresh-usage', async (event, { engine = DEFAULT_ENGINE } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage refresh is only available in the main app window.');
+    // Codex is asked of this computer and not of OpenAI; main/codex-usage.mjs
+    // says why there is no explicit read.
+    if (engine !== DEFAULT_ENGINE) {
+      const reading = supervisor.refreshCodexUsage();
+      return reading ? { ok: true, reading: { engine, ...reading } } : { ok: false, error: 'Codex has reported no usage on this computer yet.' };
+    }
     const result = await usage.refreshNow();
     return result.reading ? { ...result, reading: { engine: DEFAULT_ENGINE, ...result.reading } } : result;
   });
@@ -649,8 +656,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped }) => {
     if (isAgentRow(id)) return { ok: false };
+    // WORK THAT NEVER REACHED MAIN IS NOT CLOSED UNASKED (shared/not-shipped.mjs).
+    // The window asks first and says so with `closeUnshipped`; the phone and
+    // anything else are turned down with the reason.
+    if (status === 'done' && product && id) {
+      let row = null;
+      try { row = store.readItem(product, id); } catch { row = null; }
+      const refused = closeRefusal(row, { closeUnshipped });
+      if (refused) return refused;
+      const said = closeUnshipped ? closedAnywayNote(row) : null;
+      if (said) store.noteItem(product, id, said);
+    }
     // A level picked from ⌘K arrives here with no words, and gives way the
     // same as one picked on the summary (zero:thread-edit). A reply that
     // happens to carry its row's level does not.
@@ -1433,6 +1451,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if (isAgentRow(id)) return { ok: false };
     const out = store.answerItem(product, id, { status: 'open' });
     supervisor.liftBrakeForHer?.();
+    supervisor.forgetDeadStarts?.({ product, id });
     supervisor.wake();
     return out;
   });
@@ -1937,6 +1956,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const item = store.listItems().find((i) => i.product === product && i.id === id);
     if (!item?.answer || item.answer === '(withdrawn)') return { ok: false, error: 'no live answer to redeliver' };
     supervisor.liftBrakeForHer?.();
+    supervisor.forgetDeadStarts?.(item);
     supervisor.redeliverAnswer(item, item.answer);
     supervisor.tick?.().catch(() => {});
     return { ok: true };

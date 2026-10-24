@@ -23,7 +23,7 @@ import { PRACTICE_NAME, PRACTICE_ROWS, PRACTICE_TASK } from '../../../shared/fir
 import { AppMark } from './AppMark';
 import { SidebarIcon } from './SidebarIcon';
 import { AskList, PlanQuestion, PlanSetupCard } from './PlanSetup';
-import { needsPlan, type EngineSetupState, type Plan } from '../plan-setup';
+import { afterCheck, type EngineSetupState, type Plan } from '../plan-setup';
 import { NAME, Name } from '../../../shared/product-name.mjs';
 import { foundOnThisComputer, type RunsOn } from '../../../shared/runs-on.mjs';
 import { chord, sayKeys } from '../this-keyboard';
@@ -1207,7 +1207,7 @@ export function Onboarding({
   }, [wantsRecent, recent, home]);
   // Whether Claude Code and Codex are found and signed in, asked while the
   // welcome is up because each tool's status check takes a few seconds. The
-  // full readings are cached, not just `needsPlan`, because the plan question
+  // full readings are cached, not just the one boolean, because the plan question
   // needs them as `look`. `fresh` drops the cache, for after pointing at a file
   // on the plan question.
   const asked = useRef<Promise<Readings> | null>(null);
@@ -1232,9 +1232,11 @@ export function Onboarding({
    * gives the answer, and this is which.
    */
   const [alreadyHere, setAlreadyHere] = useState<Readings | null>(null);
+  // ANYTHING FOUND AT ALL IS THE FOUND SCREEN, not only something signed in,
+  // and handing the reading in keeps the first frame the right one.
   const begin = async () => {
     const readings = await askMac();
-    setAlreadyHere(needsPlan(readings) ? null : readings);
+    setAlreadyHere(afterCheck(readings).t === 'nothing' ? null : readings);
     setPlan(null);
     onStep('plan');
   };
@@ -1548,7 +1550,13 @@ export function Onboarding({
           found on one that can (see `begin`). Every way out, Skip included,
           goes on to the folder screen. */}
       {run.step === 'plan' && !plan && (
-        <PlanQuestion onPick={setPlan} onReady={() => onStep('folder')} look={askMac} found={alreadyHere} />
+        <PlanQuestion
+          onPick={setPlan}
+          onReady={() => onStep('folder')}
+          onSkip={() => onStep('folder')}
+          look={askMac}
+          found={alreadyHere}
+        />
       )}
       {run.step === 'plan' && plan && (
         <PlanSetupCard plan={plan} onDone={() => onStep('folder')} onSkip={() => onStep('folder')} />

@@ -15,7 +15,8 @@
 //      the files the agent will need at the same absolute paths: the settings
 //      file without the Mac-only memory hooks, an MCP config whose servers are
 //      the sandbox's stubs, the transcript a `--resume` needs, the account's
-//      skills, commands and agents, and any file the prompt names.
+//      skills, commands and agents, her CLAUDE.md and those of her own hooks
+//      that can run there, and any file the prompt names.
 //   3. Starts the sandbox, then pumps: events out (stdout, stderr, MCP lines),
 //      input in (stdin, MCP replies), every input numbered and kept until the
 //      sandbox has acknowledged it, so a resend after a lost reply is applied
@@ -59,6 +60,7 @@ import { spawn } from 'node:child_process';
 import { run } from './exec.mjs';
 import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
+import { KEPT_ASIDE } from '../../shared/not-shipped.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
@@ -83,7 +85,7 @@ export const CLOUD_NOTE = [
   '',
   `Only this task's own branch comes back to their computer. A commit, merge or reset on main or any other branch stays in this sandbox and is thrown away with it, so a merge done here has not happened. When the request includes merging into main, or changing any branch but this task's, do the rest of the work and commit it on this branch, then end your turn with the one line \`${HAND_BACK} merging into main\` (as below): the app merges on their computer.`,
   '',
-  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing. A person who asks to have this thread moved to their computer is answered with this line as well. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
+  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing, in a few words they would use (your AWS sign-in, the iOS simulator), since the app shows those words to them. A person who asks to have this thread moved to their computer is answered with this line as well. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
 ].join('\n');
 
 // The same, for a project with no repository, whose agent works in the
@@ -383,6 +385,46 @@ export function settingsForTheCloud(text) {
   return JSON.stringify(s, null, 2);
 }
 
+// HER OWN HOOKS, the ones that can run in the cloud: one program from the
+// system running a script in her Claude hooks folder, which goes up with the
+// run. Anything else (an app, a script somewhere else, a chain of commands)
+// needs this Mac and stays here. `~` and $HOME become the Mac's home, where the
+// folder is laid, because the agent there has a home of its own. Null when
+// nothing travels. Her words, on the guard that keeps her email out of web
+// requests (2026-10-23): "Can it cover the cloud too?"
+const SYSTEM_PROGRAMS = ['/usr/bin/', '/bin/', '/usr/local/bin/', '/usr/sbin/', '/sbin/'];
+export function hooksForTheCloud(text, { hooksDir, homeDir }) {
+  let s;
+  try { s = JSON.parse(text); } catch { return null; }
+  const kept = {};
+  for (const [event, groups] of Object.entries(s?.hooks || {})) {
+    if (!Array.isArray(groups)) continue;
+    const left = [];
+    for (const g of groups) {
+      const hooks = (Array.isArray(g?.hooks) ? g.hooks : [])
+        .filter((h) => h?.type === 'command' && typeof h.command === 'string')
+        .map((h) => ({ ...h, command: h.command.replace(/(^|\s|["'])(?:~|\$HOME|\$\{HOME\})\//g, `$1${homeDir}/`) }))
+        .filter((h) => runsOnlyFrom(h.command, hooksDir));
+      if (hooks.length) left.push({ ...g, hooks });
+    }
+    if (left.length) kept[event] = left;
+  }
+  return Object.keys(kept).length ? kept : null;
+}
+
+function runsOnlyFrom(command, hooksDir) {
+  if (/[;&|`]|\$\(/.test(command)) return false;
+  let script = false;
+  for (const word of command.trim().split(/\s+/)) {
+    const w = word.replace(/^["']|["']$/g, '');
+    if (!w.startsWith('/')) continue;
+    const p = path.resolve(w);
+    if (p !== hooksDir && inside(p, hooksDir)) script = true;
+    else if (!SYSTEM_PROGRAMS.some((d) => w.startsWith(d))) return false;
+  }
+  return script;
+}
+
 export function mcpConfigForTheCloud(config, stubPath = STUB) {
   const servers = {};
   for (const name of Object.keys(config?.mcpServers || {})) servers[name] = { command: 'node', args: [stubPath, name], env: {} };
@@ -550,6 +592,12 @@ export async function cloudRun({
     const st = await retry(() => transport.invoke(earlier.sessionId, { action: 'status', runId: earlier.runId }), { what: 'reach the run the app left going', forever: false });
     if (!st) { say('the cloud could not be reached; the run the app left going is tried again later'); return IMPORT_FAILED; }
     if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
+  }
+  // A run whose own relay is alive is that relay's to bring home. Two laying
+  // it in at once each see the other's work as a change made on this Mac.
+  if (importOnly && !joining && earlier?.pid && earlier.pid !== selfPid && alive(earlier.pid)) {
+    say('this cloud run is already being brought home by its own process');
+    return IMPORT_FAILED;
   }
   if (earlier && !joining) {
     // One the app left going that ended while it was away still has its
@@ -731,21 +779,28 @@ export async function cloudRun({
   // The account's own skills, commands and agents, as real folders.
   if (!codex) {
     const tooling = path.join(homeDir, '.claude');
+    const own = (name) => (fs.existsSync(path.join(configDir, name)) ? path.join(configDir, name) : path.join(tooling, name));
     for (const sub of ['skills', 'commands', 'agents']) {
-      const dir = fs.existsSync(path.join(configDir, sub)) ? path.join(configDir, sub) : path.join(tooling, sub);
+      const dir = own(sub);
       if (fs.existsSync(dir)) sending.push(sendFolder(dir, path.join(configDir, `.${sub}.tgz`), path.join(configDir, sub)));
     }
+    // Her own hooks that can run there (`hooksForTheCloud`), with the folder
+    // their scripts are in at its own path, so a guard she set on this Mac
+    // guards the cloud run too. The sandbox's config folder has no settings of
+    // its own, so these are all of them.
+    const hooksDir = own('hooks');
+    let mine = null;
+    try { mine = hooksForTheCloud(fs.readFileSync(own('settings.json'), 'utf8'), { hooksDir, homeDir }); } catch { /* no settings */ }
+    if (mine && fs.existsSync(hooksDir)) {
+      sending.push(sendFolder(hooksDir, path.join(path.dirname(hooksDir), '.hooks.tgz'), hooksDir));
+      sending.push(sendFile(null, path.join(configDir, 'settings.json'), Buffer.from(JSON.stringify({ hooks: mine }, null, 2))));
+    }
+    // Her own instructions to Claude, from the home folder whichever account
+    // it runs on, laid in the config folder, which is where Claude Code reads
+    // them: in the home folder there they were reported gone (2026-10-23).
+    const memory = path.join(tooling, 'CLAUDE.md');
+    if (fs.existsSync(memory) && fs.statSync(memory).size <= MAX_ATTACHMENT) sending.push(sendFile(memory, path.join(configDir, 'CLAUDE.md')));
   }
-  // Her own instructions to Claude, which Claude Code reads from the home
-  // folder whichever account it runs on.
-  const memory = path.join(homeDir, '.claude', 'CLAUDE.md');
-  const homeFiles = !codex && fs.existsSync(memory) && fs.statSync(memory).size <= MAX_ATTACHMENT
-    ? [(async () => {
-      const k = key('home/CLAUDE.md');
-      await storage.put(k, fs.readFileSync(memory));
-      return { rel: '.claude/CLAUDE.md', url: await storage.getUrl(k) };
-    })()]
-    : [];
   // The few Codex settings that change how it runs a turn (model, effort,
   // tier), so a run in the cloud behaves as one here would. Nothing else of
   // her config goes: no MCP servers, hooks, providers or sockets, and never
@@ -763,9 +818,9 @@ export async function cloudRun({
   }
   const system = argValue(argv, '--append-system-prompt') || '';
   for (const f of filesNamedIn(system, { cwd: plain ? null : cwd, roots })) sending.push(sendFile(f));
-  let pack; let files; let home;
+  let pack; let files;
   try {
-    [pack, files, home] = await Promise.all([packed, Promise.all(sending), Promise.all(homeFiles)]);
+    [pack, files] = await Promise.all([packed, Promise.all(sending)]);
   } catch (err) {
     // The cloud server refuses a link that writes for the same reasons it
     // refuses a start, and before anything has gone up.
@@ -815,7 +870,6 @@ export async function cloudRun({
     changesRef: hasOutgoing ? outgoing : undefined,
     ...(remote ? { remote } : {}),
     ...(docsDir ? { docs: docsDir } : {}),
-    ...(home.length ? { homeFiles: home } : {}),
     login: { engine: login.engine, id: login.id, url: loginUrl },
     ...(carried.length ? { also: carried } : {}),
     results,
@@ -1482,7 +1536,7 @@ export async function cloudRun({
       if (await has(ref) && (nothingNew || await gitOk(cwd, ['merge-base', '--is-ancestor', ref, branch]))) await gitOk(cwd, ['update-ref', '-d', ref]);
     }
     if (branch) {
-      const note = `This thread's cloud run finished, but its work was not laid into the task folder: ${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
+      const note = `${KEPT_ASIDE}${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
       say(note);
       addCloudNews(cwd, { runId: rec.runId, item, product, branch, note });
     }

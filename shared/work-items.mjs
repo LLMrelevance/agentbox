@@ -457,10 +457,11 @@ function coerceField(field, value) {
     // A ts rather than a flag, so her NEXT answer outdates it by carrying a
     // later one, with nothing to clear and nobody who has to remember to.
     case 'answeredThrough': return Number.isFinite(value) ? Math.trunc(value) : undefined;
+    // An empty list is a real value: it is how the last label, `ship` above
+    // all, comes off.
     case 'labels': {
       if (!Array.isArray(value)) return undefined;
-      const labels = value.map((l) => str(l, MAX_SHORT)).filter(Boolean).slice(0, MAX_LABELS);
-      return labels.length ? labels : undefined;
+      return value.map((l) => str(l, MAX_SHORT)).filter(Boolean).slice(0, MAX_LABELS);
     }
     case 'assignee': case 'runner': return shortId(value) ?? undefined;
     case 'due': return calendarDay(value);
@@ -595,6 +596,13 @@ export function finishItem(raw, now = Date.now()) {
   return item;
 }
 
+/** A line that writes the row's short name and nothing else (see the fold's foot). */
+function onlyTheName(line) {
+  if (line.claim || line.release || line.heartbeat) return false;
+  const fields = Object.keys(line.patch ?? {});
+  return fields.length === 1 && fields[0] === 'label';
+}
+
 /** Lines folded onto `items` in place, unfinished: `finishItem` makes each one readable. */
 export function foldRawInto(items, lines, touched = null) {
   for (const raw of Array.isArray(lines) ? lines : []) {
@@ -700,7 +708,13 @@ export function foldRawInto(items, lines, touched = null) {
       if (line.by) item.wrote[field].by = line.by;
     }
 
-    item.updatedAt = Math.max(item.updatedAt, line.ts);
+    // THE APP WRITING A ROW'S NAME IS NOT NEWS ABOUT THE ROW. Lists break ties
+    // on `updatedAt`, so every unnamed thread the namer reached climbed to the
+    // top reading "updated just now". Read here rather than at the write, as
+    // the heartbeat rule above is, because the lines that did it are in the
+    // ledger already. Only the name ALONE: a line that carries it with anything
+    // else carries that too.
+    if (!onlyTheName(line)) item.updatedAt = Math.max(item.updatedAt, line.ts);
     if (line.ts < item.createdAt) item.createdAt = line.ts;
   }
 
