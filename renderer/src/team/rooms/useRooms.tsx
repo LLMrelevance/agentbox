@@ -5,7 +5,8 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
 import './rooms.css';
-import { boardPeople, boardPicked, cardName, chatPeople, groupInTab, mentionRows, readBoardLater, readBoardPicks, readRoomTab, withMe, writeBoardLater, writeBoardPicks, writeRoomTab, type MentionRow } from './room-rules';
+import { boardPeople, boardPicked, cardName, chatPeople, groupInTab, mentionRows, noticeShown, readBoardLater, readBoardPicks, readNoticeSeen, readRoomTab, withMe, writeBoardLater, writeBoardPicks, writeNoticeSeen, writeRoomTab, type MentionRow } from './room-rules';
+import { OpenGroupNotice } from './OpenGroupNotice';
 import { RoomViewButton } from './RoomView';
 import { landed, sameMessages } from './room-chat-rules';
 import { RoomPage, type RoomPane } from './RoomPage';
@@ -66,6 +67,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [finding, setFinding] = useState(false);
   // Groups with no group to open.
   const [empty, setEmpty] = useState(false);
+  const [answered, setAnswered] = useState<string[]>(() => readNoticeSeen());
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
 
@@ -232,6 +234,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     }
   };
 
+  const answerNotice = (id: string) => { const next = [...answered, id]; setAnswered(next); writeNoticeSeen(next); };
+
   const meInChat = meId ? { id: meId, name: rooms?.me?.display_name || myName, avatarUrl: rooms?.me?.avatar_url ?? null, me: true } : null;
   const backTitle = (title: string) => <h1 className="workspace-title">
     <button type="button" className="rm-backt" title="Back (esc)" onClick={close}>{I.back()}<span>{title}</span></button></h1>;
@@ -278,6 +282,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
         <button type="button" className="rm-btn" onClick={find}>{I.search()}Find groups to join</button></div></div>;
   } else if (open && rooms && onChat) {
     page = <GroupPage key={open.id}
+      notice={rooms.me && noticeShown(open, answered) ? <OpenGroupNotice me={rooms.me}
+        onLeave={() => void groupAction(open, 'leave', new DOMRect())}
+        onHide={() => void call('saveProfile', { show_working: 'team' })} onOk={() => answerNotice(open.id)} /> : null}
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />}
       people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />} />;

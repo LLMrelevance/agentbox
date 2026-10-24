@@ -32,6 +32,7 @@ type Bridge = {
   onReset: (fn: () => void) => () => void;
   onDragging: (fn: (dragging: boolean) => void) => () => void;
   onTone?: (fn: (tone: Tone) => void) => () => void;
+  onMeasure?: (fn: () => void) => () => void;
   ready: (part: Part) => Promise<unknown>;
   size: (part: Part, w: number, h: number, glass?: { x: number; y: number; width: number; height: number }, radius?: number) => Promise<unknown>;
   clickable: (on: boolean) => Promise<unknown>;
@@ -136,7 +137,16 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);
-    return () => ro.disconnect();
+    // A page that redrew while its window was hidden may not have said so,
+    // and the Mac's glass is placed from what it says (w-93b3a1a796).
+    const onVisible = () => { if (document.visibilityState === 'visible') report(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const offMeasure = bridge.onMeasure?.(report);
+    return () => {
+      ro.disconnect();
+      document.removeEventListener('visibilitychange', onVisible);
+      offMeasure?.();
+    };
   }, [key]);
 }
 
@@ -261,6 +271,9 @@ function CardBody({ state }: { state: State }) {
   const { lines, more } = cardLines(state.ready, state.now);
   return (
     <>
+      {/* Her pick of five (w-93b3a1a796): the tray counts only these, so the
+          list says so. */}
+      {lines.length > 0 && <div className="ct-quiet ct-static ct-head">New since you left</div>}
       {lines.map((l) => (
         <button key={l.id} className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
           <span className="ct-pip" />

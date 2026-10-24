@@ -29,7 +29,7 @@ function state(cloud) {
   cloud.roomReactions ??= new Map(); // `${messageId}:${personId}:${emoji}` -> reactionOut row
   cloud.roomFiles ??= new Map(); // `${roomId}:${name}` -> { roomId, name, byPerson, data, createdAt }
   cloud.roomActs ??= []; // { personId, kind, at }: edits and reactions, for their limits
-  if (!cloud.rooms.has(GENERAL_ROOM)) cloud.rooms.set(GENERAL_ROOM, { id: GENERAL_ROOM, name: 'General', kind: 'room', teamId: null, listed: true, createdBy: null, createdAt: 0 });
+  if (!cloud.rooms.has(GENERAL_ROOM)) cloud.rooms.set(GENERAL_ROOM, { id: GENERAL_ROOM, name: 'Coworking', kind: 'room', teamId: null, listed: true, createdBy: null, createdAt: 0 });
   // Every team has its room, named after it (the team_room_kept trigger).
   for (const t of cloud.teams.values()) {
     const room = [...cloud.rooms.values()].find((r) => r.teamId === t.id);

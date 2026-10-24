@@ -59,6 +59,7 @@ import { spawn } from 'node:child_process';
 import { run } from './exec.mjs';
 import { readMarker, writeMarker, clearMarker, addCloudNews, commonGitDirOf } from './marker.mjs';
 import { Name, nameSlug } from '../../shared/product-name.mjs';
+import { KEPT_ASIDE } from '../../shared/not-shipped.mjs';
 import { codexTranscriptFile } from '../codex-session.mjs';
 import { appendCloudUsage } from './usage.mjs';
 import { docsFolderFor, docsToSend, tarDocs, layDocs } from './docs.mjs';
@@ -83,7 +84,7 @@ export const CLOUD_NOTE = [
   '',
   `Only this task's own branch comes back to their computer. A commit, merge or reset on main or any other branch stays in this sandbox and is thrown away with it, so a merge done here has not happened. When the request includes merging into main, or changing any branch but this task's, do the rest of the work and commit it on this branch, then end your turn with the one line \`${HAND_BACK} merging into main\` (as below): the app merges on their computer.`,
   '',
-  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing. A person who asks to have this thread moved to their computer is answered with this line as well. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
+  `If this request needs something only their computer has (one of those files, a key, one of their apps, a private repository this machine cannot reach), stop at once. Do not work around it, do not write to the work item, do not give the person commands to run, and do not offer to move the thread: the app moves it. End your turn with one line and nothing else: ${HAND_BACK} followed by what was missing, in a few words they would use (your AWS sign-in, the iOS simulator), since the app shows those words to them. A person who asks to have this thread moved to their computer is answered with this line as well. That line replaces your usual final answer and its options. The app then runs the same request again on their computer, where all of it is. A program you can install is not a reason to stop. Otherwise work as usual, and never write that line.`,
 ].join('\n');
 
 // The same, for a project with no repository, whose agent works in the
@@ -550,6 +551,12 @@ export async function cloudRun({
     const st = await retry(() => transport.invoke(earlier.sessionId, { action: 'status', runId: earlier.runId }), { what: 'reach the run the app left going', forever: false });
     if (!st) { say('the cloud could not be reached; the run the app left going is tried again later'); return IMPORT_FAILED; }
     if (st.runId === earlier.runId && (st.state === 'preparing' || st.state === 'running')) { joining = earlier; joinedAt = st; offlineOn = !!earlier.offline; }
+  }
+  // A run whose own relay is alive is that relay's to bring home. Two laying
+  // it in at once each see the other's work as a change made on this Mac.
+  if (importOnly && !joining && earlier?.pid && earlier.pid !== selfPid && alive(earlier.pid)) {
+    say('this cloud run is already being brought home by its own process');
+    return IMPORT_FAILED;
   }
   if (earlier && !joining) {
     // One the app left going that ended while it was away still has its
@@ -1482,7 +1489,7 @@ export async function cloudRun({
       if (await has(ref) && (nothingNew || await gitOk(cwd, ['merge-base', '--is-ancestor', ref, branch]))) await gitOk(cwd, ['update-ref', '-d', ref]);
     }
     if (branch) {
-      const note = `This thread's cloud run finished, but its work was not laid into the task folder: ${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
+      const note = `${KEPT_ASIDE}${why}. Nothing is lost. The folder is as this Mac left it, and the run's version is on the branch ${branch}. Reply to have the agent bring the two together; it will not ship until then.`;
       say(note);
       addCloudNews(cwd, { runId: rec.runId, item, product, branch, note });
     }
