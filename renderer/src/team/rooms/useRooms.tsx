@@ -386,6 +386,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     goToGroup: look === 'finder' && open ? () => setFinderOpen(true) : null,
     /** The header's View button over everyone's threads, and B; on a group's chat, its options. Null anywhere else. */
     viewButton,
+    /** The groups you are in, newest first, and the way to open one: what the
+     *  command bar lists so a group can be reached by name from anywhere. */
+    groups: groupList, pickGroup,
     /** The narrow sidebar's Groups row, which opens the group you were in last. */
     sidebarGroups: (onGroupsPage: boolean) => <SidebarGroups onGroupsPage={onGroupsPage} onGroups={openTab} />,
     /** The group a teammate's card was opened over, for its Back. */

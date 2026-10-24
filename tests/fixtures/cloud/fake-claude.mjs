@@ -123,10 +123,33 @@ async function turn(text) {
   fs.mkdirSync(dir, { recursive: true });
   fs.appendFileSync(path.join(dir, `${sessionId}.jsonl`), JSON.stringify({ type: 'user', text }) + '\n');
   out({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, session_id: sessionId, result: JSON.stringify({ said, names, attached, found, memory: readMemory(), token: process.env.CLAUDE_CODE_OAUTH_TOKEN || null, home: process.env.HOME === undefined ? null : 'set' }) });
+  const settings = readSettings();
+  out({ type: 'result', subtype: 'success', is_error: false, session_id: sessionId, result: JSON.stringify({ said, names, attached, found, memory: readMemory(), settings, hookScripts: readHookScripts(settings), token: process.env.CLAUDE_CODE_OAUTH_TOKEN || null, home: process.env.HOME === undefined ? null : 'set' }) });
 }
 
-// Her own instructions, where Claude Code reads them: the home folder.
+// Her own instructions and settings, where Claude Code reads them: its config
+// folder (CLAUDE_CONFIG_DIR), not the home folder. A real cloud run with
+// CLAUDE.md in the home folder reported it as gone (2026-10-23).
+const configDir = () => at(process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '', '.claude'));
 function readMemory() {
-  try { return fs.readFileSync(path.join(at(process.env.HOME || ''), '.claude', 'CLAUDE.md'), 'utf8'); } catch { return null; }
+  try { return fs.readFileSync(path.join(configDir(), 'CLAUDE.md'), 'utf8'); } catch { return null; }
+}
+function readSettings() {
+  try { return JSON.parse(fs.readFileSync(path.join(configDir(), 'settings.json'), 'utf8')); } catch { return null; }
+}
+// Every script a hook names, read at the path the command gives it.
+function readHookScripts(s) {
+  const found = {};
+  for (const groups of Object.values(s?.hooks || {})) {
+    for (const g of groups) {
+      for (const h of g.hooks || []) {
+        for (const word of String(h.command || '').split(/\s+/)) {
+          const p = word.replace(/^["']|["']$/g, '');
+          if (!p.startsWith('/') || p.startsWith('/usr/') || p.startsWith('/bin/')) continue;
+          try { found[p] = fs.readFileSync(at(p), 'utf8'); } catch { found[p] = null; }
+        }
+      }
+    }
+  }
+  return found;
 }

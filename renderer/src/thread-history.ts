@@ -505,12 +505,19 @@ function theAskComesFirst(events: ThreadEvent[]): ThreadEvent[] {
 function withTitleSaid(events: ThreadEvent[], title: string | null, label: string | null): ThreadEvent[] {
   const named = (label ?? '').trim();
   const said = (title ?? '').trim();
-  if (!named || !said || named === said) return events;
+  if (!said) return events;
   // Her rows open twice, the system's stamp and then her own line; the one
   // carrying the body is the opening she reads.
   const bodied = events.findIndex((e) => e.field === 'body');
   const i = bodied >= 0 ? bodied : events.findIndex((e) => /opened this$/.test(e.said));
   if (i < 0) return events;
+  // AND A THREAD TYPED AS ONE LINE HAS NOTHING ELSE TO SAY (w-326fb83c0e). It
+  // is saved as a title with no body, so until the app writes the row a short
+  // name — fifteen seconds to a minute — the rule above left the opening
+  // wordless and what you asked for was in the header and nowhere else. Your
+  // own opening only: a thread an agent filed keeps its own words.
+  const wordless = !events[i].words && events[i].who === 'you';
+  if (!wordless && (!named || named === said)) return events;
   const squash = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase();
   const head = squash(said.replace(/…$/, '')).slice(0, 40);
   const body = events[i].words ?? '';

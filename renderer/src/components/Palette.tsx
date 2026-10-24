@@ -22,7 +22,7 @@ export interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onShortcuts, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true, commandsRef }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -64,8 +64,16 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   onNewThread: () => void;
   onStanding: () => void;
   onSettings: () => void;
+  /** Settings, opened where what is left of your limit is read. */
+  onUsage?: () => void;
   /** Settings, opened on the Shortcuts page. */
   onShortcuts: () => void;
+  /** Whether this Mac has the Groups page at all; without it, no group rows. */
+  roomsOn?: boolean;
+  /** The groups the page's own menu offers, in its order. */
+  groups?: readonly { key: string; name: string }[];
+  onGroups?: () => void;
+  onPickGroup?: (key: string) => void;
   panelUp: boolean;
   keyHints: boolean;
   onSetKeyHints: (v: boolean) => void;
@@ -137,6 +145,26 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     { id: 'view-inbox', label: 'Inbox', run: () => onView('inbox') },
     { id: 'view-progress', label: 'In progress', run: () => onView('progress') },
     { id: 'view-done', label: 'Closed', run: () => onView('done') },
+    // THE OTHER PAGE, AND EVERY GROUP ON IT (w-326fb83c0e). ⌘K found nothing
+    // for "rooms", "groups" or "messages", so the only way onto the page was
+    // the top bar's own menu. The old name is in the keywords: this was Rooms
+    // until 2026-10-23 and that is what somebody who has used it still types.
+    ...(roomsOn && onGroups ? [{
+      id: 'view-groups',
+      label: 'Groups',
+      hint: 'the people you work with, and what they are on',
+      keywords: 'rooms room groups group chat channel messages message dm dms direct teammates team people together',
+      run: onGroups,
+    }] : []),
+    // One row per group, by its own name, as the projects above are. No hint:
+    // eight rows each saying "group" down the right edge is noise, and the row
+    // over them says what they are.
+    ...(roomsOn && onPickGroup ? groups.map((g) => ({
+      id: `group-${g.key}`,
+      label: g.name,
+      keywords: `rooms room groups chat channel messages dm ${g.name}`,
+      run: () => onPickGroup(g.key),
+    })) : []),
     // Every appearance row is built in ../palette-rows, which is pure so a test
     // can type into every look.
     ...lookRows(look, machine).map((r) => ({
@@ -205,11 +233,24 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
       keywords: 'standing instructions rules your my brief guidelines preferences every agent every session tell agents dont do',
       run: onStanding,
     },
+    // WHAT IS LEFT OF YOUR LIMIT, BY NAME. It is read on the Claude pane, where
+    // the accounts are; typing "usage" used to find nothing anywhere in ⌘K.
+    ...(onUsage ? [{
+      id: 'usage',
+      label: 'Usage and limits',
+      hint: 'what is left of your week',
+      keywords: 'usage limit limits left remaining quota tokens cost spend plan subscription accounts',
+      run: onUsage,
+    }] : []),
     // One entry, not one per project: a project's settings are two clicks on.
+    // The keywords are what is ON a Settings pane, because the label is one
+    // word and the word somebody types is usually the thing they want to
+    // change (Settings' own search, ../settings-search, has the rest).
     {
       id: 'settings',
       label: 'Settings…',
       hint: 'the workspace, and every project',
+      keywords: 'settings preferences options usage limits accounts account sign in theme appearance look phone cloud permissions agents rooms groups alpha codex claude',
       run: onSettings,
     },
     // Opens the Shortcuts page itself, not Settings' front page. The keywords
