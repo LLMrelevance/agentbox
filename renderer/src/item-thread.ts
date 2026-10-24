@@ -109,6 +109,8 @@ export interface PendingSaid {
   held?: boolean;
   // Her Mac turned it down, and why (renderer/src/cloud-bridge.ts).
   refused?: string;
+  // Agentbox Cloud took it with the computer shut.
+  cloud?: boolean;
 }
 
 export interface ItemThread {
@@ -666,7 +668,7 @@ export function itemThread(
       && p.node.who === 'you' && (p.node.at ?? 0) >= mine.at
       && said(p.node.text ?? '') === words);
     if (landed) { spent.add(landed); continue; }
-    placed.push({ node: { at: mine.at, who: 'you', text: mine.text, pending: true, held: mine.held, ...(mine.refused ? { refused: mine.refused } : {}) }, run: null, answer: null });
+    placed.push({ node: { at: mine.at, who: 'you', text: mine.text, pending: true, held: mine.held, ...(mine.refused ? { refused: mine.refused } : {}), ...(mine.cloud ? { cloud: true } : {}) }, run: null, answer: null });
   }
 
   // TOOL-CALL SCAFFOLDING OFF EVERY MESSAGE FIRST, before two of them are

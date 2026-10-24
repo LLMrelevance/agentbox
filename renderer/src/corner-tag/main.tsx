@@ -43,6 +43,7 @@ type Bridge = {
   press: (x: number, y: number, grip?: boolean, corner?: Grip) => Promise<unknown>;
   release: (cancelled?: boolean) => Promise<unknown>;
   go: (id: string | null) => Promise<unknown>;
+  dismiss: (id: string) => Promise<unknown>;
   hide: (choice: string) => Promise<unknown>;
   resize: (by: number) => Promise<unknown>;
   settings: () => Promise<unknown>;
@@ -281,12 +282,19 @@ function CardBody({ state }: { state: State }) {
           list says so. */}
       {lines.length > 0 && <div className="ct-quiet ct-static ct-head">New since you left</div>}
       {lines.map((l) => (
-        <button key={l.id} className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
-          <span className="ct-pip" />
-          <span className="ct-name">{l.title}</span>
-          <span className="ct-says">{l.says}</span>
-          <span className="ct-when">{l.waited}</span>
-        </button>
+        <div key={l.id} className="ct-row">
+          <button className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
+            <span className="ct-pip" />
+            <span className="ct-name">{l.title}</span>
+            <span className="ct-says">{l.says}</span>
+            <span className="ct-when">{l.waited}</span>
+          </button>
+          {/* "Be able to X out one of the agents" (w-93b3a1a796). Off the
+              tray only; the thread stays in Needs you. */}
+          <button className="ct-x" aria-label={`Clear ${l.title} from the tray`} title="Clear from the tray" onClick={() => bridge?.dismiss(l.id)}>
+            <svg viewBox="0 0 10 10" aria-hidden><path d="M2.6 2.6l4.8 4.8M7.4 2.6l-4.8 4.8" /></svg>
+          </button>
+        </div>
       ))}
       {more > 0 && <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}><span className="ct-mark-sp" />and {more} more</button>}
       {(state.before ?? 0) > 0 && <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}><span className="ct-mark-sp" />and {state.before} from before</button>}

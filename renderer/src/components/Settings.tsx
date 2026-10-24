@@ -49,6 +49,7 @@ import { MODE_ORDER, MODE_SENTENCE, MODE_WORDS, RULES_ALWAYS_APPLY } from '../mo
 import { CODEX_MODES, CODEX_MODE_ORDER } from '../codex-modes';
 import { ProductMark } from './ProductMark';
 import { SHORTCUTS } from '../shortcuts';
+import { chord, chords, sayKeys } from '../this-keyboard';
 import { capWord } from '../hint-plate';
 import { NAME, Name } from '../../../shared/product-name.mjs';
 import { SETTINGS_TERMINAL } from '../../../shared/settings-terminal.mjs';
@@ -974,11 +975,14 @@ const Page = ({ title, lede, children }: { title: string; lede?: string; childre
 // THE CAPS ARE ON THE LEFT AND THE SENTENCE IS BESIDE THEM. It is a REFERENCE,
 // read by scanning down a column for the key you half-remember, and a key
 // hiding at the right-hand end of a sentence cannot be scanned for.
+//
+// The list is written in the Mac's glyphs, so on Linux each is drawn as the key
+// really there and a row naming both ("⌘K or Ctrl+K") collapses to the one key.
 function KeyRow({ keys, join, what }: { keys: string[]; join?: 'or' | 'to'; what: string }) {
   return (
     <div className="set-key-row">
       <div className="set-key-caps">
-        {keys.map((k, i) => (
+        {chords(keys).map((k, i) => (
           <Fragment key={k}>
             {i > 0 && join && <span className="set-key-join">{join}</span>}
             <kbd>{k}{capWord(k) && <span className="fr-cap-word">{capWord(k)}</span>}</kbd>
@@ -1034,7 +1038,7 @@ const AGENT_OPTIONS: Array<{ value: AgentMode; label: string }> = [
 const AGENT_SENTENCE: Record<AgentMode, string> = {
   all: 'Each one is a row in your inbox. Closing it only takes it out of the inbox.',
   waiting: 'Only the ones waiting for you to type. The rest run without interrupting you.',
-  off: 'None reach your inbox. Each is still in its project’s sidebar.',
+  off: 'Each is still in its project’s sidebar.',
 };
 
 /* --------------------- IS CLAUDE CODE CONNECTED OR NOT -------------------- */
@@ -2364,10 +2368,17 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 them get there. */}
             <Group id="outside" label="Agents you started yourself">
               <Row
-                label="Show in your inbox"
+                label="Show while they run"
                 desc={`Claude Code started in a terminal, not from here. ${AGENT_SENTENCE[w.outsideAgents]}`}
               >
                 <Picker bare label="Agents you started yourself" value={w.outsideAgents} options={AGENT_OPTIONS} onChange={(v) => setWorkspace('outsideAgents', v)} />
+              </Row>
+              {/* The moment after the row above: a chat that has stopped. */}
+              <Row
+                label="Bring in new chats"
+                desc="A new Claude Code or Codex chat in one of your projects comes in after ten quiet minutes. Waiting ones go to Needs you, finished ones to Done."
+              >
+                <Switch label="Bring in new chats" on={w.importNew === true} onChange={(v) => setWorkspace('importNew', v)} />
               </Row>
             </Group>
           </Page>

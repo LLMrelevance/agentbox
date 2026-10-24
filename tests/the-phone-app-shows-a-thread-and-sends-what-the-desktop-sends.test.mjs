@@ -14,6 +14,9 @@ import { threadOf } from '../mobile/src/lib/thread';
 import { planFor, runSteps } from '../mobile/src/lib/actions';
 import { phoneSender } from '../renderer/src/phone-send';
 import { withAttachments } from '../mobile/src/lib/attach';
+// The verb for finishing a task lives in one place and this test is a reader of
+// it, not a second copy: it said "Closed" here long after the app said "Done".
+import { DONE } from '../renderer/src/done-word';
 
 const NOW = Date.UTC(2026, 9, 20, 12);
 const DEV = 'a1b2c3d4e5f6';
@@ -121,7 +124,7 @@ describe('what a press leaves for your Mac', () => {
   });
   it('each raises the toast the site raises, with Undo where the site has one', () => {
     expect(planFor({ kind: 'reply', text: 'Go' }, item).toast).toBe('Sent → Alpha · press Z to undo');
-    expect(planFor({ kind: 'close' }, item).toast).toBe('Closed: Plan the phone app · press Z to undo');
+    expect(planFor({ kind: 'close' }, item).toast).toBe(`${DONE.verb}: Plan the phone app · press Z to undo`);
     expect(planFor({ kind: 'stop' }, item).toast).toBe('Stop sent. Your Mac stops the agent when it gets it.');
   });
 });

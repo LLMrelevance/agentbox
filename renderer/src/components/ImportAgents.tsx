@@ -30,11 +30,12 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api';
+import { SEND, sayKeys } from '../this-keyboard';
 import { type AgentFile } from '../onboarding';
 import {
-  CARD, LIST, SEARCH, SECTION, canBring, listLine, destinations, folderOfProject, countKinds, importLines, nameOfProject,
-  matchesName, projectAtOpen, reachLine, searchLines,
-  type AgentFolder, type Project, type SessionThread,
+  CARD, LIST, PICKUP, SEARCH, SECTION, canBring, listLine, destinations, folderOfProject, countKinds, importLines, nameOfProject,
+  finishedForDone, matchesName, pickupChats, pickupLine, pickupLines, projectAtOpen, reachLine, searchLines,
+  type AgentFolder, type PickupLine, type Project, type SessionThread,
 } from '../agent-import-card';
 
 /**
@@ -98,7 +99,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
   walk?: WalkMode;
   /** What was filed, so the caller can say it out loud and redraw the inbox. */
   onDone: (p: {
-    added: number; already: number; name: string; inboxes: number; made: string[]; noun?: string;
+    added: number; already: number; name: string; inboxes: number; made: string[]; noun?: string; done?: number;
   }) => void;
   /**
    * Nowhere to file into and no folder to make one out of. The card hands over
@@ -296,6 +297,16 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
 
   const lines = useMemo(() => importLines(dests), [dests]);
   const picked = useMemo(() => lines.map((l) => l.path).filter((p) => !unticked.has(p)), [lines, unticked]);
+
+  // SETUP'S LAST SCREEN, AS APPROVED (R1, w-62228098e6): the chats you were in
+  // the middle of, the finished ones from this week sent to Done, and the tick
+  // that keeps new chats coming. A Mac with no chats keeps the list below.
+  const chats = useMemo(() => pickupChats(threads ?? []), [threads]);
+  const pickup = !!walk && threads !== null && chats.waiting.length + chats.finished.length > 0;
+  const askLines = useMemo(() => pickupLines(dests), [dests]);
+  const pickedAsks = useMemo(() => askLines.filter((l) => !unticked.has(l.path)).map((l) => l.path), [askLines, unticked]);
+  const toDone = useMemo(() => finishedForDone(dests, chats.finished, pickedAsks), [dests, chats.finished, pickedAsks]);
+  const [keepNew, setKeepNew] = useState(true);
   const flip = (path: string) => setUnticked((u) => {
     const next = new Set(u);
     if (next.has(path)) next.delete(path); else next.add(path);
@@ -334,8 +345,8 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
   useEffect(() => {
     if (!walk || !read || toldOffered.current) return;
     toldOffered.current = true;
-    try { window.zero?.track?.('import_offered', lines.length); } catch {}
-  }, [walk, read, lines.length]);
+    try { window.zero?.track?.('import_offered', pickup ? askLines.length : lines.length); } catch {}
+  }, [walk, read, lines.length, pickup, askLines.length]);
 
   /**
    * LOOKING AGAIN, ON A CARD THAT CAME BACK EMPTY.
@@ -410,6 +421,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
 
       let added = 0;
       let already = 0;
+      let done = 0;
       let inboxes = 0;
       let landed = '';
       const newly: string[] = [];
@@ -423,8 +435,10 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
           added += r.added; already += r.already;
         }
         if (load.ids.length) {
-          const r = await api.importThreads({ product: slug, threads: load.ids });
+          // Waiting on you to Needs you, finished to Done, as setup and the switch file them.
+          const r = await api.importThreads({ product: slug, threads: load.ids, land: 'sorted' });
           added += r.added; already += r.already;
+          done += r.done ?? 0;
         }
         inboxes += 1;
       };
@@ -463,10 +477,22 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
       const kinds = countKinds(dests, paths);
       onDone({
         added, already, name: inboxes === 1 ? landed : '', inboxes, made: newly,
-        noun: kinds.agents ? 'agent' : 'thread',
+        noun: kinds.agents ? 'agent' : 'thread', done,
       });
     } finally { setBusy(false); }
   }, [busy, dests, all, onDone, onProjectMade, walk]);
+
+  /**
+   * R1'S ONE PRESS: the ticked waiting chats into Needs you, the finished ones
+   *  from this week into Done, and the switch for new chats as the tick left
+   *  it. With nothing to bring it is the way on. */
+  const pressPickup = useCallback(async () => {
+    if (busy) return;
+    const take = [...pickedAsks, ...toDone.map((t) => t.path)];
+    try { await api.setWorkspaceSetting({ key: 'importNew', value: keepNew }); } catch { /* the import still happens */ }
+    if (take.length) await bring(take);
+    else walk?.onSkip();
+  }, [busy, pickedAsks, toDone, keepNew, bring, walk]);
 
   // ⌘↵ ADDS WHAT IS TICKED, the key that carries every card in this app, and
   // Escape closes. Plain Enter is left to whichever tick she is standing on.
@@ -487,6 +513,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
       }
       if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
+        if (pickup) { pressPickup(); return; }
         // AND ON A MAC WITH NOTHING TO BRING, ⌘↵ IS THE WAY ON. The walk
         // teaches ⌘↵ as the key that carries every card, so on its last screen
         // with nothing on it the key has to do the one thing left to do.
@@ -496,7 +523,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
     };
     window.addEventListener('keydown', key);
     return () => window.removeEventListener('keydown', key);
-  }, [bring, onScreen, ready, some, walk, onClose, searching]);
+  }, [bring, onScreen, ready, some, walk, onClose, searching, pickup, pressPickup]);
 
 
   /**
@@ -518,6 +545,22 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         aria-pressed={on} onClick={() => flip(l.path)}>
         <Box on={on} />
         <span className="ia-agent-name">{l.title}</span>
+        <span className="ia-line-meta">{l.meta}</span>
+      </button>
+    );
+  };
+
+  /** A waiting chat, with the question it ended on under its name. */
+  const askRow = (l: PickupLine) => {
+    const on = !unticked.has(l.path);
+    return (
+      <button key={l.path} className={`ia-agent ia-line-row has-ask${on ? ' on' : ''}`}
+        aria-pressed={on} onClick={() => flip(l.path)}>
+        <Box on={on} />
+        <span className="ia-agent-name">
+          {l.title}
+          {l.ask && <span className="ia-ask">{l.ask}</span>}
+        </span>
         <span className="ia-line-meta">{l.meta}</span>
       </button>
     );
@@ -573,6 +616,33 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
 
 
 
+  if (pickup && walk) {
+    const n = pickedAsks.length;
+    return (
+      <div className="modal-backdrop compose-backdrop in-walk">
+        <div className="modal ia-card ia-one in-walk" onClick={(e) => e.stopPropagation()}>
+          <div className="ia-top"><h1 className="ia-head">{PICKUP.head}</h1></div>
+          <p className="ia-line">{pickupLine(askLines.length ? chats.waiting : [])}</p>
+          {askLines.length > 0 && <div className="ia-scroll ia-lines">{askLines.map(askRow)}</div>}
+          {toDone.length > 0 && <p className="ia-done-note">{PICKUP.finished(toDone.length)}</p>}
+          <div className="ia-lines ia-keep">
+            <button className={`ia-agent ia-line-row${keepNew ? ' on' : ''}`} aria-pressed={keepNew}
+              onClick={() => setKeepNew((v) => !v)}>
+              <Box on={keepNew} />
+              <span className="ia-agent-name">{PICKUP.keep}</span>
+            </button>
+          </div>
+          <div className="ia-foot ia-foot-one">
+            <button className="dock-send" disabled={busy} onClick={pressPickup}>
+              {PICKUP.go(n)} <kbd>⌘↵</kbd>
+            </button>
+            <button type="button" className="ia-not-now" onClick={walk.onSkip} disabled={busy}>{PICKUP.notNow}</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     // A BACKDROP THAT CLOSES IS A WAY OUT, so inside the walk it is not one.
     // Same scrim, same card, and a click beside it does nothing. `in-walk` lifts
@@ -612,7 +682,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         {read && !some && !searching && (
           <div className="ia-none">
             <p className="ia-none-where">{alreadyIn > 0 ? CARD.allIn(alreadyIn) : CARD.noneWhere(SECTION.homeFolder)}</p>
-            <p className="ia-none-later">{alreadyIn > 0 ? CARD.laterAllIn : CARD.noneLater}</p>
+            <p className="ia-none-later">{sayKeys(alreadyIn > 0 ? CARD.laterAllIn : CARD.noneLater)}</p>
             <button type="button" className="ia-look-again" onClick={lookAgain} disabled={looking}>
               {looking ? CARD.looking : CARD.lookAgain}
             </button>
@@ -637,7 +707,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
         {read && (some || searching) && (
           <div className="ia-foot ia-foot-one">
             <button className="dock-send" disabled={!ready || busy} onClick={() => bring(onScreen)}>
-              {LIST.add(onScreen.length)} <kbd>⌘↵</kbd>
+              {LIST.add(onScreen.length)} <kbd>{SEND}</kbd>
             </button>
             <button type="button" className="ia-not-now" onClick={walk ? walk.onSkip : onClose} disabled={busy}>
               {walk ? walk.skip : LIST.notNow}{!walk && <kbd>esc</kbd>}

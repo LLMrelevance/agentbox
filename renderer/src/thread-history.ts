@@ -296,9 +296,12 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       if (words(patch!.body)) opened = true;
       // Their words with no title: the ask branch below opens the thread.
       if (theirs && words(next!.patch?.body)) continue;
+      // A chat the import brought in from Claude Code was yours, not an agent's,
+      // and its row is dated when the chat started there.
+      const broughtIn = Array.isArray(patch!.labels) && patch!.labels.includes('thread-import');
       events.push({
         at, who,
-        said: mine ? 'You opened this' : 'An agent opened this',
+        said: mine ? 'You opened this' : broughtIn ? 'Started in Claude Code' : 'An agent opened this',
         ...(words(patch!.body) ? { words: words(patch!.body)!, message: true as const, field: 'body' as const } : {}),
       });
       continue;
@@ -317,9 +320,10 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       && patch.labels.some((l) => typeof l === 'string' && l.startsWith('codex:')) && yourBody) {
       const i = events.findIndex((e) => e.field === 'body');
       if (i >= 0 && events[i].who === 'agent') events[i] = { ...events[i], who: 'you', said: 'You opened this', words: yourBody };
-      // And the wordless birth line above it says where the row came from.
+      // And the wordless birth line above it says where the row came from,
+      // dated when the chat started there (store.importCodexThreads).
       const birth = events.findIndex((e) => e.said === 'An agent opened this' && !e.field);
-      if (birth >= 0) events[birth] = { ...events[birth], said: 'Brought in from Codex' };
+      if (birth >= 0) events[birth] = { ...events[birth], said: 'Started in Codex' };
     }
 
     // The ask, on whichever line it arrived. See `opened` above: on her own

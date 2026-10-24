@@ -36,7 +36,7 @@ const SAID = 1_000_000;
 const row = (resultTs = SAID) => ({
   id: 'w-1', product: 'p', title: 'Add ini.js', status: 'open', kind: 'directive', labels: ['founder'],
   result: 'Codex stopped before it did anything, so this task has not been started.',
-  wrote: { title: { ts: 1, source: 'founder' }, body: { ts: 1, source: 'founder' }, result: { ts: resultTs, source: 'agent' } },
+  wrote: { title: { ts: 1, source: 'founder' }, body: { ts: 1, source: 'founder' }, labels: { ts: 1, source: 'founder' }, result: { ts: resultTs, source: 'agent' } },
 });
 const said = (sup, why, extra = {}) => {
   sup._fruitless = { 'p:w-1': { runs: 1, endedAt: SAID, founderAt: 1, saidAt: SAID, saidTs: SAID, ...(why ? { saidWhy: why } : {}), ...extra } };

@@ -12,7 +12,7 @@ import {
   anyAgents, clearOf, finishCard, forgetAgentsWhileLookingAgain, gateRows,
   forgetFoldersWhileLookingAgain, keepSecondRead, keyName, keyToken, padFor,
   practising, pressAtWrongRow, pressCounts, readAgentsAgain, roomFor, strayClick,
-  swallowPress, wrongPress,
+  swallowPress, walkProjects, wrongPress,
   coach, nextStep, nextTab, recentFolders, ring, runOf, shortPath, stepBack,
   type AgentFile, type Coach, type FirstRun, type Rect, type RecentFolder, type Step,
 } from '../onboarding';
@@ -25,21 +25,11 @@ import { SidebarIcon } from './SidebarIcon';
 import { AskList, PlanQuestion, PlanSetupCard } from './PlanSetup';
 import { afterCheck, type EngineSetupState, type Plan } from '../plan-setup';
 import { NAME, Name } from '../../../shared/product-name.mjs';
-import { foundOnThisMac, type RunsOn } from '../../../shared/runs-on.mjs';
+import { foundOnThisComputer, type RunsOn } from '../../../shared/runs-on.mjs';
+import { chord, sayKeys } from '../this-keyboard';
 
 /** What the walk knows about each coding agent on this computer. */
 type Readings = Array<Pick<EngineSetupState, 'engine' | 'found' | 'signedIn'>>;
-
-/**
- * The one project the last card may file into: the one the walk made. The
- * practice project is archived a moment later by `finishRun`, so it is never
- * offered. The app's product list is a poll behind when the card first draws,
- * so the project is built from the walk until the list has it. */
-function walkProject(products: Project[], run: FirstRun): Project[] {
-  const mine = products.filter((p) => p.slug === run.product);
-  if (mine.length || !run.product) return mine;
-  return [{ slug: run.product, name: run.name, repoPath: run.folder }];
-}
 
 /** The same folder glyph the setup card draws. */
 function FolderGlyph() {
@@ -111,7 +101,7 @@ export function WayOut({ run, blocked, onLeave }: {
         <div className="fr-stay-scrim" role="dialog" aria-modal="true" aria-label={COPY.leaveHead}>
           <div className="fr-stay">
             <div className="fr-stay-head">{COPY.leaveHead}</div>
-            <div className="fr-stay-line">{COPY.leaveLine}</div>
+            <div className="fr-stay-line">{sayKeys(COPY.leaveLine)}</div>
             <div className="fr-stay-row">
               <button type="button" className="fr-stay-go" autoFocus onClick={onLeave}>
                 {COPY.leaveGo}
@@ -192,12 +182,14 @@ function firstOf(selectors: string[]): Element | null {
 /**
  * One key cap, with the key's name inside it when the glyph does not say it
  * (`keyName` in onboarding.ts decides which). Every cap in the walk is drawn
- * here so they all look the same. */
+ * here so they all look the same, and every one is in the glyphs the keyboard
+ * in front of it has: ⌘↵ on a Mac, Ctrl+Enter where there is no ⌘. */
 export function Cap({ cap, className }: { cap: string; className?: string }) {
-  const name = keyName(cap);
+  const shown = chord(cap);
+  const name = keyName(shown);
   return (
     <kbd className={className}>
-      {cap}
+      {shown}
       {name ? <span className="fr-cap-word">{name}</span> : null}
     </kbd>
   );
@@ -711,14 +703,14 @@ function Finished({
    * only once the whole search has come back sure, so any sign of Claude Code
    * gets the ending. */
   claude: { missing: boolean; url: string };
-  /** Only the walk's own project (see `walkProject`), never the practice one. */
+  /** The walk's own project first, then the others, never the practice one (`walkProjects`). */
   products: { slug: string; name: string; repoPath: string | null }[];
   project: string | null;
   /** The way out with nothing brought in, and the end of the walk. */
   onDone: (chosen: string[]) => void;
   /** The import card has already filed the agents, so this only ends the walk
    * and reports what landed, for the confetti. */
-  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string }) => void;
+  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string; done?: number }) => void;
   /** A project was made on the card. The app redraws its sidebar. */
   onProjectMade?: (slug: string) => void;
   /** Look for Claude Code again from scratch. Resolves to whether it is still
@@ -991,7 +983,7 @@ function IntroPiece({ kind }: { kind: 'list' | 'ask' | 'empty' | 'progress' }) {
               <span className="clause clause-project">For {PRACTICE_NAME}.</span>
             </span>
             <button className="dock-send" type="button" tabIndex={-1}>
-              Start it <kbd>⌘↵</kbd>
+              Start it <kbd>{chord('⌘↵')}</kbd>
             </button>
           </div>
         </div>
@@ -1117,8 +1109,7 @@ export function Onboarding({
   /** The quiet "Skip this step" on every coaching card. */
   onSkipStep?: () => void;
   run: FirstRun;
-  /** Every project the app has. The last card takes only the one this walk
-   * made (see `walkProject`). */
+  /** Every project the app has; the last card files into them (`walkProjects`). */
   products: Project[];
   /** Whether a task is open in the reading pane, for beats with a second half
    * in the pane. */
@@ -1169,7 +1160,7 @@ export function Onboarding({
   onDone: (chosen: string[]) => void;
   /** End the walk after the import card has filed the agents itself. Reports
    * what landed, for the confetti. */
-  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string }) => void;
+  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string; done?: number }) => void;
   /** A project was made on the last card. The app redraws its sidebar. */
   onProjectMade?: (slug: string) => void;
   /** Look for Claude Code again from scratch. Resolves to whether it is still
@@ -1450,14 +1441,17 @@ export function Onboarding({
       <Ringed
         selector={sel}
         // Beside the ring where a card underneath would cover what it is about:
-        // the tab strips, the open palette, and the reply box on the answer beat.
-        beside={(run.step === 'where' && !teamStrip) || run.step === 'tabs' || (run.step === 'command' && !!palette) || run.step === 'answer'}
+        // the old sidebar's tabs, the open palette, and the reply box on the
+        // answer beat. NOT beside the tab strip over a list: a card centred on
+        // a 54px strip is three times its height, so it spilled over the strip
+        // and onto the rows. Those two beats take `UNDER` instead.
+        beside={(run.step === 'where' && !teamStrip) || (run.step === 'command' && !!palette) || run.step === 'answer'}
         // To the right of the reply box, because above it the card covered the
         // agent's answer.
         besideRing={(run.step === 'command' && !!palette) || run.step === 'answer'}
-        // The tour's tabs are sidebar rows, so the card stands off the
-        // sidebar's right edge.
-        besideOf={run.step === 'tabs' ? '.th-bar .tm-tabs, .workspace-navigation, .tabs' : run.step === 'where' ? '.workspace-navigation, .tabs' : undefined}
+        // The old sidebar's tabs are rows, so the card stands off the sidebar's
+        // right edge.
+        besideOf={run.step === 'where' ? '.workspace-navigation, .tabs' : undefined}
         boundsSel={BOUNDS[run.step]}
         // Under the whole snooze picker, not just its options, so the card
         // covers none of them.
@@ -1484,7 +1478,7 @@ export function Onboarding({
         found={found}
         folders={folders}
         claude={claude}
-        products={walkProject(products, run)}
+        products={walkProjects(products, run)}
         project={run.product}
         onDone={onDone}
         onFiled={onFiled}
@@ -1585,6 +1579,9 @@ export function Onboarding({
                 aria-selected={lit === i}
                 className={`fr-folder${lit === i ? ' lit' : ''}${run.folder === f.folder ? ' on' : ''}`}
                 onMouseEnter={() => setLit(i)}
+                // Tab lights the row it lands on, so the arrows and the
+                // keyboard never disagree about which row Return takes.
+                onFocus={() => setLit(i)}
                 onClick={() => takeFolder(f.folder)}
               >
                 <span className="fr-fold"><FolderGlyph /></span>
@@ -1601,6 +1598,7 @@ export function Onboarding({
               aria-selected={lit === (recent?.length ?? 0)}
               className={`fr-folder fr-folder-other${lit === (recent?.length ?? 0) ? ' lit' : ''}`}
               onMouseEnter={() => setLit(recent?.length ?? 0)}
+              onFocus={() => setLit(recent?.length ?? 0)}
               onClick={pickFolder}
             >
               <span className="fr-fold"><PlusGlyph /></span>
@@ -1613,6 +1611,7 @@ export function Onboarding({
               aria-selected={lit === (recent?.length ?? 0) + 1}
               className={`fr-folder fr-folder-other fr-folder-none${lit === (recent?.length ?? 0) + 1 ? ' lit' : ''}`}
               onMouseEnter={() => setLit((recent?.length ?? 0) + 1)}
+              onFocus={() => setLit((recent?.length ?? 0) + 1)}
               onClick={skipFolder}
             >
               <span className="fr-fold"><SkipGlyph /></span>
@@ -1625,7 +1624,7 @@ export function Onboarding({
               to keep the welcome to two lines. */}
           {refused
             ? <p className="fr-note fr-refused">{refused}</p>
-            : foundOnThisMac(runsOn ?? {}) && <p className="fr-note">{foundOnThisMac(runsOn ?? {})}</p>}
+            : foundOnThisComputer(runsOn ?? {}) && <p className="fr-note">{foundOnThisComputer(runsOn ?? {})}</p>}
         </div>
       )}
 

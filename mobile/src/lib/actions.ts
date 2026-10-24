@@ -4,6 +4,7 @@
 // calls. The choices ride as the window's handlers take them; phoneChoices
 // keeps only the ones each kind of command may carry.
 
+import { DONE } from '../../../renderer/src/done-word';
 import { closesTheTask, type ParsedOption } from '../../../renderer/src/format';
 import { clipToSentence, statusForReply, withdrawReply } from '../../../renderer/src/list-rules';
 import { threadMessage } from '../../../renderer/src/threads/composer-rules';
@@ -89,7 +90,7 @@ export function planFor(press: Press, item: PressedItem | null, now = Date.now()
   };
   const close = (): Plan => ({
     steps: [{ door: 'answer', payload: { ...on, status: 'done' } }],
-    toast: `Closed: ${clipToSentence(item.title ?? '', TOAST_TITLE)}${UNDO}`,
+    toast: `${DONE.verb}: ${clipToSentence(item.title ?? '', TOAST_TITLE)}${UNDO}`,
     undo: () => [{ door: 'answer', payload: { ...on, status: 'open' } }],
     undone: () => `Reopened: ${clipToSentence(item.title ?? '', TOAST_TITLE)}`,
   });

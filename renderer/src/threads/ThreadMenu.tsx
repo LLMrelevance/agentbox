@@ -22,6 +22,7 @@
 // the dark card with square corners whose rows light on hover. summary.css
 // only places it under the dots.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { chord } from '../this-keyboard';
 
 export type ThreadMenuRowId = 'place' | 'run' | 'code' | 'terminal' | 'pin' | 'done';
 
@@ -127,7 +128,7 @@ export function ThreadMenuList({ rows, change, onPick, place = null }: {
           <button key={row.id} type="button" role="menuitem" tabIndex={-1} className="row-i ts-more-row" onClick={() => onPick(row.id)}>
             <span className="ico"><Mark /></span>
             <span className="ts-more-label">{row.label}</span>
-            {row.id === 'code' ? change : row.key ? <kbd>{row.key}</kbd> : row.detail && <kbd>{row.detail}</kbd>}
+            {row.id === 'code' ? change : row.key ? <kbd>{chord(row.key)}</kbd> : row.detail && <kbd>{row.detail}</kbd>}
           </button>
         );
       })}

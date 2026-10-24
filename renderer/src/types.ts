@@ -718,6 +718,8 @@ export interface AgentTurn {
   // AND, ON THE PHONE WITH THE MAC SHUT, WHY HER MAC DID NOT TAKE IT
   // (renderer/src/cloud-bridge.ts). Absent on every other message.
   refused?: string;
+  // Or that Agentbox Cloud took it with the computer shut (shared/cloud-kit.mjs).
+  cloud?: boolean;
   // THE ROW THE WORDS WERE SAID ON, when they came from somewhere other than here.
   //
   // The ask usually lives on the PARENT row, and the pane used to quote it in a
@@ -833,7 +835,7 @@ export interface Snapshot {
   items: WorkItem[];
   // ON THE PHONE WITH THE MAC SHUT ONLY (renderer/src/cloud-bridge.ts): her
   // replies from the phone her Mac has not taken yet, or turned down.
-  phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string }[];
+  phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string; cloud?: true }[];
   // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
   phoneStatus?: string | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
@@ -1160,6 +1162,8 @@ export interface WorkspaceSettings {
   // Whether the ADHD mode rules ride under "How agents write to you". Off
   // unless she turned it on (w-5737fe67cf).
   adhdMode?: boolean;
+  // New Claude Code and Codex chats come in on their own (w-62228098e6).
+  importNew?: boolean;
   // Settings, Alpha features (w-3d0fa23ffb).
   alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
   // The corner tag over other apps (w-dafae58a23). On unless she turned it off.

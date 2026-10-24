@@ -34,6 +34,8 @@
 // that misses the reply box costs a toast instead of a decision. There is deliberately no outer limit now: an undo that
 // has to be confirmed by name cannot happen by accident, so an expiry would only
 // take something away from her for nothing.
+import { DONE } from './done-word';
+
 export const UNDO_STRAIGHT_AWAY_MS = 30_000;
 
 /**
@@ -103,11 +105,11 @@ export function undoAsk(undoes: string): string {
  * What Z inside the grace window says. Nothing was written, so the true answer
  * depends on what was held: a reply's words are back in the box, a close
  * leaves the thread open, and anything else changed nothing. `said` is the
- * action's own toast ("Closed: <title>").
+ * action's own toast ("Done: <title>", off ./done-word).
  */
 export function graceUndoneLine(p: { said?: string; restored: boolean }): string {
   if (p.restored) return 'Undone. Your message is back in the reply box.';
-  const closed = /^Closed: (.+)$/.exec(p.said ?? '');
+  const closed = new RegExp(`^${DONE.verb}: (.+)$`).exec(p.said ?? '');
   if (closed) return `Undone. Still open: ${closed[1]}`;
   return 'Undone. Nothing changed.';
 }

@@ -21,13 +21,15 @@ import { applyFormat, insertAt, type Format } from './compose-format';
 import { CHAT_KEYS } from './chat-editor';
 import type { RichBox } from './RichReply';
 import './chat.css';
+import { chord } from '../this-keyboard';
 
 // EACH BUTTON SAYS ITS KEY when pointed at, the way Slack's do, so the keys
 // are found from the bar rather than from somebody else telling you.
-const MOD = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+// TipTap's own spelling of a chord becomes the app's, and `chord` then says it
+// in this keyboard's words (⌘⇧X here, Ctrl+Shift+X on Linux).
 const KEYS_SHOWN: Partial<Record<Format, string>> = Object.fromEntries(Object.entries(CHAT_KEYS).map(([key, what]) => [
   what,
-  key.replace('Mod-', MOD).replace('Shift-', MOD === '⌘' ? '⇧' : 'Shift+').replace(/-?([a-z0-9])$/, (_m, k: string) => k.toUpperCase()),
+  chord(key.replace('Mod-', '⌘').replace('Shift-', '⇧').replace(/-?([a-z0-9])$/, (_m, k: string) => k.toUpperCase())),
 ]));
 
 // The eight that write markdown, in the order the drawing has them, each with

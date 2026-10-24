@@ -1,4 +1,5 @@
 import { RemoteControl } from './RemoteControl';
+import { SEND } from '../this-keyboard';
 import { onPhone } from '../phone-screen';
 import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
@@ -116,6 +117,7 @@ import {
   PriorityPicker, priorityIdOf, priorityValueOf, type PriorityId,
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
+import { summaryFits, summaryPlace } from '../room';
 import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
@@ -1522,7 +1524,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // turned that guard off silently.
   return (
     <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
-    <div className="focus-pane" ref={paneRef} data-summary={summaryShown ? 'open' : summaryOffered ? 'rail' : undefined}>
+    <div className="focus-pane" ref={paneRef} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
         Both faults were real and both are measured on this row. With a
@@ -2106,6 +2108,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* `onFinish` is the SAME ONE the three-dot menu's Mark done row takes
         (`canFinish ? onResolve : null` above), so the Status row's Done and
         that row and E are one action with one undo and one toast. */}
+    {/* Opened without room, it lies over the words, and a click on them puts it away. */}
+    {summaryShown && !summaryFits(paneWidth) && <div className="ts-scrim" aria-hidden="true" onClick={toggleSummary} />}
     {summaryShown && <SummaryPanel item={item} team={teamCtx} onFinish={canFinish ? onResolve : null} onClose={toggleSummary} repeat={repeat} peopleAsk={pageAsk?.what === 'people' ? pageAsk.at : 0} onAsked={onAsked} />}
     {summaryOffered && !summaryOpen && <SummaryRail item={item} team={teamCtx} onOpen={toggleSummary} />}
     {!direct && <TaskTerminal key={`${item.product}:${item.id}`} product={item.product} id={item.id} onOpenChange={setTerminalOpen}/>}
@@ -3243,8 +3247,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           className="dock-send"
           onClick={() => send()}
           disabled={!hasDraft || !!chat.block || saving}
-          title={chat.block ?? 'Send · ⌘↵'}
-        >{saving ? 'Sending…' : <>Send <kbd>⌘↵</kbd></>}</button>
+          title={chat.block ?? `Send · ${SEND}`}
+        >{saving ? 'Sending…' : <>Send <kbd>{SEND}</kbd></>}</button>
         )}
       </div>
     </>

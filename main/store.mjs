@@ -561,20 +561,20 @@ export class Store {
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }
 
-  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
+  composeItem(slug, { id = null, title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     // The 'founder' label is the human-in-the-loop marker: only items the
     // founder composed (or explicitly approved) execute; agent-filed items
     // are proposals until then.
     const allLabels = [...new Set(['founder', ...(labels ?? [])])];
-    const created = workItemsDisk.createWorkItem(
-      dir,
-      // The phone command that asked for it, on the very line that makes the
-      // row, so no row it made is ever without it (Codex's fourth review).
-      { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) },
-      { source: 'system' }
-    );
+    // The phone command that asked for it, on the very line that makes the
+    // row, so no row it made is ever without it (Codex's fourth review).
+    const first = { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) };
+    // A thread the cloud started from the phone keeps the id it ran under there.
+    const created = id
+      ? workItemsDisk.createWorkItemIfAbsent(dir, id, first, { source: 'system' }).item
+      : workItemsDisk.createWorkItem(dir, first, { source: 'system' });
     // The founder's words carry founder authority; the lifecycle does not.
     // A runAt sent with the compose is "send later": the item exists now and
     // starts then, which is why it rides in with her content rather than after.
@@ -1063,9 +1063,11 @@ export class Store {
    * its order, which is how `walkRows` knows which one is which.
    *
    *  The column is the app's own reading of the row, so each is written in the
-   *  shape that reads that way and nothing marks it: a finished one has a
-   *  result, a working one is her ask with a run and no result yet, and the
-   *  scheduled one is her ask with a time in the future, set as hers. */
+   *  shape that reads that way and nothing marks it: a working one is the ask
+   *  with a run and no result yet, and a scheduled one is the ask with a time
+   *  in the future, set as hers. None of them carries a result, because a
+   *  result is what puts a row back in the inbox and nothing here may land
+   *  there (shared/first-run-practice.mjs). */
   stagePracticeBackdrop(slug, { now = Date.now(), label = 'first-run' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
@@ -1085,12 +1087,6 @@ export class Store {
       if (row.state !== 'scheduled') {
         this.appendPracticeRun(slug, created.id, at.hers);
         this.writePracticeTrace(slug, created.id, row.trace, at.hers + 1_000);
-      }
-      if (row.state === 'needs') {
-        workItemsDisk.updateWorkItem(
-          dir, created.id, { result: row.result },
-          { source: 'agent', now: at.hers + 1_000 + row.trace.length * 9_000 + 1_000 },
-        );
       }
       ids.push(created.id);
     }
@@ -1316,29 +1312,35 @@ export class Store {
    *  Stamped a second apart, oldest last, so the newest thread on the card is
    *  the newest row in the inbox. `chosen` arrives newest first from
    *  `readSessionThreads`. */
-  importThreadRows(slug, chosen, { now = Date.now() } = {}) {
+  importThreadRows(slug, chosen, { now = Date.now(), land = 'inbox' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
-    const product = this.listProducts().find((p) => p.slug === slug) ?? null;
     let existing = [];
     try { existing = workItemsDisk.readWorkItems(dir, now); } catch { /* a fresh project has none */ }
     // Codex conversations on the same card are importCodexThreads's, below.
     const claude = (chosen ?? []).filter((t) => t?.source !== 'codex');
     const wanted = threadsNeedingRows(claude, existing);
     const ids = [];
+    let done = 0;
     wanted.forEach((thread, i) => {
-      const at = now - i * 1000;
-      const row = threadImportRow(thread, { projectName: product?.name ?? null, now });
+      const { at, last } = chatTimes(thread, now - i * 1000);
+      const row = threadImportRow(thread);
       const created = workItemsDisk.createWorkItem(
         dir,
         { title: row.title, kind: row.kind, priority: row.priority, labels: row.labels },
         { source: 'agent', now: at },
       );
-      workItemsDisk.updateWorkItem(dir, created.id, { body: row.body }, { source: 'agent', now: at });
+      // Your words draw under You and the agent's under the agent.
+      workItemsDisk.updateWorkItem(dir, created.id, { body: row.body }, { source: 'founder', now: at });
+      if (row.result) workItemsDisk.updateWorkItem(dir, created.id, { result: row.result }, { source: 'agent', now: last + 1 });
+      if (land === 'sorted' && !thread.waiting) {
+        workItemsDisk.updateWorkItem(dir, created.id, { status: 'done' }, { source: 'founder', now: last + 2 });
+        done += 1;
+      }
       ids.push(created.id);
     });
     const seen = new Set(claude.map((t) => String(t?.id ?? '').trim()).filter(Boolean));
-    return { ids, added: ids.length, already: seen.size - ids.length };
+    return { ids, added: ids.length, already: seen.size - ids.length, done };
   }
 
   /* ---------------------------- codex conversations ----------------------- */
@@ -1421,7 +1423,7 @@ export class Store {
    *  the body, Codex's last message as the result, open, in her inbox. No closes
    *  it under `not-imported`, which is where Closed finds it to offer it back.
    *  Yes on a row she once said no to is the same yes. */
-  answerCodexImport(slug, id, choice, { thread = null, now = Date.now() } = {}) {
+  answerCodexImport(slug, id, choice, { thread = null, now = Date.now(), bodyAt = now } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     const item = workItemsDisk.readWorkItem(dir, id, now);
@@ -1434,15 +1436,18 @@ export class Store {
     const t = { ...this.codexThreadFromRow(item), ...(thread ?? {}) };
     const patch = codexMirrorPatch(t);
     // it draws under You, not under an agent's name.
-    workItemsDisk.updateWorkItem(dir, id, { body: patch.body }, { source: 'founder', now });
-    workItemsDisk.updateWorkItem(dir, id, { kind: patch.kind, labels: patch.labels, result: patch.result }, { source: 'agent', now: now + 1 });
+    workItemsDisk.updateWorkItem(dir, id, { body: patch.body }, { source: 'founder', now: bodyAt });
+    const mirrored = workItemsDisk.updateWorkItem(dir, id, { kind: patch.kind, labels: patch.labels, result: patch.result }, { source: 'agent', now: now + 1 });
+    // Only a row that was not open is reopened; on an open one the line reads
+    // as "You sent it back" in the thread.
+    if (item.status === 'open') return mirrored;
     return workItemsDisk.updateWorkItem(dir, id, { status: 'open' }, { source: 'founder', now: now + 1 });
   }
 
   /**
    * THE ⌘K CARD'S PRESS on Codex conversations: each becomes a readable row at
    *  once, whether it had an asking row, a declined one, or none. */
-  importCodexThreads(slug, chosen, { now = Date.now() } = {}) {
+  importCodexThreads(slug, chosen, { now = Date.now(), land = 'inbox' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     const product = this.listProducts().find((p) => p.slug === slug) ?? null;
@@ -1450,6 +1455,7 @@ export class Store {
     try { existing = workItemsDisk.readWorkItems(dir, now); } catch { existing = []; }
     const ids = [];
     let already = 0;
+    let done = 0;
     for (const thread of chosen ?? []) {
       if (thread?.source !== 'codex') continue; // a Claude Code thread is importThreadRows's
       const id = String(thread?.id ?? '').trim();
@@ -1457,20 +1463,28 @@ export class Store {
       const had = existing.find((i) => codexIdOf(i) === id);
       if (had && isCodexMirrorRow(had) && had.status !== 'done') { already += 1; continue; }
       let rowId = had?.id ?? null;
-      if (!rowId) {
+      const fresh = !rowId;
+      // A row it already had keeps the import's time: an older line would lose
+      // to what that row already says.
+      const { at, last } = fresh ? chatTimes(thread, now) : { at: now, last: now };
+      if (fresh) {
         const row = codexImportRow(thread, { projectName: product?.name ?? null, now });
         const created = workItemsDisk.createWorkItem(
           dir,
           { title: row.title, kind: row.kind, priority: row.priority, labels: row.labels },
-          { source: 'agent', now },
+          { source: 'agent', now: at },
         );
-        workItemsDisk.updateWorkItem(dir, created.id, { body: row.body }, { source: 'agent', now });
+        workItemsDisk.updateWorkItem(dir, created.id, { body: row.body }, { source: 'agent', now: at });
         rowId = created.id;
       }
-      this.answerCodexImport(slug, rowId, 'yes', { thread, now: now + 2 });
+      this.answerCodexImport(slug, rowId, 'yes', { thread, now: last + 2, bodyAt: fresh ? at + 1 : last + 2 });
+      if (land === 'sorted' && !thread.waiting) {
+        workItemsDisk.updateWorkItem(dir, rowId, { status: 'done' }, { source: 'founder', now: last + 4 });
+        done += 1;
+      }
       ids.push(rowId);
     }
-    return { ids, added: ids.length, already };
+    return { ids, added: ids.length, already, done };
   }
 
   /**
@@ -1505,6 +1519,8 @@ export class Store {
     let refreshed = 0;
     for (const item of this.listAllWorkItems(now)) {
       if (!isCodexMirrorRow(item) || item.status === 'done') continue;
+      // Replied on here, so an agent here answers it from now on.
+      if (item.answer) continue;
       const t = byId.get(codexIdOf(item));
       if (!t) continue;
       const patch = codexMirrorPatch(t);
@@ -1623,4 +1639,15 @@ export class Store {
  *  a trace and reads it back through the renderer's own parser. */
 function clockAt(ms) {
   return new Date(ms).toISOString().slice(11, 19);
+}
+
+/**
+ * When a chat brought in happened: `at` when it started, `last` when it last
+ *  moved. A chat with no time it can be trusted for, or one ahead of `fallback`
+ *  (the moment of import), is stamped with `fallback`. */
+function chatTimes(thread, fallback) {
+  const last = Number(thread?.when);
+  if (!(last > 0 && last <= fallback)) return { at: fallback, last: fallback };
+  const first = Number(thread?.startedAt);
+  return { at: first > 0 && first <= last ? first : last, last };
 }

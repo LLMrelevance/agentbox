@@ -5,11 +5,10 @@
 // account was handed the next run again and again; it fixed that by reading
 // the day Codex names AND by moving the work to a login with room.
 //
-// w-dac993a554 took the moving out. Spreading one person's work over two
-// subscriptions to get past a usage limit is what Anthropic's Usage Policy
-// means by circumventing a guardrail, and their Claude Code page says the
-// limits being spent "assume ordinary, individual usage". So the first two
-// faults stay fixed and the third is now the rule:
+// w-dac993a554 took the AUTOMATIC moving out: the app does not pick another
+// account for a person. Switching to another plan yourself is allowed and
+// takes effect at once (tests/switching-to-your-other-plan-at-a-limit-is-allowed).
+// So the first two faults stay fixed and the third is now the rule:
 //
 //   1. A run that hits the limit after two minutes is not a "fast exit", so the
 //      account was never marked, and the normal branch CLEARED its trouble.

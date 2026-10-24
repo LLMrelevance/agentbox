@@ -21,6 +21,7 @@
 
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { Product, RepeatShape } from '../types';
+import { SEND } from '../this-keyboard';
 import { TeamContext, firstName } from '../team/people';
 import { WhoPicker, DuePicker } from '../team/WhoPicker';
 import { isShared } from '../../../shared/team-rules.mjs';
@@ -640,8 +641,8 @@ export function Compose({ products, hidden, onSend, onReorder, onHide, onNewProj
             className="dock-send"
             onClick={send}
             disabled={!canSend}
-            title={refusal ?? (givenName ? `Send to ${givenName} · ⌘↵` : 'Start it · ⌘↵')}
-          >{givenName && givenTo !== team?.me ? `Send to ${givenName}` : givenTo ? 'Add it' : 'Start it'} <kbd>⌘↵</kbd></button>
+            title={refusal ?? (givenName ? `Send to ${givenName} · ${SEND}` : `Start it · ${SEND}`)}
+          >{givenName && givenTo !== team?.me ? `Send to ${givenName}` : givenTo ? 'Add it' : 'Start it'} <kbd>{SEND}</kbd></button>
         </div>
       </div>
     </div>

@@ -9,15 +9,27 @@
 // transcript filed under the original folder. Measured 2026-10-14 on Claude
 // Code 2.1.293: a session started in /tmp/a and resumed by id from /tmp/b
 // remembered the word it had been told, and the new turn was appended to the
-// transcript under /tmp/a. So the import is a fork, the same one `/fork` makes:
-// the first reply resumes the old conversation under a new id with
-// `--fork-session`, the original stays exactly as it was in Claude Code, and
-// from then on the row has a chat of its own like any other.
+// transcript under /tmp/a.
+//
+// IT IS A COPY ONLY WHILE THE CHAT IS STILL OPEN (w-62228098e6). The import
+// forked every time, so setup's promise that a chat "carries on here, in the
+// same conversation" was a copy that drifted from the original. Now the first
+// reply forks with `--fork-session` only when Claude Code still has the session
+// open, which its state file says (`<home>/sessions/*.json`, a live pid). A
+// closed chat is carried on under its own id, so `claude --resume` in a
+// terminal finds what was said here.
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Supervisor } from '../main/supervisor.mjs';
+
+/** Claude Code's own note that a session is open, with the process holding it. */
+function stillOpen(ctx, pid = process.pid) {
+  mkdirSync(join(ctx.profile, 'sessions'), { recursive: true });
+  writeFileSync(join(ctx.profile, 'sessions', `${pid}.json`), JSON.stringify({ pid, sessionId: THREAD, cwd: '/somewhere' }));
+}
 
 const dirs = [];
 afterAll(() => { for (const d of dirs) { try { rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
@@ -54,14 +66,17 @@ function build() {
 }
 
 /** The conversation as Claude Code left it, under the folder it ran in. */
-function claudeCodeLeftIt(ctx, folder = join(ctx.dir, 'checkout')) {
+function claudeCodeLeftIt(ctx, folder = join(ctx.dir, 'checkout'), { minutesAgo = 30 } = {}) {
   const slug = folder.replace(/[^a-zA-Z0-9]/g, '-');
   const at = join(ctx.profile, 'projects', slug);
   mkdirSync(at, { recursive: true });
-  writeFileSync(join(at, `${THREAD}.jsonl`), `${JSON.stringify({
+  const file = join(at, `${THREAD}.jsonl`);
+  writeFileSync(file, `${JSON.stringify({
     type: 'user', cwd: folder, entrypoint: 'cli', sessionId: THREAD,
     message: { role: 'user', content: 'the checkout page drops the coupon' },
   })}\n`);
+  const when = new Date(Date.now() - minutesAgo * 60e3);
+  utimesSync(file, when, when);
   return folder;
 }
 
@@ -80,16 +95,42 @@ describe('the first reply on an imported thread', () => {
   let ctx;
   beforeEach(() => { ctx = build(); });
 
-  it('resumes the conversation it names, under a new id, on the login that holds it', () => {
+  it('carries on the same conversation, not a copy, once the chat is closed', () => {
     claudeCodeLeftIt(ctx);
     const row = importedRow();
     ctx.items.push(row);
     const plan = ctx.sup.spawnPlan(row, ctx.product, { continuation: true });
     expect(plan.resumeId).toBe(THREAD);
-    // A copy, so the conversation in Claude Code is left exactly as it was and
-    // somebody still running it in a terminal is not written over.
-    expect(plan.args).toContain('--fork-session');
+    expect(plan.args).not.toContain('--fork-session');
     expect(plan.resumeProfile).toBe(ctx.profile);
+    expect(plan.prompt).not.toContain('This is a copy');
+  });
+
+  it('makes a copy while the chat is still open, so a terminal using it is not written over', () => {
+    claudeCodeLeftIt(ctx);
+    stillOpen(ctx);
+    const row = importedRow();
+    ctx.items.push(row);
+    const plan = ctx.sup.spawnPlan(row, ctx.product, { continuation: true });
+    expect(plan.resumeId).toBe(THREAD);
+    expect(plan.args).toContain('--fork-session');
+    expect(plan.prompt).toContain('This is a copy');
+  });
+
+  it('makes a copy when the chat was written to in the last two minutes, state file or not', () => {
+    claudeCodeLeftIt(ctx, undefined, { minutesAgo: 1 });
+    const row = importedRow();
+    ctx.items.push(row);
+    expect(ctx.sup.spawnPlan(row, ctx.product, { continuation: true }).args).toContain('--fork-session');
+  });
+
+  it('counts a chat as closed when the process its state file names has gone', () => {
+    claudeCodeLeftIt(ctx);
+    stillOpen(ctx, spawnSync('true').pid);
+    const row = importedRow();
+    ctx.items.push(row);
+    const plan = ctx.sup.spawnPlan(row, ctx.product, { continuation: true });
+    expect(plan.args).not.toContain('--fork-session');
   });
 
   it('is told it has moved, where it used to work, and what they replied', () => {

@@ -20,7 +20,8 @@ import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, PeoplePanel } from './GroupPage';
 import { GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
-import { GroupTitle, SidebarGroups } from './GroupsSidebar';
+import { SidebarGroups, groupsInOrder } from './GroupsSidebar';
+import { GroupFinder, GroupsColumn, GroupsHead } from './GroupsColumn';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -67,6 +68,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const [finding, setFinding] = useState(false);
   // Groups with no group to open.
   const [empty, setEmpty] = useState(false);
+  // The finder G opens, over whatever page is up.
+  const [finderOpen, setFinderOpen] = useState(false);
   const [answered, setAnswered] = useState<string[]>(() => readNoticeSeen());
   const open = openId ? all.find((r) => r.id === openId) ?? null : null;
   const invisibleUntil = Date.parse(rooms?.me?.invisible_until ?? '');
@@ -78,7 +81,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     if (open) seen.current = open.id;
     else if (openId && seen.current === openId && live && rooms?.ready) { seen.current = null; setOpenId(null); }
   }, [openId, live, rooms?.ready, open]);
-  useEffect(() => { if (!live) { setOpenId(null); setDialog(null); setMembers(null); setFinding(false); setEmpty(false); } }, [live]);
+  useEffect(() => { if (!live) { setOpenId(null); setDialog(null); setMembers(null); setFinding(false); setEmpty(false); setFinderOpen(false); } }, [live]);
   useEffect(() => { setPicked(new Set()); setBoardOn(false); }, [openId]);
 
   const call = useCallback(async <T,>(op: string, ...args: unknown[]): Promise<{ ok: boolean; value?: T; error?: string }> => {
@@ -105,18 +108,19 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
 
   // Every group opens as the Groups page, which then holds it.
   const openRoom = (id: string) => {
-    onLeavePage(); setFinding(false); setEmpty(false); setOpenId(id); setPane('wall'); setBoardOn(false);
+    onLeavePage(); setFinding(false); setEmpty(false); setFinderOpen(false); setOpenId(id); setPane('wall'); setBoardOn(false);
     setLastId(id); writeRoomTab(id);
   };
   // One step back: from everyone's threads, Find groups or a person's page to the group; from the group out.
   const close = () => {
+    if (finderOpen) { setFinderOpen(false); return; }
     if (finding) { setFinding(false); return; }
     if (boardOn) { setBoardOn(false); return; }
     if (pane !== 'wall') { setPane('wall'); return; }
     setOpenId(null); setEmpty(false);
   };
   // Somewhere else was picked: no group, no Find groups.
-  const leave = () => { setOpenId(null); setFinding(false); setEmpty(false); setBoardOn(false); };
+  const leave = () => { setOpenId(null); setFinding(false); setEmpty(false); setBoardOn(false); setFinderOpen(false); };
   const find = () => { onLeavePage(); setFinding(true); };
   const loadListed = useCallback(async () => { const res = await call<ListedRoom[]>('listed'); return res.ok ? res.value ?? [] : null; }, [call]);
   const inviteId = dialog?.kind === 'invite' ? dialog.roomId : null;
@@ -214,9 +218,12 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const groupList = groupChoices(conversations, pinned);
   // A direct record opens over the group, so stepping out of it comes back here.
   const pickGroup = (key: string) => {
+    setFinderOpen(false);
     if (key.startsWith('direct:')) onOpenDirect(key.slice('direct:'.length));
     else openRoom(key.slice('room:'.length));
   };
+  const rows = groupsInOrder(groupList);
+  const currentRow = open ? rows.find((g) => g.key === `room:${open.id}`) : undefined;
 
   const groupAction = async (r: Room, a: GroupMenuAction, at: DOMRect) => {
     if (a === 'board') setBoardOn(true);
@@ -284,8 +291,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
         onHide={() => void call('saveProfile', { show_working: 'team' })} onOk={() => answerNotice(open.id)} /> : null}
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />}
-      people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />} />;
-    heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };
+      people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />}
+      list={<GroupsColumn rows={rows} current={`room:${open.id}`} now={now} onOpen={pickGroup} />} />;
+    heading = { title: <GroupsHead current={currentRow} onFind={() => setFinderOpen(true)} /> };
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
     page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
@@ -299,6 +307,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   const inviteRoom = dialog?.kind === 'invite' ? all.find((r) => r.id === dialog.roomId) : null;
   const membersRoom = members ? all.find((r) => r.id === members.roomId) : null;
   const dialogs: ReactNode = <>
+    {finderOpen && <GroupFinder rows={rows} current={open ? `room:${open.id}` : null} now={now} onOpen={pickGroup} onClose={() => setFinderOpen(false)} />}
     {inviteRoom && <InviteDialog room={inviteRoom} link={links[inviteRoom.id] ?? null} now={now} onClose={() => setDialog(null)} loadSent={loadSent}
       onCopy={() => void copyLink(inviteRoom.id)}
       onEmail={async (email) => { const res = await call('invite', inviteRoom.id, email); return res.ok ? null : res.error ?? 'Not sent'; }} />}
@@ -345,15 +354,19 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   return {
     live, openId: !live ? null : finding ? 'find' : open ? openId : empty ? 'groups' : null,
     open: (id: string) => openRoom(id), close, leave, page, dialogs, join, invisible, settingsPane,
-    /** The page-name menu's Groups: the group open last, or none. */
+    /** The sidebar's Groups: the group open last, or none. */
     openTab,
     mentions, openMention, faces, heading,
-    dialogOpen: !!dialog || !!members,
+    dialogOpen: !!dialog || !!members || finderOpen,
+    /** G, from any page: the finder over your groups. Null while Groups is off. */
+    findGroup: live ? () => setFinderOpen(true) : null,
     /** The header's View button over everyone's threads, and B; on a group's chat, its options. Null anywhere else. */
     viewButton,
-    /** Groups' rows in the narrow sidebar; `direct` is the conversation open over the page, if one is. */
-    sidebarGroups: (onGroupsPage: boolean, direct: string | null) => <SidebarGroups onGroupsPage={onGroupsPage}
-      current={direct ? `direct:${direct}` : open ? `room:${open.id}` : null} groups={groupList} onGroups={openTab} onPick={pickGroup} />,
+    /** The groups you are in, newest first, and the way to open one: what the
+     *  command bar lists so a group can be reached by name from anywhere. */
+    groups: groupList, pickGroup,
+    /** The narrow sidebar's Groups row, which opens the group you were in last. */
+    sidebarGroups: (onGroupsPage: boolean) => <SidebarGroups onGroupsPage={onGroupsPage} onGroups={openTab} />,
     /** The group a teammate's card was opened over, for its Back. */
     roomName: open ? nameOf(open) : null,
   };

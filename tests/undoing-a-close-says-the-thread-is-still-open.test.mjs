@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DONE } from '../renderer/src/done-word';
 import { graceUndoneLine } from '../renderer/src/undo-window';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,7 +22,10 @@ const app = fs.readFileSync(path.join(here, '..', 'renderer', 'src', 'App.tsx'),
 
 describe('what Z inside the grace window says', () => {
   it('a close: the thread is still open', () => {
-    expect(graceUndoneLine({ said: 'Closed: Fix the login page', restored: false }))
+    // The toast is written off ../renderer/src/done-word, which every surface
+    // that names this verb reads. Hard-coding "Closed:" here is what let the
+    // two drift apart in the first place.
+    expect(graceUndoneLine({ said: `${DONE.verb}: Fix the login page`, restored: false }))
       .toBe('Undone. Still open: Fix the login page');
   });
 
@@ -36,7 +40,7 @@ describe('what Z inside the grace window says', () => {
   });
 
   it('never says "Nothing was sent"', () => {
-    for (const said of ['Closed: X', 'Approved', 'Doing it in this thread: X', undefined]) {
+    for (const said of [`${DONE.verb}: X`, 'Approved', 'Doing it in this thread: X', undefined]) {
       expect(graceUndoneLine({ said, restored: false })).not.toMatch(/Nothing was sent/);
     }
   });
