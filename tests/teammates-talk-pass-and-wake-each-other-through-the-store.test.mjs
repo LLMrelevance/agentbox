@@ -287,6 +287,26 @@ describe('teammates through the store', () => {
     expect(() => core.teamPass({ to: 'Zelda', title: 'x' })).toThrow(/no teammate called Zelda/);
   });
 
+  // A data-loss crash passed to Felix was dropped by the loop guard with only
+  // a grey line (second power test). Held work now waits on you, and your
+  // go-ahead sends the same work again, details and all, as yours.
+  it('work held after too many hand-offs goes ahead, whole, when you say so', async () => {
+    const felix = team.create({ starter: 'maintainer' });
+    const ada = team.create({ starter: 'quality' });
+    const { writeChat } = await import('../main/store/teammates-files.mjs');
+    const held = writeChat(team.dir(), { kind: 'pass', from: ada.id, to: felix.id, title: 'Every booking is lost', details: 'Steps: book twice, restart.', hop: 99, product: product.id }, Date.now());
+    await tick(Date.now());
+    expect(store.listItems().filter((i) => teammateIdOf(i) === felix.id)).toHaveLength(0);
+    const stop = team.chat().messages.find((m) => m.kind === 'act' && m.verb === 'hops');
+    expect(stop).toMatchObject({ from: felix.id, ref: held.id });
+    team.goAhead(felix.id, stop.ref);
+    await tick(Date.now());
+    const run = store.listItems().find((i) => teammateIdOf(i) === felix.id);
+    expect(run.title).toBe('Every booking is lost');
+    expect(run.body).toContain('Steps: book twice, restart.');
+    expect(hopOf(run)).toBe(0);
+  });
+
   it('a second pass while the teammate is busy is queued, then released when it is free', async () => {
     const ada = team.create({ starter: 'quality' });
     const felix = team.create({ starter: 'maintainer' });

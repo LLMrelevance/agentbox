@@ -5,7 +5,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import type { Product, TeammatesView } from '../types';
 import { TeammatesPage, TeammatesTitle } from './TeammatesPage';
 import { TeammatesRail } from './TeammatesRail';
-import { asksYou } from './chat-lines';
+import { asksYou, heldFor } from './chat-lines';
 
 /** 'team' is the team chat, 'roster' the Teammates tab, anything else a teammate's id. */
 export type TeammatesOpen = string | null;
@@ -32,6 +32,7 @@ export function useTeammates({ view: stored, asking = [], products, engines, me,
       list: stored.list.map((t) => {
         if (t.running && ids.has(t.running.id)) return { ...t, asking: true, now: 'Asking you to allow a command' };
         if (asksYou(stored, t.id)) return { ...t, question: true, now: 'Has a question for you' };
+        if (heldFor(stored, t.id)) return { ...t, held: true, now: 'Holding work for your go-ahead' };
         return t;
       }),
     };

@@ -10,6 +10,7 @@ export function TeammateMark({ t, size = 'sm', waiting = false }: { t: Pick<Team
 
 export function nowLine(t: Teammate): string {
   if (t.question) return 'Has a question for you';
+  if (t.held) return 'Holding work for your go-ahead';
   if (t.status === 'draft') return 'Setting up';
   if (t.paused && !t.running) return t.waiting.length || t.asking ? 'Paused, waiting on you' : 'Paused';
   return t.now ?? 'Free';
@@ -29,7 +30,7 @@ export function TeammatesRail({ team, open, onOpen }: {
     </button>
     {team.map((t) => (
       <button key={t.id} type="button" className={`workspace-tab tq-row${open === t.id ? ' active' : ''}`} aria-label={t.name} title={t.name} onClick={() => onOpen(t.id)}>
-        <TeammateMark t={t} waiting={t.waiting.length > 0 || !!t.asking || !!t.question} />
+        <TeammateMark t={t} waiting={t.waiting.length > 0 || !!t.asking || !!t.question || !!t.held} />
         <span className="tq-two"><b>{t.name}</b><small>{nowLine(t)}</small></span>
       </button>
     ))}

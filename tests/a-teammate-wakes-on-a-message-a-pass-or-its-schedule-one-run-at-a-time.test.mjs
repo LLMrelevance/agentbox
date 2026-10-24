@@ -45,6 +45,10 @@ describe('what wakes a teammate', () => {
       text: 'morning team, two customers got lost after signing up, so @Ada can you poke at the onboarding screen and file what is confusing. @Felix nothing urgent, just get set up' };
     const titles = planWakes({ teammates: [{ ...ada, served: '2026-10-26' }, felix], chat: chat([both]), items: [], now: NOW }).filter((a) => a.type === 'run').map((a) => [a.teammate, a.title]);
     expect(Object.fromEntries(titles)).toEqual({ [ada.id]: 'Can you poke at the onboarding screen and file what is confusing', [felix.id]: 'Nothing urgent, just get set up' });
+    // A part runs to the next name or line, not the first full stop: "Felix
+    // is busy" was all a data-loss crash was called.
+    expect(title({ id: 'm-busy', kind: 'msg', from: 'you', to: [felix.id], text: '@Felix is busy. Can you take the crash where every booking is lost', ts: NOW }, { ...felix, name: 'Felix' }))
+      .toBe('Is busy. Can you take the crash where every booking is lost');
     // A name at the very end leaves nothing of its own, so the first line stands.
     expect(title({ id: 'm-e', kind: 'msg', from: 'you', to: [felix.id], text: 'Ship the fix today, thanks @Felix', ts: NOW })).toBe('Ship the fix today, thanks @Felix');
     // Felix's "@Ada it's ready for your phone pass" became Ada's run title, and
@@ -62,6 +66,30 @@ describe('what wakes a teammate', () => {
     const acts = planWakes({ teammates: [felix], chat: chat([m]), items: [waiting], now: NOW });
     expect(acts.find((a) => a.type === 'run')).toBeUndefined();
     expect(acts).toContainEqual(expect.objectContaining({ type: 'answer', item: 'w-222222', text: 'Yes, ship it' }));
+  });
+
+  // "Urgent message to a busy teammate: no pickup, no queued item, it keeps
+  // doing the old task" (second power test). Your words go into a running run
+  // only when that run is the one your earlier words started; anything else
+  // is new work, queued behind it where you can see it.
+  it('your words reach a running run only when your words started it, and are new work otherwise', () => {
+    const first = { id: 'm-r1', kind: 'msg', from: 'you', to: [felix.id], text: 'Fix the timezone bug', ts: NOW - 5000 };
+    const yours = run(felix, { id: runIdFor(`m-r1>${felix.id}`), status: 'claimed' });
+    const follow = { id: 'm-r2', kind: 'msg', from: 'you', to: [felix.id], text: 'also add a test', ts: NOW };
+    const one = planWakes({ teammates: [felix], chat: chat([first, follow], [seenKey('m-r1', felix.id)]), items: [yours], now: NOW });
+    expect(one).toContainEqual(expect.objectContaining({ type: 'answer', item: yours.id, text: 'also add a test' }));
+    const passed = run(felix, { id: 'w-passed', status: 'claimed', labels: ['founder', teammateLabel(felix.id), 'hop:1', `from:${ada.id}`] });
+    const urgent = { id: 'm-r3', kind: 'msg', from: 'you', to: [felix.id], text: 'URGENT every booking is lost', ts: NOW };
+    const two = planWakes({ teammates: [felix], chat: chat([urgent]), items: [passed], now: NOW });
+    expect(two.find((a) => a.type === 'answer')).toBeUndefined();
+    expect(two.find((a) => a.type === 'run')).toMatchObject({ start: 'later', title: 'URGENT every booking is lost' });
+  });
+
+  it('a queued run is not waiting on you, and a clean one is not either', () => {
+    const asked = { result: 'Ship it?', wrote: { result: { ts: NOW - 500, source: 'agent' } } };
+    expect(waitingOnYou(run(felix, { ...asked, start: 'later' }))).toBe(false);
+    expect(waitingOnYou(run(felix, { ...asked, labels: ['founder', teammateLabel(felix.id), 'clean'] }))).toBe(false);
+    expect(waitingOnYou(run(felix, asked))).toBe(true);
   });
 
   it('a teammate passing work wakes the one it passed to, with the title and details', () => {
@@ -239,10 +267,10 @@ describe('what you see', () => {
     expect(runLines([run(ada, { id: 'w-c4c4c4', createdAt: 10, answer: '(withdrawn)', wrote: { answer: { ts: 40, source: 'founder' } } })], [ada]).map((l) => l.verb)).toEqual(['picked']);
   });
 
-  it('a clean run shows no sent line, and a queued one shows nothing', () => {
+  it('a clean run shows no sent line, and a queued one shows only that it is next', () => {
     const clean = run(ada, { id: 'w-dddddd', status: 'done', createdAt: 10, labels: ['founder', teammateLabel(ada.id), 'clean'], result: 'nothing', wrote: { result: { ts: 20, source: 'agent' }, status: { ts: 21, source: 'agent' } } });
     const q = run(ada, { id: 'w-eeeeee', start: 'later' });
-    expect(runLines([clean, q], [ada]).map((l) => l.verb)).toEqual(['picked', 'finished']);
+    expect(runLines([clean, q], [ada]).map((l) => l.verb)).toEqual(['picked', 'finished', 'queued']);
   });
 
   // The power test paused Hugo, wrote to him, and watched him work while

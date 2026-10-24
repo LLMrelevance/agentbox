@@ -372,6 +372,8 @@ export interface Teammate {
   asking?: boolean;
   /** It asked you something in the team chat and has not heard back (chat-lines `asksYou`). */
   question?: boolean;
+  /** Work for it was held after too many hand-offs without you (chat-lines `heldFor`). */
+  held?: boolean;
   waiting: TeammateRef[]; now: string | null; running: { id: string; product: string } | null;
   queued: number; done: TeammateRef[]; runsThisWeek: number;
 }
@@ -383,7 +385,7 @@ export interface TeamChatLine {
 }
 export interface TeamRunLine {
   id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;
-  verb: 'picked' | 'passed' | 'sent' | 'answered' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
+  verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
   /** Your words, on an `answered` line. */
   text?: string; ts: number;
 }

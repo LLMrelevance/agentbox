@@ -16,7 +16,7 @@ export const DEFAULT_LIMIT = 20;
 export const CHAT_TAIL = 30;
 // Teammates waking each other with no person or schedule in between stop after
 // this many hops, so two of them cannot keep each other running.
-export const MAX_HOPS = 4;
+export const MAX_HOPS = 8;
 export const HOP_LABEL_PREFIX = 'hop:';
 
 export function hopOf(item) {
@@ -181,6 +181,8 @@ export function runsOf(teammateId, items) {
 // waiting on them, and so in Needs you, not running.
 export function waitingOnYou(item) {
   if (!item || item.status === 'done' || item.status === 'claimed') return false;
+  // Queued behind another run, or closed quietly: neither is in your inbox.
+  if (item.start === 'later' || (item.labels ?? []).includes('clean')) return false;
   if (item.status === 'blocked') return true;
   const r = item.wrote?.result;
   if (!r || r.source !== 'agent') return false;
@@ -246,7 +248,7 @@ function partFor(text, name) {
   const at = name ? words.search(new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i')) : -1;
   if (at < 0) return null;
   const rest = words.slice(at + name.length + 1).replace(/^[\s,:;–—-]+/, '');
-  const part = rest.split(/(?<=[.!?])\s|\n|\s@\w/)[0].replace(/[\s.,;:]+$/, '').trim();
+  const part = rest.split(/\n|\s@\w/)[0].replace(/[\s.,;:]+$/, '').trim();
   return part ? part[0].toUpperCase() + part.slice(1) : null;
 }
 
@@ -302,7 +304,10 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
       if (fromYou && m.kind === 'msg') {
         const runs = runsOf(tid, items);
         const waiting = runs.filter(waitingOnYou).sort((a, b) => (b.wrote?.result?.ts ?? 0) - (a.wrote?.result?.ts ?? 0))[0];
-        const running = runs.find((i) => isActiveRun(i) && i.status === 'claimed');
+        // A running run hears your words only if your words started it;
+        // anything else is new work, queued behind it.
+        const yours = new Set((chat.messages ?? []).filter((x) => x.kind === 'msg' && x.from === YOU && x.id !== m.id).map((x) => runIdFor(`${x.id}>${tid}`)));
+        const running = runs.find((i) => isActiveRun(i) && i.status === 'claimed' && yours.has(i.id));
         const into = waiting ?? running;
         if (into) {
           actions.push({ type: 'answer', teammate: tid, item: into.id, product: into.product, text: m.text, msg: m.id });
@@ -357,8 +362,11 @@ export function runLines(items, teammates = []) {
   for (const item of items ?? []) {
     const tid = teammateIdOf(item);
     if (!tid) continue;
-    if (isQueued(item)) continue;
     const base = { teammate: tid, item: item.id, product: item.product, title: item.label || item.title };
+    if (isQueued(item)) {
+      out.push({ ...base, id: `${item.id}:queued`, kind: 'run', verb: 'queued', ts: item.createdAt ?? 0 });
+      continue;
+    }
     const v = verbFor(item, teammates);
     out.push({ ...base, id: `${item.id}:start`, kind: 'run', verb: v.verb, by: v.by, byName: v.byName, ts: item.wrote?.start?.ts ?? item.createdAt ?? 0 });
     const a = item.wrote?.answer;

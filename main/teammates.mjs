@@ -164,6 +164,18 @@ export class Teammates {
     return writeChat(this.dir(), { kind: 'msg', from: YOU, to: known, text: words.slice(0, 8000), ...(options ? { options } : {}) }, now);
   }
 
+  // Your go-ahead for work held after too many hand-offs: the same work again,
+  // from you, so it wakes the teammate with everything it carried.
+  goAhead(id, ref, now = Date.now()) {
+    const held = this.chat().messages.find((m) => m.id === ref);
+    if (!held) throw new Error('That work is no longer in the chat.');
+    if (held.kind === 'pass') {
+      return writeChat(this.dir(), { kind: 'pass', from: YOU, to: id, title: held.title, details: held.details ?? '', ...(held.product ? { product: held.product } : {}) }, now);
+    }
+    const from = this.nameOf(held.from, this.list(now));
+    return writeChat(this.dir(), { kind: 'msg', from: YOU, to: [id], text: `Go ahead with what ${from} wrote:\n\n> ${String(held.text ?? '').split('\n').join('\n> ')}` }, now);
+  }
+
   // What the screen draws: every teammate with what it is doing, and the chat
   // with the lines its runs leave, newest last.
   view(items, now = Date.now()) {
@@ -253,7 +265,7 @@ export class Teammates {
         } else if (a.type === 'limit') {
           this._sayOnce(a.teammate, 'limit', `${t.name} has used ${t.limit ?? DEFAULT_LIMIT} runs this week and waits until runs free up. Your own messages still reach it.`, now);
         } else if (a.type === 'hops') {
-          writeChat(this.dir(), { kind: 'act', from: a.teammate, verb: 'hops', ref: a.msg, text: `${t.name} did not wake for this: teammates had already passed it back and forth ${MAX_HOPS} times without you. Write to ${t.name} to carry on.` }, now);
+          writeChat(this.dir(), { kind: 'act', from: a.teammate, verb: 'hops', ref: a.msg, text: `${t.name} is holding this until you say go. Teammates had passed it back and forth ${MAX_HOPS} times without you.` }, now);
         }
         done.push(a);
       } catch (err) {

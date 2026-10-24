@@ -83,3 +83,19 @@ export function answerTo(view: TeammatesView | null | undefined, q: TeamChatLine
 export function queuedTeammateRun(i: Pick<WorkItem, 'labels' | 'start'>): boolean {
   return i.start === 'later' && !!teammateIdOf(i);
 }
+
+// Work held for a teammate after too many hand-offs between teammates, which
+// waits for your go-ahead: the last such stop with no word from you since.
+export function heldFor(view: TeammatesView | null | undefined, id: string): TeamChatLine | null {
+  if (!view) return null;
+  const stops = view.chat.filter((m) => m.kind === 'act' && m.verb === 'hops' && m.from === id);
+  const last = stops.at(-1);
+  if (!last) return null;
+  return view.chat.some((m) => (m.kind === 'msg' || m.kind === 'pass') && m.from === 'you' && m.ts > last.ts && toList(m.to).includes(id)) ? null : last;
+}
+
+// What the held work was called, from the message or pass that was held.
+export function heldTitle(view: TeammatesView | null | undefined, stop: TeamChatLine): string {
+  const held = view?.chat.find((m) => m.id === stop.ref);
+  return String(held?.title ?? held?.text ?? 'the work').replace(/\s+/g, ' ').trim().slice(0, 120);
+}

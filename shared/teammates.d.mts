@@ -11,3 +11,4 @@ export const STARTERS: Starter[];
 export const OFFER_LABEL: 'teammate-offer';
 export const OFFER_MAKE: string;
 export const OFFER_NOT_NOW: string;
+export const MAX_HOPS: number;

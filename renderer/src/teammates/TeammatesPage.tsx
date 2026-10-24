@@ -6,9 +6,9 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Product, Teammate, TeammatesView, TeamChatLine, TeamRunLine } from '../types';
 import { api } from '../api';
-import { STARTERS, type Starter } from '../../../shared/teammates.mjs';
+import { MAX_HOPS, STARTERS, type Starter } from '../../../shared/teammates.mjs';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatEntries, clockOf, dayOf, nameOf, type ChatEntry } from './chat-lines';
+import { answerTo, chatEntries, clockOf, dayOf, heldFor, heldTitle, nameOf, type ChatEntry } from './chat-lines';
 import { TeammateMark } from './TeammatesRail';
 import './teammates.css';
 
@@ -97,7 +97,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
       rows.push(<Message key={e.id} m={e} team={team} me={me} lead={lead} only={only} call={call} onOpenThread={onOpenThread} answered={answerTo(view, e)} />);
       prevFrom = e.from;
     } else {
-      rows.push(<Activity key={e.id} e={e} team={team} only={only} call={call} onOpenThread={onOpenThread} />);
+      rows.push(<Activity key={e.id} e={e} view={view} team={team} only={only} call={call} onOpenThread={onOpenThread} />);
       // A message after an activity line says who it is from again.
       prevFrom = '';
     }
@@ -133,7 +133,7 @@ function Message({ m, team, me, lead, only, call, onOpenThread, answered }: { m:
   </div>;
 }
 
-function Activity({ e, team, only, call, onOpenThread }: { e: ChatEntry; team: Teammate[]; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void }) {
+function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; view: TeammatesView | null; team: Teammate[]; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void }) {
   const who = only ? '' : `${nameOf(e.kind === 'run' ? e.teammate : e.from, team)} `;
   const time = <em>{clockOf(e.ts)}</em>;
   if (e.kind === 'run') {
@@ -146,6 +146,7 @@ function Activity({ e, team, only, call, onOpenThread }: { e: ChatEntry; team: T
     if (r.verb === 'answered') {
       return <div className="tq-act">{ICON.reply}<span><span className="v">{only ? 'You answered' : `You answered ${nameOf(r.teammate, team)}`}</span> <button type="button" className="tq-link" onClick={open}>“{r.text ?? r.title}”</button></span>{time}</div>;
     }
+    if (r.verb === 'queued') return <div className="tq-act tq-next">{ICON.dots}<span><span className="v">{only ? 'Next' : `Next for ${nameOf(r.teammate, team)}`}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
     if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">{who}{only ? 'Finished' : 'finished'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
     return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Picked up' : 'picked up'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
   }
@@ -158,6 +159,13 @@ function Activity({ e, team, only, call, onOpenThread }: { e: ChatEntry; team: T
     const stillKept = team.find((t) => t.id === owner)?.memory.some((m) => m.id === c.ref);
     return <div className="tq-act">{ICON.keep}<span><span className="v">{who}{only ? 'Learned' : 'learned'}</span> {c.text}</span>{time}
       {stillKept ? <button type="button" className="tq-key" onClick={() => { void call('forget', { id: owner, memory: c.ref }); }}>Undo</button> : <span className="tq-st">Undone</span>}</div>;
+  }
+  if (c.verb === 'hops') {
+    const owner = c.from;
+    const what = heldTitle(view, c);
+    const still = heldFor(view, owner)?.id === c.id;
+    return <div className="tq-act">{ICON.pause}<span><span className="v">{only ? 'Holding' : `${nameOf(owner, team)} is holding`}</span> {what} <span className="v">until you say go, after {MAX_HOPS} hand-offs without you</span></span>{time}
+      {still ? <button type="button" className="tq-key" onClick={() => { void call('goAhead', { id: owner, ref: c.ref }); }}>Go ahead</button> : <span className="tq-st">Going ahead</span>}</div>;
   }
   if (c.verb === 'started') return <div className="tq-act">{ICON.plus}<span><span className="v">Started</span> {nameOf(c.from, team)}</span>{time}</div>;
   if (c.verb === 'paused' || c.verb === 'resumed') return <div className="tq-act">{ICON.pause}<span><span className="v">{c.verb === 'paused' ? 'Paused' : 'Resumed'}</span> {nameOf(c.from, team)}</span>{time}</div>;
@@ -194,8 +202,9 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
     {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">It sets itself up from what you wrote, and asks you in the chat if anything is unclear.</div></div>}
     <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div>
       <div className="tq-sv dim tq-works">{t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}{t.engine && engines.length > 1 ? `, on ${engines.find((e) => e.id === t.engine)?.label ?? t.engine}` : ''}</div></div>
-    {(t.waiting.length > 0 || t.asking || t.question) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
+    {(t.waiting.length > 0 || t.asking || t.question || t.held) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
       {t.question && <div className="tq-li need">Its question in the chat</div>}
+      {t.held && <div className="tq-li need">Work it is holding for your go-ahead</div>}
       {t.asking && t.running && <button type="button" className="tq-li need" onClick={() => onOpenThread(t.running!.product, t.running!.id)}>Allow or deny a command</button>}
       {t.waiting.map((w) => <button key={w.id} type="button" className="tq-li need" onClick={() => onOpenThread(w.product, w.id)}>{w.title}</button>)}</div>}
     <div className="tq-sec"><div className="tq-sh">Now{t.paused && <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: false } }); }}>Resume</button>}</div>
@@ -357,8 +366,8 @@ function Roster({ team, products, engines, call, error, onOpen }: { team: Teamma
   return <div className="tp-body">
     <div className="tp-head"><span>Teammate</span><span>Now</span><span>Goal</span><span className="num">Runs this week</span></div>
     {team.map((t) => <button key={t.id} type="button" className="tp-row" onClick={() => onOpen(t.id)}>
-      <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question} /><span>{t.name}</span><i className="r">{t.role}</i></span>
-      <span className="now">{t.waiting.length || t.asking || t.question ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.now ?? (t.paused ? 'Paused' : 'Free')}</>}</span>
+      <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question || !!t.held} /><span>{t.name}</span><i className="r">{t.role}</i></span>
+      <span className="now">{t.waiting.length || t.asking || t.question || t.held ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.now ?? (t.paused ? 'Paused' : 'Free')}</>}</span>
       <span className="goal">{t.goal ?? ''}</span>
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
     </button>)}

@@ -4,7 +4,7 @@
 // Hugo's; and on Ada's page a message to Ada and Hugo said only "to Hugo".
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { answerTo, asksYou, chatEntries, involves, queuedTeammateRun } from '../renderer/src/teammates/chat-lines.ts';
+import { answerTo, asksYou, chatEntries, heldFor, heldTitle, involves, queuedTeammateRun } from '../renderer/src/teammates/chat-lines.ts';
 
 const ADA = 't-aaaaaaaaaa';
 const HUGO = 't-hhhhhhhhhh';
@@ -89,5 +89,19 @@ describe('a teammate\'s queue', () => {
     expect(queuedTeammateRun({ start: 'now', labels: ['founder', 'teammate:t-aaaaaaaaaa'] })).toBe(false);
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
     expect(app).toMatch(/const snoozed = useMemo\(\(\) => \[[\s\S]{0,200}items\.filter\(\(i\) => !queuedTeammateRun\(i\) && /);
+  });
+});
+
+describe('work held after too many hand-offs', () => {
+  it('waits on you, by its title, until you write or pass to that teammate', () => {
+    const pass = { id: 'm-p', kind: 'pass', from: HUGO, to: ADA, title: 'Every booking is lost', ts: 1 };
+    const stop = { id: 'm-s', kind: 'act', from: ADA, verb: 'hops', ref: 'm-p', ts: 2 };
+    const view = (chat) => ({ list: [], runs: [], chat });
+    expect(heldFor(view([pass, stop]), ADA)?.id).toBe('m-s');
+    expect(heldTitle(view([pass, stop]), stop)).toBe('Every booking is lost');
+    expect(heldFor(view([pass, stop, { id: 'm-g', kind: 'pass', from: 'you', to: ADA, title: 'Every booking is lost', ts: 3 }]), ADA)).toBeNull();
+    expect(heldFor(view([pass, stop, msg('m-y', 'you', [ADA], 'go', 3)]), ADA)).toBeNull();
+    expect(heldFor(view([pass, stop, msg('m-o', 'you', [HUGO], 'go', 3)]), ADA)?.id).toBe('m-s');
+    expect(heldFor(view([pass]), ADA)).toBeNull();
   });
 });
