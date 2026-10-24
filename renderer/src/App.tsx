@@ -4317,13 +4317,9 @@ export default function App() {
     // Held, and so saying "press Z to undo", only where it really is held: a
     // phone writes it at once and has no Z (./phone-holds).
     const mine = { product: item.product, id: item.id, at: Date.now(), text, held: holdsReplies(onPhone()) };
-    // ANY REPLY THAT KEEPS HER ON THE THREAD IS DRAWN AT ONCE (w-461fbd8d2d),
-    // not only one to a person. Since a reply to a finished agent stopped
-    // moving her on, it closed the box and drew nothing until the write landed:
-    // "for a good half second ... I feel like only when the agent starts
-    // thinking does it actually show my message." A reply that moves her on
-    // leaves no thread on the screen to draw it in.
-    if (stay) setSending((q) => [...q, mine]);
+    // EVERY REPLY IS DRAWN AT ONCE, including one that moves her on: O
+    // follows it back, and the thread must already hold it (w-388be0a968).
+    setSending((q) => [...q, mine]);
     const restore = (): Restored => {
       setSending((q) => q.filter((s) => s !== mine));
       return restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []) ? { item } : null;
@@ -4370,7 +4366,7 @@ export default function App() {
         putBack(error);
         return;
       }
-      if (stay) setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
+      setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
       if (wasScheduled) {
         if (priorRunAt > Date.now()) await api.schedule({ product: item.product, id: item.id, runAt: 0 });
         if (priorSnooze > Date.now()) await api.snooze({ product: item.product, id: item.id, snoozedUntil: 0 });
@@ -4508,9 +4504,17 @@ export default function App() {
     const status = statusForReply(item.status);
     // The option in the words the thread drew it with when it was picked.
     const undid = [{ product: item.product, id: item.id, words: 'Undid picking', choice: option.text.replace(/\s*\(recommended\)\s*$/i, '').trim() }];
+    // On the thread at once, as a typed reply is (w-388be0a968).
+    const answer = `Option ${option.n}: ${option.text}`;
+    const mine = { product: item.product, id: item.id, at: Date.now(), text: answer, held: holdsReplies(onPhone()) };
+    setSending((q) => [...q, mine]);
+    const letGo = () => setSending((q) => q.filter((s) => s !== mine));
+    const takeBack = (): Restored => { letGo(); return null; };
     await deferCommit(item, async () => {
-      await api.answer({ product: item.product, id: item.id, answer: `Option ${option.n}: ${option.text}`, ...(status ? { status } : {}) });
-      pushUndo({ label: `Option ${option.n} withdrawn, back in your inbox`, undoes: `take back option ${option.n}`, brings: item, undid, run: async () => {
+      try { await api.answer({ product: item.product, id: item.id, answer, ...(status ? { status } : {}) }); }
+      catch (error) { letGo(); throw error; }
+      setTimeout(letGo, LANDED_MS);
+      pushUndo({ label: `Option ${option.n} withdrawn, back in your inbox`, undoes: `take back option ${option.n}`, brings: item, undid, restore: takeBack, run: async () => {
         await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
         // Back exactly where the pick found it, the same one write a typed
         // reply's undo makes. Hardcoding 'open' was right while a pick could
@@ -4518,7 +4522,7 @@ export default function App() {
         // undone into her inbox instead of back into Done.
         await api.answer({ product: item.product, id: item.id, ...withdrawReply(item.status) });
       } });
-    }, `Option ${option.n} → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }, undid);
+    }, `Option ${option.n} → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
   }, [deferCommit, pushUndo, markDone, markSeen, movesOn]);
 
   /* ------------------------ the task she just wrote ------------------------ */
