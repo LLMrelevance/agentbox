@@ -414,7 +414,7 @@ describe('the page stays a page and not a wall', () => {
     }
     if (/\bterminals?\b/.test(prose)) {
       expect(read('renderer/src/components/TaskTerminal.tsx')).toContain('<strong>Terminal</strong>');
-      expect(app).toContain("label:'Open Terminal'");
+      expect(app).toContain("label:'Open terminal'");
     }
   });
 

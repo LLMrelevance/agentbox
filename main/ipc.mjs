@@ -1163,7 +1163,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // is the sentence, which the screens show as it stands.
   ipcMain.handle('zero:choose-folder', async (_e, { startIn } = {}) => {
     const r = await dialog.showOpenDialog(window, {
-      title: 'Where is its code?',
+      // The title is what the screen behind it asks. On Linux the chooser
+      // draws one, and it was still asking "Where is its code?", the heading
+      // that screen gave up in w-ec62ab6b38.
+      title: 'Pick a project folder',
       buttonLabel: 'Use this folder',
       properties: ['openDirectory', 'createDirectory'],
       ...(startIn ? { defaultPath: startIn } : {}),

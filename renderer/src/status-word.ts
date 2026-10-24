@@ -40,6 +40,13 @@ export interface StatusFacts extends LiveFacts {
   /** The thread's state, where the surface drawing it already knows (the
    *  board's column). Worked out from the thread itself otherwise. */
   state?: ThreadStateWord;
+  /**
+   * WHETHER THIS ROW IS IN THE TUTORIAL'S PRACTICE PROJECT. The supervisor
+   *  refuses to spawn there at all, so the fleet's silence about one of its
+   *  rows says nothing about that row: the same rule as `fleetUnread` below.
+   *  Three In progress cards read NOTHING RUNNING under a tutorial card
+   *  saying In progress is what agents are doing. */
+  practice?: boolean;
 }
 
 // Waiting its turn resolves itself; held does not. That is the whole of why
@@ -72,7 +79,7 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   // the confident wrong sentence this vocabulary exists to prevent. Nothing
   // running over our own session, open between Remote Control turns, is wrong
   // the same way.
-  const fleetUnread = !Array.isArray(facts.queued);
+  const fleetUnread = !Array.isArray(facts.queued) || !!facts.practice;
   if ((live?.state === 'idle' && (fleetUnread || facts.remoteHeld)) || (live?.state === 'elsewhere' && fleetUnread)) {
     return plain(stateWordOf(item, state), 'queued');
   }

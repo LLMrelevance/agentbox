@@ -637,7 +637,7 @@ export function ThreadCells({ item, product, now, person, tab }: {
   // this row is drawn under: the words about agents waiting their turn are
   // only ever true there, which is the gate live-line has always had.
   const fleet = useContext(FleetContext);
-  const status = statusCell(item, { ...factsFor(fleet, item.id), inProgress: tab === 'progress', now });
+  const status = statusCell(item, { ...factsFor(fleet, item.id), inProgress: tab === 'progress', now, practice: !!product?.practice });
   // WHO SEES IT, AT A GLANCE AND ONE CLICK FROM CHANGING (2026-10-01). One
   // mark after the title, always: the people on a thread the team or chosen
   // people can see, the lock on one only you can see. A thread shared with
@@ -971,7 +971,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
           const on = pick && !!marked?.has(e.item!.id);
           const edge = isSelected(e) && !marked?.size;
           // A teammate's card carries their summary and never our agents.
-          const status = e.item ? statusCell(e.item, { ...factsFor(fleet, e.item.id), state: e.state, inProgress: e.state === 'running', now }) : null;
+          const status = e.item ? statusCell(e.item, { ...factsFor(fleet, e.item.id), state: e.state, inProgress: e.state === 'running', now, practice: !!products.find((p) => p.slug === e.item!.product)?.practice }) : null;
           const seen = e.item ? sharing(e.item) : null;
           const who = seen === 'people' ? <SharedMark label="Visible to the people on it" /> : seen === 'private' ? <LockMark /> : null;
           const pin = e.item?.pinned && e.item.status !== 'done' ? <PinMark size={13} className="th-pin" /> : null;

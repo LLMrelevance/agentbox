@@ -1045,9 +1045,11 @@ export class Store {
    * its order, which is how `walkRows` knows which one is which.
    *
    *  The column is the app's own reading of the row, so each is written in the
-   *  shape that reads that way and nothing marks it: a finished one has a
-   *  result, a working one is her ask with a run and no result yet, and the
-   *  scheduled one is her ask with a time in the future, set as hers. */
+   *  shape that reads that way and nothing marks it: a working one is the ask
+   *  with a run and no result yet, and a scheduled one is the ask with a time
+   *  in the future, set as hers. None of them carries a result, because a
+   *  result is what puts a row back in the inbox and nothing here may land
+   *  there (shared/first-run-practice.mjs). */
   stagePracticeBackdrop(slug, { now = Date.now(), label = 'first-run' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
@@ -1067,12 +1069,6 @@ export class Store {
       if (row.state !== 'scheduled') {
         this.appendPracticeRun(slug, created.id, at.hers);
         this.writePracticeTrace(slug, created.id, row.trace, at.hers + 1_000);
-      }
-      if (row.state === 'needs') {
-        workItemsDisk.updateWorkItem(
-          dir, created.id, { result: row.result },
-          { source: 'agent', now: at.hers + 1_000 + row.trace.length * 9_000 + 1_000 },
-        );
       }
       ids.push(created.id);
     }

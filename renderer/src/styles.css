@@ -6837,9 +6837,12 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 /* IN THE STRIP UNDER THE SIDEBAR SINCE 2026-10-06. It was 38 tall from 14 up,
    which reached into the sidebar, and once the sidebar's foot was tightened to
    end at Settings the word sat on top of Settings. The strip under the sidebar
-   is 22 tall and holds nothing else. */
+   is 22 tall and holds nothing else.
+   AND OFF THE WINDOW'S EDGE SINCE 2026-10-24, where at bottom 0 it sat with
+   its descenders 4px off the bottom. 10 is the walk's own FLOOR, what
+   everything else it draws is held off an edge by (./onboarding.ts). */
 .fr-out {
-  position: fixed; left: 16px; bottom: 0px; height: 22px; z-index: 302;
+  position: fixed; left: 16px; bottom: 10px; height: 22px; z-index: 302;
   display: inline-flex; align-items: center;
   border: 0; background: none; padding: 0 6px;
   font: inherit; font-size: 12px; color: var(--text);
@@ -7695,8 +7698,12 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
 .fr-landed {
   position: fixed; inset: 0; z-index: 302; pointer-events: none;
 }
+/* OVER THE BURST, NOT UNDER IT. `.fr-burst` carries a z-index and is drawn
+   first; these words carried none, so forty falling pieces were painted across
+   a 34px headline. */
 .fr-landed-say {
   position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
+  z-index: 303;
   width: min(560px, calc(100vw - 96px));
   text-align: center;
   animation: fr-landed-say 14s ease forwards;

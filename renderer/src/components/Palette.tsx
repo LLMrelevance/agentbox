@@ -4,6 +4,7 @@
 import { cloudCommands, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Product, View } from '../types';
+import { DONE } from '../done-word';
 import { commandKeys } from '../palette-keys';
 import { emptyLine, lookRows, matchesQuery, rankMatches } from '../palette-rows';
 import { type Look } from '../skins';
@@ -136,7 +137,9 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     // through the filter (../palette-keys).
     { id: 'view-inbox', label: 'Inbox', run: () => onView('inbox') },
     { id: 'view-progress', label: 'In progress', run: () => onView('progress') },
-    { id: 'view-done', label: 'Closed', run: () => onView('done') },
+    // The tab this opens says Done, and so does the key, the row's chip and
+    // the button (../done-word). This row said Closed.
+    { id: 'view-done', label: DONE.short, run: () => onView('done') },
     // Every appearance row is built in ../palette-rows, which is pure so a test
     // can type into every look.
     ...lookRows(look, machine).map((r) => ({

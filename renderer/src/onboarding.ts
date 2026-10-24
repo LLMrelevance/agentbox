@@ -13,7 +13,7 @@
 // This module is the part with no React in it, so the walk can be tested
 // without a window.
 
-import { PRACTICE_BACKDROP, PRACTICE_NAME, PRACTICE_TASK } from '../../shared/first-run-practice.mjs';
+import { PRACTICE_NAME, PRACTICE_TASK } from '../../shared/first-run-practice.mjs';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { DONE } from './done-word';
 // The walk's own question card, and the one answer this file shares with it:
@@ -616,13 +616,13 @@ export function walkRows<T extends { id: string }>(rows: T[], run: FirstRun | nu
   // examples have been shown, hiding them while she writes her first thread
   // would be an inbox emptying itself for no reason. So from `look` to
   // `unblock` the list holds the four examples, her own thread, and the
-  // practice team's running and scheduled work (never its waiting rows, which
-  // are for the board). Codex, consulted on the round: "Preserve those
+  // practice team's other work. Codex, consulted on the round: "Preserve those
   // examples afterward; don't make the inbox mysteriously empty when creation
   // begins."
+  // The backdrop is no longer sifted by state here (2026-10-24): nothing in it
+  // needs you, so there is no half to leave out (shared/first-run-practice.mjs).
   if (WITH_EXAMPLES.includes(run.step)) {
-    const backdrop = (run.backdrop ?? []).filter((_, i) => PRACTICE_BACKDROP[i]?.state !== 'needs');
-    const keep = new Set([...(run.examples ?? []), run.item, ...backdrop].filter(Boolean) as string[]);
+    const keep = new Set([...(run.examples ?? []), run.item, ...(run.backdrop ?? [])].filter(Boolean) as string[]);
     return rows.filter((r) => keep.has(r.id));
   }
   // AND THE TOUR SEES HER OWN TASK TOO. Beat fifteen walks Inbox, In progress
@@ -652,16 +652,13 @@ export function walkRows<T extends { id: string }>(rows: T[], run: FirstRun | nu
   // (w-58c8f466e7). By here every staged row has been closed, put off or
   // answered, so the board opened with nothing waiting on you and the tabs
   // held one row each: "there's no value if we go into the board view and
-  // there's nothing on the page." The tour leaves out the rows that need you,
-  // because its first card says the inbox is now empty.
+  // there's nothing on the page."
   //
   // AND THE ⌘K BEAT KEEPS THE BOARD'S SET. Pressing B ends the board beat, so
   // the screen the board card promised used to empty itself one frame after
   // it appeared, under the very next card.
   if (run.step === 'where' || run.step === 'board' || run.step === 'command') {
-    const backdrop = (run.backdrop ?? [])
-      .filter((_, i) => run.step !== 'where' || PRACTICE_BACKDROP[i]?.state !== 'needs');
-    const keep = new Set([...(run.examples ?? []), run.item, ...backdrop].filter(Boolean) as string[]);
+    const keep = new Set([...(run.examples ?? []), run.item, ...(run.backdrop ?? [])].filter(Boolean) as string[]);
     return rows.filter((r) => keep.has(r.id));
   }
   return rows.filter((r) => r.id === run.item);
@@ -1656,9 +1653,13 @@ export function coach(
     // the tab tour after inbox zero went down to one press, so this is where
     // Later and Done are said. "In progress is agents at work" read as broken
     // grammar to a persona tester and is gone.
+    // AND THEY ARE NAMED IN THE ORDER THE STRIP DRAWS THEM (2026-10-24). The
+    // card reads quiet line first, loud line second, and the quiet line opened
+    // on Later and Done: it explained the far end of the strip before the tab
+    // the person was standing on.
     case 'tabs':
-      return say('Later is what you put off, and Done is what you finished.',
-        'Needs you is what waits on you. In progress is what agents are doing.', '↵', '', { next: true });
+      return say('Needs you is what waits on you. In progress is what agents are doing.',
+        'Later is what you put off, and Done is what you finished.', '↵', '', { next: true });
     case 'make':
       // "Thread", not task, the word since w-ec62ab6b38 (2026-09-28).
       // AND IT NAMES THE BUTTON AS WELL AS THE KEY (2026-10-01). Somebody who
@@ -2641,6 +2642,11 @@ export const UNDER: Partial<Record<Step, string>> = {
   // Two rows are still in the list on beat fourteen and the ring is on the
   // first of them, so the card goes under both for the same reason.
   snooze: '.list-pane .row:last-of-type',
+  // AND THE TWO BEATS THAT RING THE TAB STRIP, the same fault one control
+  // higher up: the strip is 54 tall and the card 147 to 173, so beside a tab
+  // it covered the strip it names, the column headers and the first row.
+  tabs: '.list-pane .row:last-of-type',
+  where: '.list-pane .row:last-of-type',
 };
 
 // ---------------------------------------------------------------------------
