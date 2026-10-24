@@ -191,7 +191,9 @@ describe('1. the tutorial offers itself when somebody makes a new project', () =
     // the call. AND THE WORD IS TUTORIAL SINCE 2026-08-28.
     expect(COPY.offerLater).toContain('⌘K');
     expect(COPY.offerLater.toLowerCase()).toContain('tutorial');
-    expect(app).toContain('showToast(WALK_COPY.offerLater)');
+    // `sayKeys` draws that ⌘K as the key this keyboard really has, so the
+    // sentence says Ctrl+K on Linux (shared/key-caps.mjs).
+    expect(app).toContain('showToast(sayKeys(WALK_COPY.offerLater))');
   });
 });
 
