@@ -27,3 +27,10 @@ export function latticeGrid(box: number, dpr?: number): {
 
 /** How much of the tag's size the list takes; it is read, not glanced at. */
 export function cardScale(scale: number): number;
+
+type Rect = { x: number; y: number; width: number; height: number };
+/** A page's measurement of itself, in screen points at the zoom it is drawn at. */
+export function inPoints(
+  m: { width: number; height: number; glass?: Rect; radius?: number },
+  zoom?: number,
+): { width: number; height: number; glass?: Rect; radius?: number };
