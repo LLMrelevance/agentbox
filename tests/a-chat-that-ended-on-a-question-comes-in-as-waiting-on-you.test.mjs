@@ -31,6 +31,16 @@ describe('how a chat ended', () => {
     expect(howTheChatEnded('(Want me to ship it?)').waiting).toBe(true);
   });
 
+  // The power test's first find: "an index on (account_id, created_at)" came
+  // out as "accountid, createdat", because every underscore was read as markdown.
+  it('keeps the underscores inside names, and drops only the ones that mark emphasis', () => {
+    expect(howTheChatEnded('An index on (account_id, created_at) helps. Shall I add it?').ask)
+      .toBe('An index on (account_id, created_at) helps. Shall I add it?');
+    expect(howTheChatEnded('Should `MAX_RETRIES` go to 5?').ask).toBe('Should MAX_RETRIES go to 5?');
+    expect(howTheChatEnded('Is _this_ the one you meant?').ask).toBe('Is this the one you meant?');
+    expect(howTheChatEnded('__Ready to merge?__').ask).toBe('Ready to merge?');
+  });
+
   it('keeps the end of a long line, because the question is at the end', () => {
     const story = `${'This was a long explanation of the change. '.repeat(5)}Shall I ship it?`;
     expect(howTheChatEnded(story)).toEqual({ waiting: true, ask: 'Shall I ship it?' });

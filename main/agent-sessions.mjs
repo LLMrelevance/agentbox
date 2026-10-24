@@ -375,7 +375,8 @@ function withEnds(threads, desktopFiles) {
   return threads.map((t, i) => {
     const file = t.source === 'desktop' ? desktopFiles.get(t.id) ?? null : t.path;
     if (i >= ENDS_MOST || Date.now() - started > ENDS_BUDGET_MS || !file) {
-      return { ...t, waiting: false, ask: '', lastSaid: '' };
+      // Not "finished": nothing is known of how it ended until it is picked.
+      return { ...t, waiting: false, ask: '', lastSaid: '', endUnknown: true };
     }
     const end = endOf(file);
     const firstSaid = t.firstSaid ?? firstTyped(readTranscriptHead(file).said);
@@ -387,6 +388,17 @@ function withEnds(threads, desktopFiles) {
       lastSaid: end.lastSaid,
       firstSaid,
     };
+  });
+}
+
+/** The chats somebody picked, with the end read for any the list left unread
+ *  (past its cap, or found by name). Codex and desktop chats come read. */
+export function readChatEnds(threads) {
+  return threads.map((t) => {
+    if (t.source === 'codex' || t.source === 'desktop' || !t.path) return t;
+    if (t.lastSaid !== undefined && !t.endUnknown) return t;
+    const { endUnknown, ...rest } = t;
+    return withEnds([rest], new Map())[0];
   });
 }
 

@@ -98,7 +98,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
   walk?: WalkMode;
   /** What was filed, so the caller can say it out loud and redraw the inbox. */
   onDone: (p: {
-    added: number; already: number; name: string; inboxes: number; made: string[]; noun?: string;
+    added: number; already: number; name: string; inboxes: number; made: string[]; noun?: string; done?: number;
   }) => void;
   /**
    * Nowhere to file into and no folder to make one out of. The card hands over
@@ -399,7 +399,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
    * is her own conversation arriving as a task. Both counts add up into one
    * sentence afterwards, because from where she is standing it was one press.
    * */
-  const bring = useCallback(async (paths: string[], { land }: { land?: 'sorted' } = {}) => {
+  const bring = useCallback(async (paths: string[]) => {
     if (busy || paths.length === 0) return;
     setBusy(true);
     try {
@@ -420,6 +420,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
 
       let added = 0;
       let already = 0;
+      let done = 0;
       let inboxes = 0;
       let landed = '';
       const newly: string[] = [];
@@ -433,8 +434,10 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
           added += r.added; already += r.already;
         }
         if (load.ids.length) {
-          const r = await api.importThreads({ product: slug, threads: load.ids, land });
+          // Waiting on you to Needs you, finished to Done, as setup and the switch file them.
+          const r = await api.importThreads({ product: slug, threads: load.ids, land: 'sorted' });
           added += r.added; already += r.already;
+          done += r.done ?? 0;
         }
         inboxes += 1;
       };
@@ -473,7 +476,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
       const kinds = countKinds(dests, paths);
       onDone({
         added, already, name: inboxes === 1 ? landed : '', inboxes, made: newly,
-        noun: kinds.agents ? 'agent' : 'thread',
+        noun: kinds.agents ? 'agent' : 'thread', done,
       });
     } finally { setBusy(false); }
   }, [busy, dests, all, onDone, onProjectMade, walk]);
@@ -486,7 +489,7 @@ export function ImportAgents({ products, filter, walk, onDone, onNewProject, onP
     if (busy) return;
     const take = [...pickedAsks, ...toDone.map((t) => t.path)];
     try { await api.setWorkspaceSetting({ key: 'importNew', value: keepNew }); } catch { /* the import still happens */ }
-    if (take.length) await bring(take, { land: 'sorted' });
+    if (take.length) await bring(take);
     else walk?.onSkip();
   }, [busy, pickedAsks, toDone, keepNew, bring, walk]);
 

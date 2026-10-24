@@ -9,6 +9,10 @@
 // watch was removed for.
 import { productsForThread } from '../shared/codex-import.mjs';
 import { isShared } from '../shared/team-rules.mjs';
+import { appSessionFolders } from './agent-homes.mjs';
+import { claudeSessionOpen } from './claude-session-open.mjs';
+import { readCodexThreadsOffThread } from './codex-threads.mjs';
+import { readRecentThreads } from './importable-threads.mjs';
 
 export const NEW_CHATS_POLL_MS = 60_000;
 /** How long a chat has to have been still before it comes in. */
@@ -88,4 +92,15 @@ export function startNewChatsWatch({
     scanNow: run,
     stop: () => { clearTimeout(first); clearInterval(timer); },
   };
+}
+
+/** The watch as the app runs it, on the desktop (main/main.mjs) and in the browser copy (bin/agentbox.mjs). */
+export function watchNewChatsFor({ store, config, supervisor, ...timing }) {
+  return startNewChatsWatch({
+    store,
+    config,
+    readThreads: (opts) => readRecentThreads({ ...opts, config, supervisor, readCodex: readCodexThreadsOffThread }),
+    isOpen: (t) => claudeSessionOpen(t.id, appSessionFolders({ config, supervisor }).dirs),
+    ...timing,
+  });
 }

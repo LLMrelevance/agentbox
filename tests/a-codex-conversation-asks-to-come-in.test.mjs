@@ -286,7 +286,7 @@ describe('the store, end to end', () => {
     expect(all).toHaveLength(3);
     for (const row of all) { expect(isCodexMirrorRow(row)).toBe(true); expect(row.status).toBe('open'); }
     // Pressing again moves nothing.
-    expect(s.importCodexThreads(slug, [a, b, c], { now: NOW + 4000 })).toEqual({ ids: [], added: 0, already: 3 });
+    expect(s.importCodexThreads(slug, [a, b, c], { now: NOW + 4000 })).toEqual({ ids: [], added: 0, already: 3, done: 0 });
   });
 
   // The watch stopped asking on 2026-10-05 (w-db6f5e331e): importing is on

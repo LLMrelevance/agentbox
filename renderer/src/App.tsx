@@ -7324,9 +7324,9 @@ export default function App() {
              because she opened this card to bring agents in and making the
              project was a step on the way rather than the errand. */
           onProjectMade={(slug) => { rememberProject(slug); refresh(); }}
-          onDone={async ({ added, already, name, inboxes, made, noun }) => {
+          onDone={async ({ added, already, name, inboxes, made, noun, done }) => {
             setImportAgents(false);
-            showToast(importedLine({ added, already, name, inboxes, made, noun }));
+            showToast(importedLine({ added, already, name, inboxes, made, noun, done }));
             await refresh();
           }}
           onClose={() => setImportAgents(false)}
@@ -7479,8 +7479,9 @@ export default function App() {
               return whyNotMade((err as Error).message, name);
             }
           }}
-          // The tutorial page's own Skip, the same exit as the corner one.
-          onLeave={() => finishRun([], { celebrate: false })}
+          // The tutorial page's own Skip still ends on setup's last screen,
+          // the chats waiting on you, which closes itself when there are none.
+          onLeave={() => setRun((r) => (r ? stepTo(r, 'done') : r))}
           // Any press on the ⌘K list shuts it, which ends that beat.
           onShut={() => setModal(null)}
           // "Skip this step" on every card (2026-10-06), hers: "make sure
@@ -7521,20 +7522,22 @@ export default function App() {
             fire({ t: 'practice', product: slug ?? '', examples: made?.examples ?? [], backdrop: made?.backdrop ?? [] });
           }}
           /*
-           * AND REACHING THIS CARD IS BEING SHOWN AROUND. The
-             new project offer is never asked of somebody who has just walked
-             the whole thing; the quiet way out below passes nothing, because
-             skipping is not practising. */
-          onDone={(chosen) => finishRun(chosen, { practised: true })}
+           * AND REACHING THIS CARD AFTER THE PRACTICE ROUND IS BEING SHOWN
+             AROUND. The new project offer is never asked of somebody who has
+             just walked the whole thing. Skipping the tutorial also ends here
+             (it has no practice project), and skipping is not practising, nor
+             "You finished the tutorial". */
+          onDone={(chosen) => { const practised = !!runRef.current?.practice; finishRun(chosen, { practised, celebrate: practised }); }}
           /*
            * THE IMPORT CARD ENDED THE WALK AND HAD ALREADY FILED. Nothing is
              imported here a second time; the toast is the same sentence ⌘K
              says, because it is the same press. */
-          onFiled={({ added, already, inboxes, made, noun }) => {
-            finishRun([], { filed: added, practised: true });
+          onFiled={({ added, already, inboxes, made, noun, done }) => {
+            const practised = !!runRef.current?.practice;
+            finishRun([], { filed: added, practised, celebrate: practised });
             if (added || already) {
               showToast(importedLine({
-                added, already, name: made.length === 1 ? made[0] : '', inboxes, made, noun,
+                added, already, name: made.length === 1 ? made[0] : '', inboxes, made, noun, done,
               }));
             }
           }}

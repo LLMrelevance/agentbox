@@ -4,9 +4,9 @@
 // The import now files a Claude Code chat as the chat itself (w-62228098e6):
 // your first message as yours and the agent's last reply as its result. Drawn
 // in the real app, the thread opened on "An agent opened this", which is not
-// true of a chat you started yourself. An imported Codex chat already says
-// "Brought in from Codex" there, so a Claude Code chat says "Brought in from
-// Claude Code".
+// true of a chat you started yourself. It says "Started in Claude Code", as a
+// Codex chat says "Started in Codex", because the row is dated when the chat
+// started (tests/an-imported-chat-keeps-the-times-it-happened).
 
 import { describe, it, expect } from 'vitest';
 import { threadEvents } from '../renderer/src/thread-history';
@@ -27,7 +27,7 @@ describe('an imported Claude Code chat', () => {
 
   it('says where it came from rather than that an agent opened it', () => {
     const said = events.map((e) => e.said);
-    expect(said).toContain('Brought in from Claude Code');
+    expect(said).toContain('Started in Claude Code');
     expect(said).not.toContain('An agent opened this');
   });
 

@@ -2986,6 +2986,22 @@ export function restartFirstRun(store: Store): void {
   try { store.removeItem(DONE_KEY); store.removeItem(KEY); } catch { /* as above */ }
 }
 
+type WalkProject = { slug: string; name: string; repoPath: string | null; practice?: boolean };
+
+/**
+ * The projects setup's last screen files into: the one the walk made first,
+ *  then every other one, so a chat in a folder that already has a project
+ *  lands there instead of the store being asked for that project again. Never
+ *  the practice project, which `finishRun` archives a moment later. The app's
+ *  list is a poll behind when the card first draws, so the walk's project is
+ *  built from the walk until the list has it. */
+export function walkProjects<P extends WalkProject>(products: P[], run: Pick<FirstRun, 'product' | 'name' | 'folder'>): WalkProject[] {
+  const others = products.filter((p) => !p.practice && p.slug !== run.product);
+  if (!run.product) return others;
+  const mine = products.find((p) => p.slug === run.product) ?? { slug: run.product, name: run.name, repoPath: run.folder };
+  return [mine, ...others];
+}
+
 /**
  * `?firstrun=1` opens the walk at the beginning; `?firstrun=answer` opens it at
  *  one named step. Anything else is not a step and is refused, because a typo

@@ -1545,14 +1545,15 @@ export const api = {
 
   // Ids only; the thread itself is the main process's own copy, so a row never
   // names a conversation off a screen that has been open since this morning.
-  async importThreads(p: { product: string; threads: string[]; land?: 'sorted' | 'inbox' }): Promise<{ added: number; already: number }> {
-    if (useFixtures) return { added: p.threads.length, already: 0 };
+  async importThreads(p: { product: string; threads: string[]; land?: 'sorted' | 'inbox' }): Promise<{ added: number; already: number; done: number }> {
+    if (useFixtures) return { added: p.threads.length, already: 0, done: 0 };
     const zero = window.zero as any;
-    if (!zero?.importThreads) return { added: 0, already: 0 };
+    if (!zero?.importThreads) return { added: 0, already: 0, done: 0 };
     try {
       const r = await zero.importThreads(p);
-      return { added: Number(r?.added ?? 0), already: Number(r?.already ?? 0) };
-    } catch { return { added: 0, already: 0 }; }
+      // `done` is how many were filed in Done; an older main sends none.
+      return { added: Number(r?.added ?? 0), already: Number(r?.already ?? 0), done: Number(r?.done ?? 0) };
+    } catch { return { added: 0, already: 0, done: 0 }; }
   },
 
   async pauseSupervisor(paused: boolean) {

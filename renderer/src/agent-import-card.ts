@@ -127,6 +127,8 @@ export interface SessionThread {
   imported?: boolean;
   /** The agent's last reply ended on a question for you. */
   waiting?: boolean;
+  /** How it ended was not read (past the list's cap), so it is neither waiting nor finished. */
+  endUnknown?: boolean;
   /** That question, short enough for one line. */
   ask?: string;
 }
@@ -258,13 +260,14 @@ export const SECTION = {
  * press that files into several projects and makes some of them. */
 export function importedLine(
   {
-    added = 0, already = 0, name = '', inboxes = 1, made = [], noun = 'agent',
+    added = 0, already = 0, name = '', inboxes = 1, made = [], noun = 'agent', done = 0,
   }: {
     added?: number; already?: number; name?: string; inboxes?: number; made?: string[];
-    noun?: string;
+    noun?: string; done?: number;
   },
 ): string {
   if (added === 0 && already === 0) return 'Nothing was ticked, so nothing was filed.';
+  if (noun === 'thread' && added > 0) return chatsLine({ added, already, made, done });
   const many = inboxes > 1;
   const where = name ? ` ${name}` : '';
   if (added === 0) {
@@ -288,6 +291,19 @@ export function importedLine(
   if (already === 0) return `${head}${tail}`;
   const had = already === 1 ? ' One already had one.' : ` ${word(already)} already had rows.`;
   return `${head}${had}${tail}`;
+}
+
+/** Chats land in Needs you or Done, so the line names those, not projects. */
+function chatsLine({ added, already, made, done }: { added: number; already: number; made: string[]; done: number }): string {
+  const filedDone = Math.min(Math.max(0, done), added);
+  const waiting = added - filedDone;
+  const chats = (n: number) => (n === 1 ? 'One chat is' : `${word(n)} chats are`);
+  const head = !filedDone ? `${chats(waiting)} in Needs you.`
+    : !waiting ? `${chats(filedDone)} in Done.`
+      : `${chats(waiting)} in Needs you and ${filedDone === 1 ? 'one is' : `${word(filedDone).toLowerCase()} are`} in Done.`;
+  const had = !already ? '' : already === 1 ? ' One was already here.' : ` ${word(already)} were already here.`;
+  const making = !made.length ? '' : made.length === 1 ? ` ${made[0]} is a new project.` : ` ${word(made.length)} new projects were made for them.`;
+  return `${head}${had}${making}`;
 }
 
 /**
@@ -538,7 +554,7 @@ export function pickupChats(threads: SessionThread[] = [], now = Date.now()) {
   const fresh = threads.filter((t) => !t.imported);
   return {
     waiting: fresh.filter((t) => t.waiting),
-    finished: fresh.filter((t) => !t.waiting && Number(t.when) >= now - WEEK),
+    finished: fresh.filter((t) => !t.waiting && !t.endUnknown && Number(t.when) >= now - WEEK),
   };
 }
 

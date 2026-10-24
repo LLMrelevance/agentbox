@@ -139,7 +139,9 @@ function plainLine(line) {
   return String(line)
     .replace(/^(>\s*)+/, '')
     .replace(/^#{1,6}\s+/, '')
-    .replace(/[*_`]+/g, '')
+    .replace(/[*`]+/g, '')
+    // An underscore between two letters is part of a name (account_id).
+    .replace(/(?<![A-Za-z0-9])_+|_+(?![A-Za-z0-9])/g, '')
     .replace(/^[("'“‘\s]+/, '')
     .replace(/[)"'”’\s]+$/, '')
     .trim();
