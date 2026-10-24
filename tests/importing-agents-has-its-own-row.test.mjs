@@ -113,7 +113,7 @@ describe('it is the walk\'s import, not a second one', () => {
     // agent files and her own threads, they land in one inbox, and `file` is
     // what puts them there. The channel is still the walk's.
     expect(card).toContain('api.importAgents({ product: slug, agents: load.names })');
-    expect(card).toContain('api.importThreads({ product: slug, threads: load.ids })');
+    expect(card).toContain('api.importThreads({ product: slug, threads: load.ids, land })');
     expect(card).toContain('await file(slug, load);');
     expect(card).toContain('await file(slug, f.load);');
   });

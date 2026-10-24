@@ -8122,6 +8122,14 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left;
 }
 .ia-line-meta { flex: none; font-size: 12px; color: var(--text-faint); white-space: nowrap; }
+/* Setup's last screen: a waiting chat carries its question on a second line. */
+.ia-line-row.has-ask { align-items: flex-start; }
+.ia-ask {
+  display: block; margin-top: 3px; font-size: 13px; color: var(--text-faint);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ia-done-note { margin: 14px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--text-faint); }
+.ia-keep { margin-top: 14px; border-top: 1px solid var(--line); }
 .ia-foot.ia-foot-one { justify-content: flex-start; gap: 10px; padding-top: 18px; }
 /* As drawn: the press is the one filled thing on the card, on the left, and a
    kept line wears the same fill in its tick. */

@@ -698,6 +698,7 @@ export function readSettings({ config, supervisor, store }, { search = true } = 
       // ADHD mode: whether the ADHD rules ride under hers (w-5737fe67cf). Off
       // unless she turned it on, so only `true` means on.
       adhdMode: config.adhdMode === true,
+      importNew: config.importNew === true,
       alpha: alphaFeatures(config),
       // The corner tag over other apps (w-dafae58a23). On unless she turned it
       // off here, which is the only place it turns off for good.
@@ -1309,6 +1310,12 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
     // spawn, so it applies from the next task on.
     case 'adhdMode':
       saveConfig(config, { adhdMode: !!value });
+      break;
+    // New chats from Claude Code and Codex come in on their own
+    // (main/new-chats-watch.mjs), only those started after it went on.
+    case 'importNew':
+      if (!value) saveConfig(config, { importNew: false });
+      else if (config.importNew !== true) saveConfig(config, { importNew: true, importNewSince: Date.now() });
       break;
     // Neo starts only if its switch was on at launch, and stops waking the
     // moment it goes off; Rooms is read on every snapshot.

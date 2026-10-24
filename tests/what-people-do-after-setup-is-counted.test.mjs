@@ -108,7 +108,9 @@ describe("setup's import card", () => {
   const card = read('renderer/src/components/ImportAgents.tsx');
 
   it('says how many it offered, once, and only inside setup', () => {
-    expect(card).toMatch(/if \(!walk \|\| !read \|\| toldOffered\.current\) return;\s*toldOffered\.current = true;\s*try \{ window\.zero\?\.track\?\.\('import_offered', lines\.length\); \} catch \{\}/);
+    // Setup's last screen offers only the chats waiting on you when it has any
+    // (w-62228098e6), so that is the number it offered.
+    expect(card).toMatch(/if \(!walk \|\| !read \|\| toldOffered\.current\) return;\s*toldOffered\.current = true;\s*try \{ window\.zero\?\.track\?\.\('import_offered', pickup \? askLines\.length : lines\.length\); \} catch \{\}/);
   });
 
   it('says how many it brought in, and only inside setup', () => {

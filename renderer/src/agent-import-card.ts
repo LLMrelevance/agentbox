@@ -125,6 +125,10 @@ export interface SessionThread {
   path: string;
   /** Already has a row in the inbox, so the card does not offer it again. */
   imported?: boolean;
+  /** The agent's last reply ended on a question for you. */
+  waiting?: boolean;
+  /** That question, short enough for one line. */
+  ask?: string;
 }
 
 /**
@@ -496,6 +500,71 @@ export function importLines(dests: Destination[], now = Date.now()): ImportLine[
     for (const a of d.items) files.push({ path: a.path, title: a.title, meta: `Claude Code agent · ${d.name}`, when: 0 });
   }
   return [...talks.sort((a, b) => b.when - a.when), ...files];
+}
+
+/* ------------------------ SETUP'S LAST SCREEN ------------------------------ */
+// The design the founder approved as R1 (w-62228098e6): only the chats that
+// were waiting on you, each with its question; the finished ones from this
+// week go to Done; and a tick that keeps new chats coming.
+
+export const PICKUP = {
+  head: 'Pick up where you left off',
+  lineNone: 'Nothing in Claude Code or Codex is waiting on you.',
+  finished: (n: number) => {
+    if (n <= 0) return '';
+    return n === 1 ? 'The one finished chat from this week goes to Done.' : `The ${n} finished chats from this week go to Done.`;
+  },
+  keep: 'Keep bringing in new chats from Claude Code and Codex',
+  go: (n: number) => (n > 0 ? `Bring in ${n}` : 'Continue'),
+  notNow: 'Not now',
+};
+
+/**
+ * The line under the head. A Claude Code chat carries on as the same
+ *  conversation; a Codex chat carries on here from what it said, so "the same
+ *  conversation" is promised only when every chat listed is Claude Code's. */
+export function pickupLine(waiting: Array<{ source?: string }> = []): string {
+  if (!waiting.length) return PICKUP.lineNone;
+  const codex = waiting.some((t) => t.source === 'codex');
+  const claude = waiting.some((t) => t.source !== 'codex');
+  if (!codex) return 'These were waiting on you in Claude Code. They carry on here, in the same conversation.';
+  return `These were waiting on you in ${claude ? 'Claude Code and Codex' : 'Codex'}. They carry on here.`;
+}
+
+const WEEK = 7 * 86400000;
+
+/** The chats not in yet: those waiting on you, and the finished ones from this week. */
+export function pickupChats(threads: SessionThread[] = [], now = Date.now()) {
+  const fresh = threads.filter((t) => !t.imported);
+  return {
+    waiting: fresh.filter((t) => t.waiting),
+    finished: fresh.filter((t) => !t.waiting && Number(t.when) >= now - WEEK),
+  };
+}
+
+/**
+ * The finished chats that go to Done: those whose folder has a project, or is
+ *  getting one because a waiting chat beside them is ticked. A project is never
+ *  made just to hold a closed row. */
+export function finishedForDone(dests: Destination[], finished: SessionThread[], picked: string[]): SessionThread[] {
+  const on = new Set(picked);
+  const lands = new Set<string>();
+  for (const d of dests) {
+    const making = (d.threads ?? []).some((t) => t.waiting && on.has(t.path));
+    if (d.slug || making) for (const t of d.threads ?? []) lands.add(t.path);
+  }
+  return finished.filter((t) => lands.has(t.path));
+}
+
+export interface PickupLine extends ImportLine { ask: string }
+
+/** The waiting chats as the screen draws them, newest first. */
+export function pickupLines(dests: Destination[], now = Date.now()): PickupLine[] {
+  const ask = new Map<string, string>();
+  for (const d of dests) for (const t of d.threads ?? []) if (t.waiting) ask.set(t.path, t.ask ?? '');
+  return importLines(dests, now)
+    .filter((l) => ask.has(l.path))
+    .map((l) => ({ ...l, ask: ask.get(l.path) ?? '' }));
 }
 
 /* ------------------------- FINDING AN OLDER ONE ---------------------------- */

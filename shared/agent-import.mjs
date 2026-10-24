@@ -126,6 +126,46 @@ export const THREAD_LABEL = 'thread-import';
 export const threadLabel = (id) => `thread:${String(id ?? '').trim()}`;
 
 /**
+ * WHETHER A CHAT ENDED WAITING ON YOU, read off the agent's last reply.
+ *
+ *  Waiting means the reply's last line is a question, or a question followed by
+ *  the choices it offers. `ask` is that question, cut from the front when it is
+ *  long, because the question is at the end of the line. */
+const ASK_CHARS = 140;
+const CHOICE = /^(\d+[.)]|[-*+]|[a-z][.)])\s+/i;
+const NOT_WAITING = Object.freeze({ waiting: false, ask: '' });
+
+function plainLine(line) {
+  return String(line)
+    .replace(/^(>\s*)+/, '')
+    .replace(/^#{1,6}\s+/, '')
+    .replace(/[*_`]+/g, '')
+    .replace(/^[("'“‘\s]+/, '')
+    .replace(/[)"'”’\s]+$/, '')
+    .trim();
+}
+
+function shortAsk(line) {
+  if (line.length <= ASK_CHARS) return line;
+  const sentences = line.split(/(?<=[.!?])\s+/);
+  const last = sentences[sentences.length - 1];
+  if (last.length <= ASK_CHARS) return last;
+  const tail = line.slice(-(ASK_CHARS - 1));
+  const sp = tail.indexOf(' ');
+  return `…${sp > 0 && sp < 40 ? tail.slice(sp + 1) : tail}`;
+}
+
+export function howTheChatEnded(said) {
+  const lines = String(said ?? '').replace(/\r/g, '').split('\n').map((l) => l.trim()).filter(Boolean);
+  let i = lines.length - 1;
+  while (i >= 0 && CHOICE.test(lines[i])) i -= 1;
+  if (i < 0) return { ...NOT_WAITING };
+  const line = plainLine(lines[i].replace(CHOICE, ''));
+  if (!line.endsWith('?')) return { ...NOT_WAITING };
+  return { waiting: true, ask: shortAsk(line) };
+}
+
+/**
  * WHEN SHE HAD IT, in the words a person uses about this week.
  *
  *  Inside a week a day name is the plain word. The window is ten days
@@ -154,38 +194,16 @@ export function startedIn(source) {
 }
 
 /**
- * ONE IMPORTED THREAD'S WORDS.
- *
- *  The title is the thread's own, which is the first thing the user typed into
- *  it, so the row in the inbox is called what they would call it. Ours is not
- *  added in front of it: a list of rows all opening with the same three words is
- *  a list that has to be read past to find which is which.
- *
- *  The last paragraph is the honest one. The reply resumes the conversation
- *  under a new id (`Supervisor#importedThreadFor`), so the original in Claude
- *  Code is never written to. When the transcript has gone by the time they
- *  reply, the row is briefed fresh with its title and their reply, which is
- *  what every imported row got before GitHub #44. */
-export function threadImportRow(thread, { projectName = null, now = Date.now() } = {}) {
+ * ONE IMPORTED THREAD'S WORDS, the chat as it was: the title Claude Code gave
+ *  it, your first message as the body and the agent's last reply as the
+ *  result, so the thread opens on the question it ended with. The reply
+ *  carries the conversation on (`Supervisor#importedThreadFor`). */
+export function threadImportRow(thread) {
   const title = String(thread?.title || '').trim();
-  const where = String(thread?.short || thread?.folder || '').trim();
-  const when = whenWords(thread?.when, now);
-  const started = [
-    'You started this',
-    startedIn(thread?.source),
-    when,
-    where ? `in ${where}` : '',
-  ].filter(Boolean).join(' ');
-  const inProject = projectName ? ` here in ${projectName}` : '';
-  const body = [
-    '**Say what you want done next in this thread.**',
-    `${started}.`,
-    `Reply and ${NAME} picks this conversation up where you left it${inProject}, answering you here.`,
-    'It carries on a copy, so the original stays as it was wherever you started it.',
-  ].join('\n\n');
   return {
     title,
-    body,
+    body: String(thread?.firstSaid || '').trim() || title,
+    result: String(thread?.lastSaid || '').trim(),
     kind: 'question',
     priority: 3,
     labels: [THREAD_LABEL, threadLabel(thread?.id)],

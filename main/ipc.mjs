@@ -1333,7 +1333,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // is a row, and a row is what stops it being imported twice
   // (`threadsNeedingRows`). The row's first reply resumes the conversation as a
   // copy (`Supervisor#importedThreadFor`, GitHub #44).
-  ipcMain.handle('zero:import-threads', async (_e, { product, threads } = {}) => {
+  ipcMain.handle('zero:import-threads', async (_e, { product, threads, land } = {}) => {
     if (!product) return { ok: false, added: 0, already: 0, ids: [] };
     const want = new Set(
       (Array.isArray(threads) ? threads : [])
@@ -1349,8 +1349,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     let out = { ids: [], added: 0, already: 0 };
     try {
       // Each store method takes its own kind off the list and leaves the other.
-      const claude = store.importThreadRows(product, chosen);
-      const codex = store.importCodexThreads(product, chosen);
+      // Setup's last screen sorts what it brings in: finished chats go to Done.
+      const how = { land: land === 'sorted' ? 'sorted' : 'inbox' };
+      const claude = store.importThreadRows(product, chosen, how);
+      const codex = store.importCodexThreads(product, chosen, how);
       out = { ids: [...claude.ids, ...codex.ids], added: claude.added + codex.added, already: claude.already + codex.already };
     } catch (err) {
       push();

@@ -96,6 +96,7 @@ import { changePath } from './code-change.mjs';
 import { snapshotRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
+import { claudeSessionOpen } from './claude-session-open.mjs';
 import { planStamp, readPlan } from './claude-plan.mjs';
 import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, deadRunPromisesARetry, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall, STOPPED_ON_REQUEST } from '../shared/dead-run-trace.mjs';
@@ -1867,8 +1868,17 @@ export class Supervisor {
       ? !this._profileFitsProject(profile, slug, 'claude')
       : this._profileCannotHoldAChat(profile, 'claude')) return null;
     let folder = '';
-    try { folder = readTranscriptHead(this.transcriptFile({ sessionId, profile, engine: 'claude' })).cwd ?? ''; } catch { folder = ''; }
-    return { sessionId, profile, imported: true, folder };
+    let file = null;
+    try { file = this.transcriptFile({ sessionId, profile, engine: 'claude' }); } catch { file = null; }
+    try { folder = readTranscriptHead(file).cwd ?? ''; } catch { folder = ''; }
+    // `<home>/projects/<folder>/<id>.jsonl`, so the login's home is three up.
+    const home = file ? path.dirname(path.dirname(path.dirname(file))) : null;
+    // Written to in the last two minutes counts as open too: a copy is the
+    // safe mistake when a session has no state file to say so.
+    let fresh = false;
+    try { fresh = Date.now() - fs.statSync(file).mtimeMs < 2 * 60_000; } catch { fresh = false; }
+    const open = fresh || claudeSessionOpen(sessionId, [home, path.join(this.config.home || os.homedir(), '.claude')]);
+    return { sessionId, profile, imported: true, folder, open };
   }
 
   /**
@@ -1877,12 +1887,14 @@ export class Supervisor {
    * front of that the two things it cannot work out alone: that it has moved,
    * and that work it left uncommitted in its old folder is not in this one.
    */
-  importedBrief(item, product, { continuation = false, engine = DEFAULT_ENGINE, folder = '' } = {}) {
+  importedBrief(item, product, { continuation = false, engine = DEFAULT_ENGINE, folder = '', copy = false } = {}) {
     const parts = [
       `THIS CONVERSATION HAS MOVED INTO ${NAME}. The person you were working with`,
       `brought it in as a task, ${item.id}, and is replying to you from there. Everything`,
-      'you remember is still true and none of it needs redoing. This is a copy: the',
-      'original conversation is left as it was.',
+      'you remember is still true and none of it needs redoing.',
+      copy
+        ? 'This is a copy: the original conversation is still open elsewhere and is left as it was.'
+        : 'This is the same conversation, carried on here.',
       '',
       ...(folder ? [
         `You were working in ${folder}. If you are in a different folder now, anything`,
@@ -6964,7 +6976,7 @@ export class Supervisor {
     // A FORK IS NOT AN INTERRUPTED SESSION AND MUST NOT BE TOLD IT IS. It is
     // the old conversation under a new id, on a new row, and the one thing it
     // cannot work out for itself is that it has moved.
-    else if (forkFrom?.imported) prompt = this.importedBrief(item, product, { continuation, engine, folder: forkFrom.folder });
+    else if (forkFrom?.imported) prompt = this.importedBrief(item, product, { continuation, engine, folder: forkFrom.folder, copy: !!forkFrom.open });
     else if (forkFrom) prompt = this.forkBrief(item, { product, from: forkFrom.sourceId });
     else prompt = resumeId ? this.resumeBrief(item, { continuation, product }) : this.buildBrief(item, product, { continuation, engine });
     // A BRANCH THE APP COULD NOT SHIP (main/ship-queue.mjs) goes back to the
@@ -7150,7 +7162,9 @@ export class Supervisor {
     // from keeps its own thread untouched (MP-08). The builder drops it when
     // there is no resume to fork from, and when the engine cannot fork at all.
     const args = harnessFor(engine).workerArgs({
-      prompt, grants: claudeGrants, effort: claudeEffort, system, resumeId, fork: !!forkFrom,
+      prompt, grants: claudeGrants, effort: claudeEffort, system, resumeId,
+      // An imported chat nobody has open any more is carried on, not copied.
+      fork: !!forkFrom && !(forkFrom.imported && !forkFrom.open),
     });
     /*
      * `command` GOES BACK WITH THE ARGUMENTS, because the exit handler has to

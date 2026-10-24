@@ -296,9 +296,11 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       if (words(patch!.body)) opened = true;
       // Their words with no title: the ask branch below opens the thread.
       if (theirs && words(next!.patch?.body)) continue;
+      // A chat the import brought in from Claude Code was yours, not an agent's.
+      const broughtIn = Array.isArray(patch!.labels) && patch!.labels.includes('thread-import');
       events.push({
         at, who,
-        said: mine ? 'You opened this' : 'An agent opened this',
+        said: mine ? 'You opened this' : broughtIn ? 'Brought in from Claude Code' : 'An agent opened this',
         ...(words(patch!.body) ? { words: words(patch!.body)!, message: true as const, field: 'body' as const } : {}),
       });
       continue;

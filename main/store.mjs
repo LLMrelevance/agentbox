@@ -1298,10 +1298,9 @@ export class Store {
    *  Stamped a second apart, oldest last, so the newest thread on the card is
    *  the newest row in the inbox. `chosen` arrives newest first from
    *  `readSessionThreads`. */
-  importThreadRows(slug, chosen, { now = Date.now() } = {}) {
+  importThreadRows(slug, chosen, { now = Date.now(), land = 'inbox' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
-    const product = this.listProducts().find((p) => p.slug === slug) ?? null;
     let existing = [];
     try { existing = workItemsDisk.readWorkItems(dir, now); } catch { /* a fresh project has none */ }
     // Codex conversations on the same card are importCodexThreads's, below.
@@ -1310,13 +1309,18 @@ export class Store {
     const ids = [];
     wanted.forEach((thread, i) => {
       const at = now - i * 1000;
-      const row = threadImportRow(thread, { projectName: product?.name ?? null, now });
+      const row = threadImportRow(thread);
       const created = workItemsDisk.createWorkItem(
         dir,
         { title: row.title, kind: row.kind, priority: row.priority, labels: row.labels },
         { source: 'agent', now: at },
       );
-      workItemsDisk.updateWorkItem(dir, created.id, { body: row.body }, { source: 'agent', now: at });
+      // Your words draw under You and the agent's under the agent.
+      workItemsDisk.updateWorkItem(dir, created.id, { body: row.body }, { source: 'founder', now: at });
+      if (row.result) workItemsDisk.updateWorkItem(dir, created.id, { result: row.result }, { source: 'agent', now: at + 1 });
+      if (land === 'sorted' && !thread.waiting) {
+        workItemsDisk.updateWorkItem(dir, created.id, { status: 'done' }, { source: 'founder', now: at + 2 });
+      }
       ids.push(created.id);
     });
     const seen = new Set(claude.map((t) => String(t?.id ?? '').trim()).filter(Boolean));
@@ -1424,7 +1428,7 @@ export class Store {
   /**
    * THE ⌘K CARD'S PRESS on Codex conversations: each becomes a readable row at
    *  once, whether it had an asking row, a declined one, or none. */
-  importCodexThreads(slug, chosen, { now = Date.now() } = {}) {
+  importCodexThreads(slug, chosen, { now = Date.now(), land = 'inbox' } = {}) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     const product = this.listProducts().find((p) => p.slug === slug) ?? null;
@@ -1450,6 +1454,9 @@ export class Store {
         rowId = created.id;
       }
       this.answerCodexImport(slug, rowId, 'yes', { thread, now: now + 2 });
+      if (land === 'sorted' && !thread.waiting) {
+        workItemsDisk.updateWorkItem(dir, rowId, { status: 'done' }, { source: 'founder', now: now + 3 });
+      }
       ids.push(rowId);
     }
     return { ids, added: ids.length, already };
@@ -1487,6 +1494,8 @@ export class Store {
     let refreshed = 0;
     for (const item of this.listAllWorkItems(now)) {
       if (!isCodexMirrorRow(item) || item.status === 'done') continue;
+      // Replied on here, so an agent here answers it from now on.
+      if (item.answer) continue;
       const t = byId.get(codexIdOf(item));
       if (!t) continue;
       const patch = codexMirrorPatch(t);

@@ -2311,6 +2311,14 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 <Picker bare label="Agents you started yourself" value={w.outsideAgents} options={AGENT_OPTIONS} onChange={(v) => setWorkspace('outsideAgents', v)} />
               </Row>
             </Group>
+            <Group id="new-chats" label="Chats from Claude Code and Codex">
+              <Row
+                label="Bring in new chats"
+                desc="A chat you start in Claude Code or Codex, in one of your projects, comes in once it stops. Waiting ones go to Needs you and finished ones to Done."
+              >
+                <Switch label="Bring in new chats" on={w.importNew === true} onChange={(v) => setWorkspace('importNew', v)} />
+              </Row>
+            </Group>
           </Page>
         )}
 

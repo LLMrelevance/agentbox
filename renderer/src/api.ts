@@ -98,7 +98,7 @@ const emptySettings: Settings = {
     // A screen that could not reach the main process says the switch is on and
     // that there is nowhere to send to, which is the truth about a copy that
     // cannot even read its own settings.
-    diagnostics: true, diagnosticsDestination: false, adhdMode: false, cornerTag: true,
+    diagnostics: true, diagnosticsDestination: false, adhdMode: false, importNew: false, cornerTag: true,
     storePath: '', homePath: '', claudeBin: '', claudeFound: false, claudeCertain: false, claudeInstallUrl: '',
     standingLines: 0,
     messageRulesLines: 0, projectsWithInstructions: 0, projectCount: 0,
@@ -1545,7 +1545,7 @@ export const api = {
 
   // Ids only; the thread itself is the main process's own copy, so a row never
   // names a conversation off a screen that has been open since this morning.
-  async importThreads(p: { product: string; threads: string[] }): Promise<{ added: number; already: number }> {
+  async importThreads(p: { product: string; threads: string[]; land?: 'sorted' | 'inbox' }): Promise<{ added: number; already: number }> {
     if (useFixtures) return { added: p.threads.length, already: 0 };
     const zero = window.zero as any;
     if (!zero?.importThreads) return { added: 0, already: 0 };
