@@ -9,6 +9,7 @@ import { AppMark } from './AppMark';
 import { SidebarMove, SidebarUpdate } from './SidebarUpdate';
 import { changeLines, closedHere, readMoveClosed, readUpdateClosed, writeMoveClosed, writeUpdateClosed } from '../update-row';
 import { AccountMenu } from '../team/account-menu';
+import { readUsageLook } from './UsagePill';
 import type { Invisible } from '../team/rooms/GoInvisible';
 /** ONE NUMBER IN THE SIDEBAR, ON INBOX, AND IT IS DRAWN IN THE TAB'S OWN TYPE.
  *
@@ -41,7 +42,9 @@ import type { Invisible } from '../team/rooms/GoInvisible';
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, invisible = null, inboxLabel = 'Threads', rail = false, onHover, groups = null, onGroupsPage = false }: {
+export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, invisible = null, inboxLabel = 'Threads', rail = false, onHover, groups = null, onGroupsPage = false, usageFace = null }: {
+  /** Round 23's trial: the reading for the looks that draw on your own row. */
+  usageFace?: { used: number; word: string | null; sentence: string } | null;
   /** The first row's name: Threads, or Inbox while its page holds groups too. */
   inboxLabel?: string;
   /** With Groups on (w-dcaa2c122e): narrow, wide only while pointed at, with no way to pin it open. */
@@ -103,6 +106,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   const inboxLit = !page && !onGroupsPage && (['inbox', 'progress', 'snoozed', 'done'] as string[]).includes(view);
   // A pointer passing over on its way somewhere else does not open it.
   const hoverAt = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [usageLook] = useState(readUsageLook);
   const hover = rail && onHover ? {
     onMouseEnter: () => { hoverAt.current = setTimeout(() => onHover(true), 140); },
     onMouseLeave: () => { if (hoverAt.current) clearTimeout(hoverAt.current); hoverAt.current = null; onHover(false); },
@@ -133,12 +137,13 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // `:last-child` rule close the gap under Settings (workspace-navigation.css).
   const corner = me
     ? (onAccount
-      ? <AccountMenu me={me} now={Date.now()} collapsed={collapsed} onAccount={onAccount} onInvite={onInvite} onSettings={onSettings} onSignOut={onSignOut} invisible={invisible} />
+      ? <AccountMenu me={me} now={Date.now()} collapsed={collapsed} onAccount={onAccount} onInvite={onInvite} onSettings={onSettings} onSignOut={onSignOut} invisible={invisible}
+          usage={usageLook === 'ring' || usageLook === 'name' ? usageFace : null} usageLook={usageLook} />
       : <><Face person={me} me /><span>{me.name || me.email}<small>{me.email}</small></span></>)
     : team?.configured && onTeam
       ? <button type="button" className="th-me-signin" aria-label="Sign in to your team" onClick={onTeam}>Sign in to your team</button>
       : null;
-  return <aside className={`workspace-navigation${rail ? ' gt-rail-nav' : ''}`} aria-label="Workspace" {...hover}>
+  return <aside className={`workspace-navigation${rail ? ' gt-rail-nav' : ''}${usageLook ? ` usage-look-${usageLook}` : ''}`} aria-label="Workspace" {...hover}>
     {/* THE TOGGLE SITS BESIDE THE TEAM'S NAME, at the top, where sidebars keep
         it (2026-10-01). Collapsed, the mark itself is the way back
         open, and shows the sidebar icon under the pointer. */}
