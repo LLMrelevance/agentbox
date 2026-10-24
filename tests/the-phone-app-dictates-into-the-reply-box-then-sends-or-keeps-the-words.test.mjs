@@ -308,7 +308,9 @@ describe('the screens, the wording and the policy', () => {
   it('while it listens, the reply box offers Stop and Send and not the agent\'s Stop', () => {
     expect(ui()).toContain('"Stop dictating"');
     expect(ui()).toContain('"Send what you said"');
-    expect(thread()).toMatch(/talk\.on \? \(\s*<Listening|offers\.stop && !ready && !talk\.on/);
+    expect(thread()).toMatch(/talk\.on \? \(\s*<Listening talk=\{talk\}/);
+    // The new thread's own Send, at the top, waits for the last words too.
+    expect(src('mobile/src/app/new.tsx')).toMatch(/talk\.on \? talk\.send\(\) : void send\(\)/);
   });
 
   it('lets go of the microphone when the screen is left or the app is put away', () => {

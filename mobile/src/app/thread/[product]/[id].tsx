@@ -34,7 +34,7 @@ import { Markdown, type MessageFiles } from '../../../ui/Markdown';
 import { footRoom, IconButton, Pickable, PriorityBars, RunningMark, T, TopBar, Wall } from '../../../ui/parts';
 import { ModelSheet, ModeSheet, PrioritySheet, barsFor } from '../../../ui/Pickers';
 import { ThreadMenu } from '../../../ui/ThreadMenu';
-import { DictationProblem, Listening, ListeningPanel, ListeningStrip, MicButton, useDictation, VARIANT } from '../../../ui/Dictation';
+import { DictationProblem, Listening, MicButton, useDictation } from '../../../ui/Dictation';
 import { ActLine, FiledList, FocusActions, LiveLine, OptionsCard, RunLine, WorkLine } from '../../../ui/ThreadParts';
 import { color, font, size } from '../../../ui/theme';
 
@@ -133,12 +133,8 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
   useEffect(() => { if (!talk.on && !talk.problem && !ready && !sheet && !typing.current?.isFocused()) setOpen(false); }, [talk.on]);
   const foot = footRoom(inset);
   const card = { borderWidth: 1, backgroundColor: color.fill };
-  const panel = talk.on && VARIANT === 'panel';
-  const listensInFoot = talk.on && VARIANT !== 'strip' && VARIANT !== 'panel';
-  const micInSlot = VARIANT === 'wave' && !ready && !offers.stop;
   return (
-    <>
-    <View style={{ paddingHorizontal: 12, paddingBottom: panel ? 12 : 16 + foot, paddingTop: 8 }}>
+    <View style={{ paddingHorizontal: 12, paddingBottom: 16 + foot, paddingTop: 8 }}>
       {!open ? (
         <View style={{ ...card, borderColor: color.line, height: 43, flexDirection: 'row', alignItems: 'center' }}>
           <Pressable onPress={() => setOpen(true)} accessibilityRole="button" accessibilityLabel="Reply" style={{ flex: 1, height: '100%', flexDirection: 'row', alignItems: 'center' }}>
@@ -149,8 +145,6 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
           <View style={{ marginRight: 4 }}><MicButton talk={{ ...talk, start: () => { setOpen(true); talk.start(); } }} /></View>
         </View>
       ) : (
-        <>
-        {talk.on && VARIANT === 'strip' && <ListeningStrip talk={talk} />}
         <View style={{ ...card, borderColor: color.lineStrong }}>
           <TextInput ref={typing} autoFocus={!talk.active()} multiline value={draft.text} onChangeText={draft.setText} placeholder="What should the agent do next?" placeholderTextColor={color.faint}
             onFocus={() => { if (talk.active()) talk.stop(); }}
@@ -165,7 +159,7 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
             </View>
           )}
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, borderTopWidth: 1, borderTopColor: color.line, paddingTop: 9, paddingBottom: 10, paddingLeft: 12, paddingRight: 14 }}>
-            {listensInFoot ? (
+            {talk.on ? (
               <Listening talk={talk} lead={4} />
             ) : (
             <>
@@ -173,7 +167,7 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
               style={{ width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginRight: -4 }}>
               <Clip />
             </Pressable>
-            {!micInSlot && <View style={{ marginLeft: -10, marginRight: -4 }}><MicButton talk={talk} lit={talk.on} /></View>}
+            <View style={{ marginLeft: -10, marginRight: -4 }}><MicButton talk={talk} /></View>
             <T style={{ flex: 1, fontSize: 13, lineHeight: 21, color: color.faint }}>
               <Pickable style={{ fontSize: 13, color: color.dim }} onPress={() => setSheet('priority')}>{priorityLabelOf(shownLevel({ priority }))}</Pickable>
               {' priority. In '}
@@ -184,14 +178,14 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
               {'.'}
             </T>
             {/* One slot: Stop while it is in progress and the box is empty, Send once anything is typed (Focus.tsx). */}
-            {micInSlot ? <MicButton talk={talk} /> : offers.stop && !ready && !talk.on ? (
+            {offers.stop && !ready ? (
               <Pressable onPress={stop} accessibilityRole="button" accessibilityLabel={thread.running ? 'Stop this agent' : 'Stop this task'}
                 style={({ pressed }) => ({ height: 29, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, borderWidth: 1, borderColor: color.lineStrong, backgroundColor: pressed ? color.picked : 'transparent' })}>
                 <StopMark />
                 <T style={{ fontSize: 13, fontFamily: font.medium, color: color.dim }}>Stop</T>
               </Pressable>
             ) : (
-              <Pressable disabled={busy || !ready} accessibilityRole="button" onPress={() => (talk.on ? talk.send() : void send(picked))}
+              <Pressable disabled={busy || !ready} accessibilityRole="button" onPress={() => void send(picked)}
                 style={({ pressed }) => ({ height: 29, paddingHorizontal: 16, justifyContent: 'center', borderWidth: 1, borderColor: color.lineStrong, backgroundColor: pressed ? color.picked : 'transparent', opacity: busy || !ready ? 0.5 : 1 })}>
                 <T style={{ fontSize: 13, fontFamily: font.semibold }}>{busy ? 'Sending…' : 'Send'}</T>
               </Pressable>
@@ -200,7 +194,6 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
             )}
           </View>
         </View>
-        </>
       )}
       <AttachSheet open={sheet === 'attach'} close={() => setSheet(null)} add={(more) => { setFailed(null); draft.setFiles((f) => [...f, ...more]); }} fail={setFailed} />
       <PrioritySheet open={sheet === 'priority'} close={() => setSheet(null)} value={priority} pick={(v) => setPicked((p) => ({ ...p, priority: v }))} />
@@ -208,8 +201,6 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
       <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={picked.effort ?? item.effort ?? null}
         pickModel={(v) => setPicked((p) => ({ ...p, model: v }))} pickEffort={(v) => setPicked((p) => ({ ...p, effort: v }))} />
     </View>
-    {panel && <ListeningPanel talk={talk} foot={foot} />}
-    </>
   );
 }
 

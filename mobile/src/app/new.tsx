@@ -16,7 +16,7 @@ import { screenGate } from '../lib/thread-gate';
 import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
 import { AttachSheet, Attached } from '../ui/Attach';
-import { DictationProblem, Listening, ListeningPanel, ListeningStrip, MicButton, useDictation, VARIANT } from '../ui/Dictation';
+import { DictationProblem, Listening, MicButton, useDictation } from '../ui/Dictation';
 import { Caret, Clip, Clock, Cross } from '../ui/icons';
 import { TimeBox, TypingSheet } from '../ui/Later';
 import { footRoom, IconButton, Pickable, PriorityBars, Sheet, SheetHead, SheetRow, T, TopBar, Wall } from '../ui/parts';
@@ -74,7 +74,6 @@ export default function NewThread() {
   latest.current = sendNow;
   const [send] = useState(() => onceAtATime((later?: Choices) => latest.current(later)));
   const talk = useDictation(draft, () => void send());
-  const listensInFoot = talk.on && VARIANT !== 'strip' && VARIANT !== 'panel';
   const gate = screenGate(c);
   if (gate === 'wait') return <Wall><View /></Wall>;
   if (gate === 'sign-in') return <Redirect href="/sign-in" />;
@@ -127,23 +126,20 @@ export default function NewThread() {
             <DictationProblem talk={talk} />
           </View>
         </ScrollView>
-        {talk.on && VARIANT === 'strip' && <ListeningStrip talk={talk} />}
-        {talk.on && VARIANT === 'panel' ? <ListeningPanel talk={talk} foot={foot} /> : (
-          <View style={{ height: 52 + foot, paddingBottom: foot, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: color.line }}>
-            {listensInFoot ? (
-              <View style={{ flex: 1, flexDirection: 'row', paddingLeft: 16, paddingRight: 12 }}><Listening talk={talk} /></View>
-            ) : (
-              <>
-                <Pressable onPress={() => setSheet('attach')} accessibilityRole="button"
-                  style={({ pressed }) => ({ flex: 1, height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? color.fill : 'transparent' })}>
-                  <Clip />
-                  <T style={{ fontSize: 15, color: color.dim }}>Attach a file or picture</T>
-                </Pressable>
-                <View style={{ marginRight: 8 }}><MicButton talk={talk} lit={talk.on} /></View>
-              </>
-            )}
-          </View>
-        )}
+        <View style={{ height: 52 + foot, paddingBottom: foot, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: color.line }}>
+          {talk.on ? (
+            <View style={{ flex: 1, flexDirection: 'row', paddingLeft: 16, paddingRight: 12 }}><Listening talk={talk} /></View>
+          ) : (
+            <>
+              <Pressable onPress={() => setSheet('attach')} accessibilityRole="button"
+                style={({ pressed }) => ({ flex: 1, height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? color.fill : 'transparent' })}>
+                <Clip />
+                <T style={{ fontSize: 15, color: color.dim }}>Attach a file or picture</T>
+              </Pressable>
+              <View style={{ marginRight: 8 }}><MicButton talk={talk} /></View>
+            </>
+          )}
+        </View>
       </KeyboardAvoidingView>
       <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={effort}
         pickModel={(id) => { setModel(id); pickModel(appStore, id); }} pickEffort={(id) => setEffort(pickEffort(appStore, effort, id))} />
