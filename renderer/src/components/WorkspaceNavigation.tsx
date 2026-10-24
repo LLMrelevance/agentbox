@@ -44,7 +44,7 @@ import type { Invisible } from '../team/rooms/GoInvisible';
 export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, invisible = null, inboxLabel = 'Threads', rail = false, onHover, groups = null, onGroupsPage = false }: {
   /** The first row's name: Threads, or Inbox while its page holds groups too. */
   inboxLabel?: string;
-  /** Round 18 trial (w-dcaa2c122e): narrow, wide only while pointed at, with no way to pin it open. */
+  /** With Groups on (w-dcaa2c122e): narrow, wide only while pointed at, with no way to pin it open. */
   rail?: boolean; onHover?: (on: boolean) => void;
   /** Groups' rows under Inbox, and whether a group is the page, which unlights Inbox. */
   groups?: ReactNode; onGroupsPage?: boolean;

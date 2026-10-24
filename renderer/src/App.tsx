@@ -160,7 +160,6 @@ import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../
 import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
-import { AccountFace, PageMenu, TopNotices, railLook } from './team/rooms/PageMenu';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
@@ -750,8 +749,7 @@ export default function App() {
   //
   // It still starts up on a machine that has never been told otherwise.
   const [panelUp, setPanelUp] = useState(() => localStorage.getItem('powerup.sidebar.collapsed') !== 'true');
-  const [topTabs, setTopTabs] = useState<HTMLDivElement | null>(null);
-  // Round 18 trial: the narrow sidebar, wide while pointed at.
+  // With Groups on: the narrow sidebar is wide while pointed at.
   const [railOpen, setRailOpen] = useState(false);
   // WHAT THE SIDEBAR WAS BEFORE A DOCUMENT TOOK THE WHOLE WINDOW, and null
   // whenever nothing has. The effect that fills it in sits further down beside
@@ -5980,21 +5978,14 @@ export default function App() {
   // `modal === 'reply'` and nothing else; the rule that reads it sits beside
   // `.toast` in the stylesheet and says why it moves to the top rather than
   // merely further up.
-  // WITH GROUPS ON THERE IS NO SIDEBAR (PageMenu.tsx). The top bar starts with
-  // the page's name, Inbox or Groups, as a menu of both and of every group,
-  // then the Inbox's tabs, a group's chips, or a thread's trail. A phone keeps
-  // its own top bar (phone.css), which has no room for all of that.
-  const rail = roomsUi.live && workspaceNavigation && !onPhone() ? railLook() : null;
-  const pageMenu = roomsUi.live && workspaceNavigation && !onPhone() && !rail;
-  const sideFolded = rail ? !railOpen : workspaceCollapsed;
+  // WITH GROUPS ON THE SIDEBAR STAYS NARROW (GroupsSidebar.tsx) and widens
+  // over the page while pointed at, holding Inbox, Groups and every group; it
+  // is never pinned open. A phone keeps its own top bar (phone.css).
+  const narrowSidebar = roomsUi.live && workspaceNavigation && !onPhone();
+  const sideFolded = narrowSidebar ? !railOpen : workspaceCollapsed;
   // A teammate's direct record is one of your groups, so Groups is the page it is on.
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
-  const tabsInTop = pageMenu && !focused && !settingsOpen && !teamShown && search === null && !roomShown;
-  const teamMark = <span className="th-mark" aria-hidden="true">{(snap?.team?.team?.name ?? 'A').slice(0, 1).toUpperCase()}</span>;
   const openView = (next: View) => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); };
-  const pageNav = (on: 'inbox' | 'groups') => <PageMenu on={on} groups={roomsUi.groups} onPick={roomsUi.pickGroup}
-    onInbox={() => openView('inbox')} onGroups={roomsUi.openTab} />;
-  const afterNav = roomShown ? roomsUi.chips ?? roomsUi.crumb : tabsInTop ? <div className="tabs-top" ref={setTopTabs} /> : null;
 
   return (
     <TeamContext.Provider value={team}>
@@ -6005,7 +5996,7 @@ export default function App() {
     <WaitingContext.Provider value={waitingByThread}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
-    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${pageMenu ? ' gt-noside gt-inset gt-sumleft' : ''}${rail ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
+    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
           `.workspace-layout::after` is the window's drag strip. */}
@@ -6030,7 +6021,7 @@ export default function App() {
           Invite people, its shortcut row (w-8415594d19), until that row left
           the sidebar for the single-player launch (w-1b574413db, 2026-10-04).
           `onInvite` is still handed in, for the account menu. */}
-      {workspaceNavigation && !pageMenu && <WorkspaceNavigation
+      {workspaceNavigation && <WorkspaceNavigation
         update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
         /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
@@ -6043,7 +6034,7 @@ export default function App() {
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
         onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={sideFolded} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={openView}
-        rail={!!rail} onHover={setRailOpen} groups={rail ? roomsUi.railGroups(rail, roomShown || directOpen, directOpen ? focused!.id : null) : undefined} onGroupsPage={roomShown || directOpen} />}
+        rail={narrowSidebar} onHover={setRailOpen} groups={narrowSidebar ? roomsUi.sidebarGroups(roomShown || directOpen, directOpen ? focused!.id : null) : undefined} onGroupsPage={roomShown || directOpen} />}
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
           only part of our own document lying over the file, so a pointer
           brought up there wakes the marks that a pointer moving across the
@@ -6134,7 +6125,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? (pageMenu ? <div className="gt-titled">{teamMark}{pageNav(roomsUi.roomName ? 'groups' : 'inbox')}</div> : <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1>) : pageMenu && roomsUi.openId !== 'find' ? <div className="gt-titled">{teamMark}{pageNav(roomShown ? 'groups' : 'inbox')}{afterNav && <><span className="gt-vsep" aria-hidden="true" />{afterNav}</>}</div> : rail && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
+        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
         <nav
           className="tabs"
           /* NO HINT ON THIS NAV. This older strip is the layout without the
@@ -6309,18 +6300,6 @@ export default function App() {
               view={roomShown ? roomsUi.viewButton : null}
             />
           ))}
-          {/* What the sidebar's foot held, with no sidebar: a new version
-              waiting, then your face and its account menu. */}
-          {pageMenu && <TopNotices
-            update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
-            onUpdate={() => { void api.updateInstall(); }}
-            move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
-            onMove={() => { void api.updateMove(); }} />}
-          {pageMenu && snap?.team?.me && <AccountFace me={snap.team.me} now={now} invisible={roomsUi.invisible}
-            onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
-            onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
-            onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} onFeedback={() => setFeedbackOpen(true)}
-            onSignOut={() => { void api.teamSignOut().then(() => refresh()); }} />}
           {!workspaceNavigation && !focused && !settingsOpen && !inPractice && (
             <BoxFilter
               filter={boxFilter}
@@ -6749,7 +6728,6 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
-                    into={tabsInTop ? topTabs : null}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>

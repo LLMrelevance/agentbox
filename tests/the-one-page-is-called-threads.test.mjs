@@ -51,7 +51,7 @@ describe('the page says Threads too', () => {
   it('in its heading', () => {
     expect(app).toContain('<h1 className="workspace-title">Threads</h1>');
     expect(app.match(/<h1 className="workspace-title">Inbox<\/h1>/g) ?? []).toHaveLength(1);
-    expect(app).toContain('rail && !roomShown ? <h1 className="workspace-title">Inbox</h1>');
+    expect(app).toContain('narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1>');
   });
   // Opened from a room's board, the way back names the room instead.
   it('on the way back from a teammate’s card, and in the heading over it', () => {
