@@ -23,6 +23,7 @@ import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
+import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
@@ -1621,6 +1622,9 @@ export default function App() {
   // per item. Resolving from the LIST leaves her in the list, which is
   // `advanceAfter` in ./advance and hers on.
   const advanceRef = useRef<Advance | null>(null);
+  /** The thread the advance last put in front of you, so a number aimed at the
+   *  one before it cannot answer this one (./pick-settles). */
+  const arrived = useRef<Arrival>(null);
   // The grace window: an action is held for a few seconds before anything is
   // written; Z inside the window cancels it completely. Short on purpose: a
   // stray agent start is cheap, unlike a stray email.
@@ -1928,6 +1932,21 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  // AND THE THREADS WHOSE AGENT IS STOPPED ON A PERMISSION REQUEST. Each
+  // approval in the spool names the thread it came from, and that one fact
+  // turns a Working row into a row that needs you, in both lists.
+  // Not the one you have just answered: the spool carries it until the main
+  // process pushes, while its card is already leaving with a verdict on it
+  // (`approvalStage`), and a row still reading Needs you behind that card is
+  // the app disagreeing with itself.
+  const askingIds = useMemo(
+    () => new Set((snap?.approvals ?? [])
+      .filter((a) => a.id !== answered?.id)
+      .map((a) => a.item)
+      .filter((id): id is string => !!id)),
+    [snap?.approvals, answered?.id],
+  );
+  const asking = useCallback((i: { id: string }) => askingIds.has(i.id), [askingIds]);
   // EVERYTHING THE SUPERVISOR KNOWS ABOUT EVERY THREAD, in one context, so the
   // Status column on a row and the word on a card are the same answer
   // (renderer/src/fleet.ts, w-ec2b04d449).
@@ -1937,8 +1956,9 @@ export default function App() {
     signInNeeded: snap?.supervisor.signInNeeded, atLimit: snap?.supervisor.atLimit,
     shipping: snap?.supervisor.shipping, stalled: snap?.supervisor.stalled,
     silent: snap?.supervisor.silent, paused: snap?.supervisor.paused,
+    asking: [...askingIds],
     whyNotCloud: snap?.supervisor.whyNotCloud,
-  }), [runningRows, snap?.supervisor, heldAnswer, pendingIds]);
+  }), [runningRows, snap?.supervisor, heldAnswer, pendingIds, askingIds]);
   const cloudIds = useMemo(() => new Set(runningRows.filter((r) => r.where === 'cloud').map((r) => r.itemId)), [runningRows]);
   // THE THREADS THE APP STILL HAS TO SHIP (w-0c1ba766eb). Waiting on the app,
   // not on her, so In progress reading "Shipping" and out of Needs you until
@@ -1963,10 +1983,15 @@ export default function App() {
     // two lines answer before `belongsInInbox` is ever called, so without it
     // the exception would hold in the rule and not in the app (w-fe48447cab).
     // A row still asking you something is never hidden by either.
-    if (liveIds.has(i.id) && !stillAsksYou(i)) return false;
+    //
+    // A thread whose agent is stopped on a permission request carries the same
+    // exception: the session is live, and what it is doing is waiting for you.
+    // `asking` and not `stillAsksYou` because the question is not on the row at
+    // all, it is on a card with Allow and Deny on it.
+    if (liveIds.has(i.id) && !stillAsksYou(i) && !asking(i)) return false;
     // And the app is still to ship it, which is the same: nobody needs to look
     // until it has (`shipping` in list-rules, w-0c1ba766eb).
-    if (shippingIds.has(i.id) && !stillAsksYou(i)) return false;
+    if (shippingIds.has(i.id) && !stillAsksYou(i) && !asking(i)) return false;
     if (owedAnAnswer.has(i.id)) return true;
     // The rule itself lives in list-rules.ts, pure and pinned by tests. What
     // is left here is the view's own business: the grace window, the clock,
@@ -1977,9 +2002,12 @@ export default function App() {
     // (w-9cf2b43110). The team branch answers before the rule below does, so
     // without this line the agent-to-agent rows came back the moment a project
     // was shared with somebody.
+    // Above the team branch, which answers before the rule does: a permission
+    // request is not something a project's sharing has any view on.
+    if (asking(i)) return true;
     if (shared === true) return i.status !== 'done' && !(hiddenAt(i) > now) && !isProposal(i) && !waitsInLater(i, waitingOn(i));
-    return belongsInInbox(i, { deliveredThrough, hiddenUntil: hiddenAt(i), now, waitingOn: waitingOn(i), stopped: stalledIds.has(i.id) });
-  }), [items, hiddenAt, scope, now, pendingIds, teamInbox, liveIds, shippingIds, stalledIds, waitingOn]);
+    return belongsInInbox(i, { deliveredThrough, hiddenUntil: hiddenAt(i), now, asking: asking(i), waitingOn: waitingOn(i), stopped: stalledIds.has(i.id) });
+  }), [items, hiddenAt, scope, now, pendingIds, teamInbox, liveIds, shippingIds, stalledIds, asking, waitingOn]);
 
   // WHAT MATTERS MOST, ONE COPY, read by every list that claims to be in an
   // order. A product's place in her running order is worth a hundred item
@@ -5412,7 +5440,14 @@ export default function App() {
         // THE NUMBER IS SWALLOWED, because a pick can now open a text field
         // and the key that opens one types itself into it otherwise: the box
         // read "2Change something first" (renderer/src/keys.ts).
-        else if (/^[1-9]$/.test(e.key)) { e.preventDefault(); pickOption(focused, Number(e.key)); }
+        // AND IT DOES NOT ANSWER A THREAD THE APP HAS JUST PUT IN FRONT OF YOU
+        // (./pick-settles). Said out loud rather than going quiet, because a
+        // key that does nothing reads as a key that is broken.
+        else if (/^[1-9]$/.test(e.key)) {
+          e.preventDefault();
+          if (!pickLandsHere(arrived.current, keyOf(focused), Date.now())) showToast(AIMED_AT_THE_THREAD_YOU_LEFT);
+          else pickOption(focused, Number(e.key));
+        }
         return;
       }
       // A TEAMMATE'S CARD IS A SCREEN, LIKE AN OPEN THREAD (w-fb16bcaeba). It
@@ -5680,6 +5715,10 @@ export default function App() {
     advanceRef.current = null;
     const next = nextAfterAdvance(shownInbox, pending);
     if (!next) return;
+    // THE APP MOVED YOU, SO THE KEY THAT SENDS WAITS A MOMENT (./pick-settles).
+    // The one place a thread is put in front of you without your asking, and so
+    // the one place a number already on its way can answer a thread unread.
+    arrived.current = { key: keyOf(next.item), at: Date.now() };
     setFocused(next.item); markSeen(next.item);
     const at = onBoard ? list.findIndex((i) => i.id === next.item.id && i.product === next.item.product) : next.index;
     setSelected(at >= 0 ? at : 0);
@@ -6053,6 +6092,12 @@ export default function App() {
   // A teammate's direct record is one of your groups, so Groups is the page it is on.
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
   const openView = (next: View) => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); };
+  // `asking` is on the class list for the same reason the composer is: the
+  // approval card stands in the corner the toast stands in and under it, so the
+  // toast covered Allow and Deny. Read off the same stage the card is drawn
+  // from below, so the class and the card cannot disagree about what is asked.
+  const stage = approvalStage(snap?.approvals, answered, frontApproval.current);
+  const cardOnScreen = !!stage.card;
 
   return (
     <TeamContext.Provider value={team}>
@@ -6063,7 +6108,8 @@ export default function App() {
     <WaitingContext.Provider value={waitingByThread}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
-    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}`}>
+    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}`}>
+
       {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
           `.workspace-layout::after` is the window's drag strip. */}
@@ -6841,7 +6887,11 @@ export default function App() {
                   // every group "Returns …", which is a promise about rows that
                   // are mostly closed and not coming back at all.
                   view={search !== null ? 'inbox' : view}
-                  selected={selected}
+                  // `cursor` AND NOT `selected`: the place after the follow,
+                  // which is where the board is drawn too. The raw state is a
+                  // render behind it whenever the list changed under a cursor
+                  // nobody moved, and drew the highlight off its thread.
+                  selected={cursor}
                   seen={seen}
                   running={runningRows}
                   engineChoice={(snap.engines?.choices?.length ?? 1) > 1}
@@ -6885,7 +6935,8 @@ export default function App() {
                     setSelected(i);
                   }}
                   onRange={(i) => {
-                    const [lo, hi] = [Math.min(selected, i), Math.max(selected, i)];
+                    // From the highlight you can see, for the same reason.
+                    const [lo, hi] = [Math.min(cursor, i), Math.max(cursor, i)];
                     setMultiSel((m) => new Set([...m, ...list.slice(lo, hi + 1).map((x) => x.id)]));
                     setSelected(i);
                   }}
@@ -6972,7 +7023,7 @@ export default function App() {
             const to = how.kind === 'message'
               ? firstNames(how.toMany ?? [how.to ?? ''])
               : snap.products.find((x) => x.slug === how.product)?.name ?? how.product ?? '';
-            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt }));
+            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt, threads: how.threads }));
             // AND IF THE APP NEVER TAKES IT, SAY THAT TOO. The line above is a
             // sentence about the next half second, and it expires; a send the
             // app has not taken by then is read as a send that never happened,
@@ -7044,11 +7095,20 @@ export default function App() {
               return;
             }
             if (made?.id) {
-              noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
-                const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
-                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
-                await api.answer({ product: made.product, id: made.id, status: 'done' });
-              }, [{ product: made.product, id: made.id, words: 'Undid sending it' }]);
+              // A SPLIT LIST IS ONE SEND AND SO ONE UNDO. Z takes back every
+              // thread it made: three rows left behind by a Z that reached one
+              // of them is worse than no Z at all. A thread an agent has
+              // already answered is left alone, and if that is all of them the
+              // Z is refused rather than claiming a withdrawal it did not make.
+              const all = [{ product: made.product, id: made.id }, ...(how?.alsoMade ?? [])];
+              const label = all.length > 1 ? `Withdrawn: ${all.length} threads` : `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`;
+              noteNewTask(label, all.length > 1 ? `take back those ${all.length} threads` : 'take back the task you just made', sent, async () => {
+                const rows = (await api.snapshot())?.items ?? [];
+                const rowOf = (one: { product: string; id: string }) => rows.find((i) => i.id === one.id && i.product === one.product);
+                const open = all.filter((one) => !answeredAlready(rowOf(one)));
+                if (!open.length) return { refused: TOO_LATE_TO_WITHDRAW, open: rowOf(all[0]) };
+                for (const one of open) await api.answer({ product: one.product, id: one.id, status: 'done' });
+              }, all.map((one) => ({ ...one, words: 'Undid sending it' })));
             }
             // Read before the line is said: a tool with no login left in
             // usage means nothing started, and the line has to say so.
@@ -7057,6 +7117,7 @@ export default function App() {
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
+              threads: how?.threads,
               limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
           }}
@@ -7738,7 +7799,7 @@ export default function App() {
         // out of existence. approval-stage.ts decides that, and in particular
         // decides that the next card does NOT slide forward until this one has
         // gone.
-        const { card: a, verdict, waiting } = approvalStage(snap.approvals, answered, frontApproval.current);
+        const { card: a, verdict, waiting } = stage;
         if (!a) return null;
         // WHAT IT IS ASKING AND WHAT IT IS ASKING ABOUT, and neither is
         // hardcoded any more: "asks to run" over a diff is a lie, and it is the

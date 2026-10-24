@@ -151,6 +151,19 @@
 .th-table .row { min-height: 0; }
 .th-grid > div { line-height: 20px; }
 .th-grid.with-person { grid-template-columns: minmax(0, 1fr) 160px 140px 130px 112px 96px; }
+/* A NARROW TABLE GIVES UP PRIORITY, THEN PROJECT, so the title keeps 240
+   points. The steps are the list's own width, whose rows sit 76 inside it. */
+.th-table { container: th / inline-size; }
+@container th (max-width: 899px) {
+  .th-grid > .th-col-prio { display: none; }
+  .th-grid { grid-template-columns: minmax(0, 1fr) 160px 150px 96px; }
+  .th-grid.with-person { grid-template-columns: minmax(0, 1fr) 160px 140px 130px 96px; }
+}
+@container th (max-width: 769px) {
+  .th-grid > .th-col-proj { display: none; }
+  .th-grid { grid-template-columns: minmax(0, 1fr) 160px 96px; }
+  .th-grid.with-person { grid-template-columns: minmax(0, 1fr) 160px 130px 96px; }
+}
 .th-grid > .num { text-align: right; }
 .th-cell-title { font-size: 14px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .th-cell-title.hidden { color: var(--text-dim); }

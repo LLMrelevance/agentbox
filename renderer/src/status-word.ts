@@ -80,6 +80,10 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (state === 'scheduled') return plain(stateWordOf(item, state), 'sched');
 
   const live = liveLine(item, { ...facts, stalled: false });
+  // `asking` HAS NO BRANCH OF ITS OWN. It had one, giving it the solid `need`
+  // dot, which this column draws for no other word; the fall-through at the
+  // foot gives it the accent ring every other held agent wears, which is the
+  // mark that already means nothing starts until something changes.
   const away = facts.whyNotCloud ?? null;
   const why = away ? whyWords(away) : undefined;
   const titled = (line: string) => (why ? `${why.head}. ${why.body}` : line);
@@ -139,6 +143,7 @@ export function factsFor(fleet: Fleet, id: string): LiveFacts {
     signInNeeded: fleet.signInNeeded,
     atLimit: fleet.atLimit,
     shipping: !!fleet.shipping?.includes(id),
+    asking: !!fleet.asking?.includes(id),
     stalled: !!fleet.stalled?.includes(id),
     silent: fleet.silent?.[id] ?? null,
     paused: !!fleet.paused,
