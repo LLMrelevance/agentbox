@@ -1,6 +1,6 @@
-// WHICH CODING AGENT YOU USED LAST, for the Usage row on a Mac using both
-// (round 25's trial, w-dcaa2c122e): the newest thread running now, else the
-// thread touched last, read off the agent main says it runs on.
+// WHICH CODING AGENT YOU USED LAST, which the sidebar's usage row names
+// (w-dcaa2c122e): the newest thread running now, else the thread touched last,
+// read off the agent main says it runs on.
 import type { Snapshot } from './types';
 
 export function lastUsedEngine(snap: Pick<Snapshot, 'supervisor' | 'items' | 'engines'> | null | undefined): string | null {

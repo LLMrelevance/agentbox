@@ -51,36 +51,28 @@ const LINGER_MS = 220;
 // name, and the percent where Inbox shows its count (w-dcaa2c122e, picked from five).
 const GaugeIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></svg>;
 
-// ROUND 25'S TRIAL (localStorage usage.both). Using one agent, its row is named
-// for it. Using both (a reading from each this week), one Usage row, opening on
-// pointing to list each agent, the one used last first. What the row shows:
-// 'recent' that agent's figure, 'highest' the higher of the two, 'bars' a bar
-// each, 'plain' nothing. With no key set, nothing changes.
-type Figure = 'recent' | 'highest' | 'bars' | 'plain';
+// IN THE SIDEBAR IT NAMES THE AGENT YOU USED LAST (w-dcaa2c122e): "Claude Code
+// 47%". Using more than one, pointing at it lists each, that one first. An
+// agent counts while it has a reading from this week; older figures have reset.
 const WEEK = 7 * 24 * 60 * 60 * 1000;
-function readBoth(): Figure | null {
-  try {
-    const v = localStorage.getItem('usage.both');
-    return v === 'recent' || v === 'highest' || v === 'bars' || v === 'plain' ? v : null;
-  } catch { return null; }
+export function agentsInUse(all: Usage[], recent: string | null, sent: Usage | null, now: number): { word: string; usage: Usage }[] {
+  const fresh = all.filter((u) => now - u.at < WEEK && headlineLimit(u.limits));
+  const last = fresh.find((u) => u.engine === recent) ?? fresh.find((u) => u.engine === sent?.engine) ?? fresh[0];
+  return last ? [last, ...fresh.filter((u) => u !== last)].map((u) => ({ word: engineLabel(u.engine), usage: u })) : [];
 }
-const headline = (u: Usage) => Math.max(0, Math.min(100, headlineLimit(u.limits)?.percent ?? 0));
-export function UsagePill({ all = [], recent = null, ...props }: Parameters<typeof UsageOne>[0] & { all?: Usage[]; recent?: string | null }) {
-  const figure = props.sidebar ? readBoth() : null;
-  if (!figure) return <UsageOne {...props} />;
-  const fresh = all.filter((u) => props.now - u.at < WEEK && headlineLimit(u.limits));
-  if (fresh.length < 2) return <UsageOne {...props} engineWord={props.usage ? engineLabel(props.usage.engine) : props.engineWord} />;
-  const last = fresh.find((u) => u.engine === recent) ?? fresh.find((u) => u.engine === props.usage?.engine) ?? fresh[0];
-  const agents = [last, ...fresh.filter((u) => u !== last)].map((u) => ({ word: engineLabel(u.engine), usage: u }));
-  return <UsageOne {...props} usage={last} agents={agents} figure={figure} />;
+export function UsagePill({ all, recent = null, ...props }: Parameters<typeof UsageOne>[0] & { all?: Usage[]; recent?: string | null }) {
+  if (!props.sidebar) return <UsageOne {...props} />;
+  const agents = agentsInUse(all ?? (props.usage ? [props.usage] : []), recent, props.usage, props.now);
+  const last = agents[0]?.usage ?? props.usage;
+  if (!last) return null;
+  return <UsageOne {...props} usage={last} engineWord={engineLabel(last.engine)} agents={agents} />;
 }
 
-function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agents = [], figure = 'recent' }: {
+function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agents = [] }: {
   usage: Usage | null;
   sidebar?: boolean;
-  /** Round 25's trial: every agent in use, the one used last first, for one Usage row. */
+  /** In the sidebar, every agent in use, the one used last first. */
   agents?: { word: string; usage: Usage }[];
-  figure?: Figure;
   /**
    * Held by the caller so the reading moves with the rest of the app's clocks
    *  rather than starting a second one in the corner. */
@@ -148,15 +140,11 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
   const used = Math.max(0, Math.min(100, session.percent));
   const rows = limitRows(limits, now);
   const joint = agents.length > 1;
-  const highest = joint ? Math.max(...agents.map((a) => headline(a.usage))) : used;
-  const shown = !joint || figure === 'recent' ? used : figure === 'highest' ? highest : null;
   const sentence = joint
     ? agents.map((a) => usageSentence(a.usage.limits, now, a.word)).join(' ')
     : usageSentence(limits, now, engineWord) ?? '';
-  // Pointing opens it everywhere but a single agent's sidebar row, after a beat
-  // there so a pointer crossing the foot does not flash it.
-  const hovers = !sidebar || joint;
 
+  // In the sidebar it opens after a beat, so a pointer crossing the foot does not flash it.
   const enter = () => {
     if (linger.current) { clearTimeout(linger.current); linger.current = null; }
     if (sidebar) linger.current = setTimeout(() => setHovering(true), 120);
@@ -168,10 +156,10 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
   };
 
   return (
-    <div className="usage-box" ref={box} onMouseEnter={hovers ? enter : undefined} onMouseLeave={hovers ? leave : undefined}>
+    <div className="usage-box" ref={box} onMouseEnter={enter} onMouseLeave={leave}>
       <button
         type="button"
-        className={`usage-pill ${highest >= CLOSE ? 'is-close' : ''}`}
+        className={`usage-pill ${used >= CLOSE ? 'is-close' : ''}`}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         // THE WHOLE TRUTH GOES TO WHATEVER READS THIS ALOUD. The corner has no
@@ -179,14 +167,11 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
         // expanded. It is the only reading there is for somebody who cannot see
         // a bar.
         aria-label={sentence}
-        title={sidebar && !joint ? sentence : undefined}
         onClick={() => { const next = !pinned; setPinned(next); if (next) onOpen?.(); }}
         onFocus={sidebar ? undefined : enter}
         onBlur={sidebar ? undefined : leave}
       >
-        {sidebar && <><GaugeIcon /><span className="usage-row-label">{joint ? 'Usage' : engineWord ?? 'Usage'}</span>
-          {shown !== null && <span className="usage-row-num">{shown}%</span>}
-          {joint && figure === 'bars' && <span className="usage-row-bars" aria-hidden="true">{agents.map((a) => <i key={a.word}><i style={{ width: `${headline(a.usage)}%` }} /></i>)}</span>}</>}
+        {sidebar && <><GaugeIcon /><span className="usage-row-label">{engineWord ?? 'Usage'}</span><span className="usage-row-num">{used}%</span></>}
         {!sidebar && <span className="usage-meter" aria-hidden="true">
           <i style={{ width: `${used}%` }} />
         </span>}
