@@ -7,29 +7,35 @@
 // THE POINTER, settled with Codex and then with real mouse events:
 // - The tag is movable as it is, with nothing drawn to say so: press and move.
 // - Resting the pointer on the tag opens the list; a click (press and let go
-//   without moving) opens the app, and the chevron at the tag's end says so.
+//   without moving) opens the app.
 // - The page only reports the button going down and coming up. The drag in
 //   between is read off the real cursor by the main process, because a real
 //   drag must not depend on this page being sent every move.
 // - Off both the tag and the list for a moment, and the list shuts.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, tagSays } from '../../../shared/corner-tag.mjs';
+import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, inPoints, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
 import './corner-tag.css';
 
 type Ready = { id: string; title: string; says: string; since?: number; open?: string | null };
-type State = { ready: Ready[]; working: number; now: number; open?: boolean; scale?: number };
+// ready: what is new since you last left the app; before: how many were
+// already waiting then; glass: the Mac draws the glass, so this page draws none.
+type State = { ready: Ready[]; before?: number; working: number; now: number; open?: boolean; scale?: number; glass?: boolean };
 type Part = 'tag' | 'card';
+type Tone = 'light' | 'dark';
 
 type Bridge = {
   onState: (fn: (s: State) => void) => () => void;
   onOpen: (fn: (open: boolean) => void) => () => void;
   onReset: (fn: () => void) => () => void;
   onDragging: (fn: (dragging: boolean) => void) => () => void;
+  onTone?: (fn: (tone: Tone) => void) => () => void;
+  onMeasure?: (fn: () => void) => () => void;
+  zoom?: () => number;
   ready: (part: Part) => Promise<unknown>;
-  size: (part: Part, w: number, h: number, glass?: { x: number; y: number; width: number; height: number }) => Promise<unknown>;
+  size: (part: Part, w: number, h: number, glass?: { x: number; y: number; width: number; height: number }, radius?: number) => Promise<unknown>;
   clickable: (on: boolean) => Promise<unknown>;
   hover: (part: Part, inside: boolean) => Promise<unknown>;
   toggle: () => Promise<unknown>;
@@ -59,7 +65,8 @@ function demoState(): { state: State; open: boolean } | null {
     id: `demo-${i}`, title: titles[i % titles.length], says: i === 1 ? 'needs a yes' : 'is ready for you', since: now - [2, 9, 25, 40, 70, 95, 130][i % 7] * 60_000,
   })) : [];
   const scale = Number(params.get('s') ?? 1.1);
-  return { state: { ready, working: demo.startsWith('ready') ? 20 - n : 20, now, scale }, open: demo.endsWith('-open') };
+  const before = Number(params.get('before') ?? 0);
+  return { state: { ready, before, working: demo.startsWith('ready') ? 20 - n : 20, now, scale }, open: demo.endsWith('-open') };
 }
 const demo = demoState();
 document.documentElement.classList.toggle('ct-demo', !!demo);
@@ -81,6 +88,15 @@ function useTagState() {
     // time and should sit near the size of everything else on the screen.
     root.style.setProperty('--ct-cs', String(cardScale(state.scale)));
   }, [state.scale]);
+  // WHERE THE MAC DRAWS THE GLASS, THE PAGE DRAWS NONE, and its ink follows
+  // the glass: dark over a light glass, light over a dark one. The Mac's own
+  // light or dark setting is never asked.
+  useEffect(() => { document.documentElement.classList.toggle('ct-native', !!state.glass); }, [state.glass]);
+  useEffect(() => bridge?.onTone?.((tone) => {
+    const root = document.documentElement;
+    root.classList.toggle('ct-tone-dark', tone === 'dark');
+    root.classList.toggle('ct-tone-light', tone === 'light');
+  }), []);
   return state;
 }
 
@@ -96,17 +112,6 @@ function Mark({ says, scale }: { says: { kind: string; count: number }; scale: n
     if (move !== 'none') setBeat((b) => ({ move, n: b.n + 1 }));
   }, [says.kind, says.count]);
   return <Lattice box={10 * scale} lit={says.kind === 'ready'} move={beat.move} beat={beat.n} />;
-}
-
-// The way into the app, drawn at the tag's end.
-function Go() {
-  return (
-    <span className="ct-go" aria-hidden>
-      <svg width="7" height="10" viewBox="0 0 7 10">
-        <path d="M1.5 1.5 5 5 1.5 8.5" fill="none" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  );
 }
 
 // The window is sized to what it shows; tell it whenever that changes.
@@ -125,13 +130,29 @@ function useReportSize(ref: React.RefObject<HTMLElement>, which: Part, key: unkn
     // the right... it's just the right sides" (2026-10-13).
     const report = () => {
       const r = el.getBoundingClientRect();
-      const g = el.querySelector('.ct-tag')?.getBoundingClientRect() ?? r;
-      bridge.size(which, r.width, r.height, { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height });
+      const glassEl = (el.querySelector('.ct-tag') ?? el) as HTMLElement;
+      const g = glassEl.getBoundingClientRect();
+      const radius = parseFloat(getComputedStyle(glassEl).borderTopLeftRadius);
+      const m = inPoints({
+        width: r.width, height: r.height,
+        glass: { x: g.x - r.x, y: g.y - r.y, width: g.width, height: g.height },
+        radius: Number.isFinite(radius) ? radius : undefined,
+      }, bridge.zoom?.());
+      bridge.size(which, m.width, m.height, m.glass, m.radius);
     };
     report();
     const ro = new ResizeObserver(report);
     ro.observe(el);
-    return () => ro.disconnect();
+    // A page that redrew while its window was hidden may not have said so,
+    // and the Mac's glass is placed from what it says (w-93b3a1a796).
+    const onVisible = () => { if (document.visibilityState === 'visible') report(); };
+    document.addEventListener('visibilitychange', onVisible);
+    const offMeasure = bridge.onMeasure?.(report);
+    return () => {
+      ro.disconnect();
+      document.removeEventListener('visibilitychange', onVisible);
+      offMeasure?.();
+    };
   }, [key]);
 }
 
@@ -141,7 +162,7 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
   const [dragging, setDragging] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const pressed = useRef(false);
-  const counts = { ready: state.ready.length, working: state.working };
+  const counts = { ready: state.ready.length };
   const says = tagSays(counts);
   const text = says?.text;
 
@@ -182,7 +203,7 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
     >
     <div
       role="button"
-      aria-label={`${text}. Click to open ${NAME}, drag to move.`}
+      aria-label={`${says.label}. Click to open ${NAME}, drag to move.`}
       aria-expanded={open}
       className={`ct-glass ct-tag ${says.kind}${open ? ' is-open' : ''}${dragging ? ' is-dragging' : ''}`}
       onPointerEnter={() => bridge?.hover('tag', true)}
@@ -203,9 +224,8 @@ function Tag({ state, forceOpen = false }: { state: State; forceOpen?: boolean }
       onLostPointerCapture={() => letGo(true)}
       onContextMenu={(e) => { e.preventDefault(); bridge?.menu(); }}
     >
-      <Mark scale={state.scale ?? 1} says={{ kind: says.kind, count: says.kind === 'ready' ? counts.ready : counts.working }} />
-      <span className="ct-words">{text}</span>
-      <Go />
+      <Mark scale={state.scale ?? 1} says={{ kind: says.kind, count: counts.ready }} />
+      <span className="ct-count">{text}</span>
     </div>
       {/* EVERY CORNER TAKES A DRAG, AND DRAWS NOTHING (2026-10-13). First a
           ledge, then an arrow on each corner: "you accidentally see something
@@ -257,6 +277,9 @@ function CardBody({ state }: { state: State }) {
   const { lines, more } = cardLines(state.ready, state.now);
   return (
     <>
+      {/* Her pick of five (w-93b3a1a796): the tray counts only these, so the
+          list says so. */}
+      {lines.length > 0 && <div className="ct-quiet ct-static ct-head">New since you left</div>}
       {lines.map((l) => (
         <button key={l.id} className="ct-line" onClick={() => bridge?.go(l.open === undefined ? l.id : l.open)}>
           <span className="ct-pip" />
@@ -266,6 +289,7 @@ function CardBody({ state }: { state: State }) {
         </button>
       ))}
       {more > 0 && <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}><span className="ct-mark-sp" />and {more} more</button>}
+      {(state.before ?? 0) > 0 && <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}><span className="ct-mark-sp" />and {state.before} from before</button>}
       {!lines.length && <div className="ct-quiet ct-static">Nothing is ready for you yet</div>}
       {state.working > 0 && (
         <button className="ct-line ct-quiet" onClick={() => bridge?.go(null)}>

@@ -1,12 +1,15 @@
-// WITH GROUPS THE INBOX IS ONE DOOR, AND ITS TABS TAKE THE TOP BAR (w-dcaa2c122e, 2026-10-23).
+// WITH GROUPS THE INBOX IS ONE ROW, AND ITS TABS SIT UNDER ITS TITLE (w-dcaa2c122e, 2026-10-23).
 //
 // With Rooms on, the sidebar had Threads, then Messages and Rooms, and the page
 // said "Threads" in a title over its own row of tabs. Asked for: no separate
-// groups row in the sidebar, the page's tabs where the title was ("calling
-// that page Threads is even technically incorrect because it encompasses
-// groups"), and the rule before Groups kept. Measured by drawing the sidebar
-// with Rooms on: three rows, Threads, Messages and Rooms. Now there is one,
-// Inbox, and with Groups off it still says Threads.
+// rooms rows in the sidebar ("calling that page Threads is even technically
+// incorrect because it encompasses groups"). Measured by drawing the sidebar
+// with Rooms on: three rows, Threads, Messages and Rooms. Now the first row
+// is Inbox, and with Groups off it still says Threads.
+//
+// For a day the tabs took the top bar; since 2026-10-24 the page is titled
+// Inbox over its tabs again, beside the narrow sidebar, which lists Groups
+// under Inbox (tests/with-groups-the-sidebar-stays-narrow-and-widens-when-pointed-at).
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import { createElement } from 'react';
@@ -46,16 +49,14 @@ describe('the sidebar', () => {
   });
 });
 
-describe('the tabs in the top bar', () => {
-  it('go up while Groups is on, on the page, a group in the tab, or the Groups tab with none', () => {
-    expect(app).toMatch(/const tabsInTop = roomsUi\.live && workspaceNavigation && !focused && !settingsOpen && !teamShown && search === null && \(!roomShown \|\| roomsUi\.inTab\);/);
+describe('the tabs', () => {
+  it('sit under the Inbox’s title, never in the top bar', () => {
+    expect(app).not.toContain('tabsInTop');
+    expect(app).not.toContain('className="tabs-top"');
+    expect(app).toContain('narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1>');
   });
-  it('take the place of the title', () => {
-    expect(app).toContain('tabsInTop ? <div className="tabs-top" ref={setTopTabs} /> : roomShown && roomsUi.heading');
-    expect(app).toContain('into={tabsInTop ? topTabs : null}');
-  });
-  it('keep the rule before Groups', () => {
-    expect(css).not.toMatch(/\.tabs-top[^{]*\.rm-sep[^{]*\{[^}]*display: none/);
+  it('are not hidden by any rule left from the top bar', () => {
+    expect(css).not.toContain('.tabs-top');
   });
   it('a page of its own, a person or Find groups, still has its back arrow there instead', () => {
     expect(app).toMatch(/roomShown && roomsUi\.heading \? roomsUi\.heading\.title : <h1 className="workspace-title">Threads<\/h1>/);

@@ -12,7 +12,7 @@
 // under Messages, and the Rooms page listed the rooms.
 //
 // Since Groups (w-dcaa2c122e, 2026-10-23) the Rooms page is not drawn: every
-// group and chat is in the Groups tab (tests/the-groups-tab-holds-the-group-open-last)
+// group and chat opens as the Groups page (tests/groups-opens-the-group-open-last)
 // and the sidebar has no rooms row (tests/the-narrow-sidebar-draws-no-rooms).
 // The page's component is still in the tree, so what it draws is still held
 // here, and no room ever becomes a pinned tab again.
@@ -83,8 +83,8 @@ describe('the Rooms page', () => {
   });
 });
 
-// The pinned tabs and the tab per open room stay gone; the one tab after Done
-// is Groups (tests/the-room-tab-opens-its-room-under-the-threads-tabs).
+// The pinned tabs and the tab per open room stay gone; Groups is a row in the
+// narrow sidebar (tests/with-groups-the-sidebar-stays-narrow-and-widens-when-pointed-at).
 describe('no pinned room tabs', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');

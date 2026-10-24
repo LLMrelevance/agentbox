@@ -100,9 +100,11 @@ describe('everyone in a room is named', () => {
 });
 
 describe('work reaches everyone in your rooms', () => {
-  it('a new card shows what you work on to everyone, unless you say otherwise', async () => {
+  // Since 20261027000000_thread_names_stay_with_the_team.sql, room-mates outside
+  // your team see your work only once you turn that on.
+  it('a new card keeps what you work on to your team, unless you say otherwise', async () => {
     await as(JUN, `insert into public.room_profiles (person_id, display_name) values ($1, 'Jun I.')`, [JUN]);
-    expect((await rows(JUN, `select show_working from public.room_profiles where person_id = $1`, [JUN]))[0].show_working).toBe('everyone');
+    expect((await rows(JUN, `select show_working from public.room_profiles where person_id = $1`, [JUN]))[0].show_working).toBe('team');
   });
 
   it('a card left on the old default moves when this runs, and running it again changes nothing else', async () => {

@@ -12,12 +12,14 @@
 // draws: you, teammates whose thread cards reach you (unless they turned
 // sharing off in Rooms), and room-mates outside the team off the lines their
 // presence already shows on their page.
+//
+// The tiles over the board went on 2026-10-23 (w-dcaa2c122e): on a 30-person
+// team "the focus is actually on what everyone's up to", not who is working.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { boardPeople } from '../renderer/src/team/rooms/room-rules.ts';
-import { BoardFaces } from '../renderer/src/team/rooms/RoomView.tsx';
 import { RoomBoard } from '../renderer/src/team/rooms/RoomBoard.tsx';
 import { TeamContext } from '../renderer/src/team/people.tsx';
 globalThis.React = React;
@@ -49,17 +51,6 @@ describe('whose threads a room’s board draws', () => {
   });
 });
 
-describe('the tiles over it', () => {
-  const html = renderToStaticMarkup(React.createElement(BoardFaces, { people: wall, picked: wall.map((c) => c.id), onPick: () => {} }));
-  const names = [...html.matchAll(/<span class="n">([^<]*)<\/span>/g)].map((m) => m[1]);
-  it('are everyone in the room, in the room’s order', () => {
-    expect(names).toEqual(['You', 'Theo', 'David', 'Jun', 'Maya', 'Alex']);
-  });
-  it('say so for someone not on Rooms yet', () => {
-    expect(html).toMatch(/David<\/span><span class="ag">Not on Rooms yet<\/span>/);
-  });
-});
-
 describe('a room-mate outside the team on the board', () => {
   const html = renderToStaticMarkup(React.createElement(TeamContext.Provider, {
     value: { state: { since: null }, me: 'sam', byId: new Map(), alsoById: new Map([['maya', { id: 'maya', name: 'Maya C.', email: '', avatarUrl: null }]]), products: new Map() },
@@ -76,8 +67,8 @@ describe('a room-mate outside the team on the board', () => {
 describe('wired in the app', () => {
   const hook = readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
-  it('the tiles and the People line are the whole room; the board only those it may draw', () => {
-    expect(hook).toMatch(/<BoardFaces people=\{open!\.wall\}/);
+  it('the board draws only those it may, under no row of faces', () => {
+    expect(hook).not.toContain('BoardFaces');
     expect(hook).toMatch(/renderBoard\(onBoardPicked\.filter\(\(id\) => onBoardIds\.has\(id\)\), \{ later \}\)/);
   });
   it('the room’s board has room-mates’ presence lines, which open nothing', () => {

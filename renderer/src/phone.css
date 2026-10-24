@@ -348,6 +348,7 @@
   :root:root:root .sent-line { margin: 0 0 8px; padding: 0 4px 0 14px; min-height: 40px; font-size: 13.5px; }
   :root:root:root .sent-line kbd { display: none; }
   :root:root:root .sent-line-key { height: 40px; padding: 0 10px; color: var(--text-dim); }
+  :root:root:root .sent-line-close { width: 40px; height: 40px; margin: 0; }
 
   /* The setup bar: its sentence over its buttons, not squeezed beside them. */
   :root:root:root .ps-bar { flex-wrap: wrap; gap: 10px; padding: 12px 16px; }

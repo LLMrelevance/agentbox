@@ -81,7 +81,8 @@ describe('the doors and the page', () => {
   it('offers Google first, then email and password, and a way to make an account', () => {
     const page = read('renderer/src/team/SignInPage.tsx');
     expect(page.indexOf('Continue with Google')).toBeLessThan(page.indexOf('type="password"'));
-    expect(page).toContain('Create an account');
+    expect(page).toContain('role="tab"');
+    expect(page).toContain('>Create account</button>');
     expect(page).toContain('You are signed out');
     expect(page).not.toMatch(/—/);
   });

@@ -87,7 +87,7 @@ describe('checkout', () => {
     expect(made.form).toMatchObject({
       mode: 'subscription', 'line_items[0][price]': 'price_pro', 'line_items[0][quantity]': '1',
       client_reference_id: A, 'subscription_data[metadata][person]': A,
-      success_url: `https://${HOST}/v1/paid`, cancel_url: `https://${HOST}/v1/paid?cancelled=1`,
+      success_url: `https://${HOST}/v1/paid?plan=pro`, cancel_url: `https://${HOST}/v1/paid?cancelled=1`,
     });
     expect(made.form.customer).toBeUndefined();
     expect(stripe.calls.every((c) => c.deadline && c.auth === 'Bearer sk_test_x')).toBe(true);
@@ -229,7 +229,7 @@ describe('billing', () => {
 
   it('the page Stripe sends people back to needs no key', async () => {
     const { gw } = setup();
-    for (const path of ['/v1/paid', '/v1/paid?cancelled=1']) {
+    for (const path of ['/v1/paid', '/v1/paid?plan=pro', '/v1/paid?cancelled=1']) {
       const r = await gw.handle({ method: 'GET', path, headers: {} });
       expect(r.status).toBe(200);
       expect(r.type).toBe('html');

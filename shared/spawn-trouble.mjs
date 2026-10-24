@@ -869,11 +869,28 @@ export function undeliveredAnswerSentence({ engineWord = 'The agent', attempts =
 
 const UNDELIVERED = 'Your reply did not reach this task.';
 
+// A THREAD THE APP STOPPED STARTING (`_noteHowTheRunStarted` in
+// main/supervisor.mjs). `tries` is how many times it has tried again on its
+// own since, and `next` when it tries again, null once it has stopped trying.
+const STOPPED_STARTING = `${Name} stopped starting this thread`;
+const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(/\s/g, '');
+
+export function stoppedStartingSentence({ starts = 6, minutes = 10, tries = 0, triedAt = null, said = null, next = null } = {}) {
+  const what = tries === 0
+    ? `It was started ${starts} times in ${minutes} minutes, and each run ended before its agent began.`
+    : tries === 1
+      ? `It tried again on its own${triedAt ? ` at ${clock(triedAt)}` : ''}, and that run ended before its agent began too.`
+      : `It tried again on its own ${tries === 2 ? 'twice' : `${tries} times`}, and each run ended before its agent began.`;
+  const last = said ? ` The last one said "${said.slice(0, 300)}".` : '';
+  const then = next ? ` It tries again on its own at ${clock(next)}. Reply here to try again now.` : ' Reply here to try again.';
+  return `${STOPPED_STARTING}. ${what}${last}${then}`;
+}
+
 // THE APP'S OWN WORD THAT A RUN GOT NOWHERE: a dead-run sentence, from a run
-// that used a tool or one that did not, or the reply that never landed. On a
-// thread carrying a reply, `settleDeliveryAndSay` writes one only once it has
-// stopped carrying the reply, so that thread waits on a person
-// (`gaveUpOnTheAnswer`, renderer/src/list-rules.ts).
+// that used a tool or one that did not, the reply that never landed, or a
+// thread it stopped starting. On a thread carrying a reply, each is written
+// only once nothing will carry the reply on its own, so that thread waits on a
+// person (`gaveUpOnTheAnswer`, renderer/src/list-rules.ts).
 const DEAD_RUN_HALVES = {
   'at-limit': ['is at its usage limit', 'so nothing has been done on this task.'],
 };
@@ -883,7 +900,7 @@ export function saysARunGotNowhere(text) {
   if (!s.trim()) return false;
   if (deadRunCause(s)) return true;
   if (Object.values(WORKED_OPENERS).some((opener) => s.includes(opener))) return true;
-  return s.startsWith(UNDELIVERED);
+  return s.startsWith(UNDELIVERED) || s.startsWith(STOPPED_STARTING);
 }
 
 // WHOSE SENTENCE IS ON THIS ROW, AND WHAT IT SAYS HAPPENED.

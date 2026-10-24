@@ -13,7 +13,7 @@ import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { cloudClients } from './clients.mjs';
 import { readCloudConfig, readCloudKey, imageCaps, noteImageCaps } from './config.mjs';
-import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom } from './logins.mjs';
+import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom, cloudAccountFrom, cloudLoginInUse, noCloudAccountSentence } from './logins.mjs';
 
 // SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
 // keys from the environment before they read a named profile, so an app
@@ -32,10 +32,21 @@ export function dropAwsSignIns(env = process.env) {
  * because Claude's token is long-lived and Codex's is not. Named only, like the
  * run's own.
  */
-export function loginsCarriedBy(engine, { only = null, home } = {}) {
+export function loginsCarriedBy(engine, { only = null, prefer = null, home } = {}) {
   if (engine !== 'claude') return [];
-  const codex = pickCloudLogin('codex', { only, ...(home ? { home } : {}) });
+  const codex = pickCloudLogin('codex', { only, prefer, ...(home ? { home } : {}) });
   return codex ? [{ engine: 'codex', id: codex.id, key: loginObjectKey('codex', codex.id) }] : [];
+}
+
+/**
+ * The cloud account a run of `engine` takes, from the run's own environment:
+ * the test copy's list and the account this Mac runs on. With none to take,
+ * `trouble` is why.
+ */
+export function loginForCloudRun(engine, env, { home, now = Date.now() } = {}) {
+  const ask = { only: cloudAccountsFrom(env), prefer: cloudAccountFrom(env, engine), now, ...(home ? { home } : {}) };
+  const rec = pickCloudLogin(engine, ask);
+  return { rec, trouble: rec ? null : noCloudAccountSentence(engine, cloudLoginInUse(engine, ask), { now }) };
 }
 
 // One client pair per account and cloud key, shared by every run in a process.
@@ -58,11 +69,10 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
   const importOnly = args[0] === '--agentbox-import-only';
   const codex = args[0] === '--agentbox-codex';
   const engine = codex ? 'codex' : 'claude';
-  // The cloud account it runs on: of the ones she added for this engine, the
-  // one used least recently (main/cloud/logins.mjs). Not the Mac's account:
-  // the folder below only says where the conversation is kept.
-  const rec = importOnly ? null : pickCloudLogin(engine, { only: cloudAccountsFrom(env) });
-  if (!importOnly && !rec) { say(`no ${codex ? 'Codex' : 'Claude'} account is signed in for the cloud yet (the cloud button)`); return LOGIN_TROUBLE; }
+  // The cloud account it runs on (main/cloud/logins.mjs pickCloudLogin). The
+  // folder below only says where the conversation is kept.
+  const { rec, trouble } = importOnly ? { rec: null, trouble: null } : loginForCloudRun(engine, env);
+  if (!importOnly && !rec) { say(trouble); return LOGIN_TROUBLE; }
   const dir = rec?.key;
   let made;
   try { made = await clientsFor(config); } catch (err) { say(err.message); return LOGIN_TROUBLE; }
@@ -71,7 +81,7 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
     importOnly,
     engine,
     login: rec ? { engine, id: rec.id, key: loginObjectKey(engine, rec.id) } : null,
-    also: rec ? loginsCarriedBy(engine, { only: cloudAccountsFrom(env) }) : [],
+    also: rec ? loginsCarriedBy(engine, { only: cloudAccountsFrom(env), prefer: cloudAccountFrom(env, 'codex') }) : [],
     // A missing or refused login is marked so the menu asks for a new sign-in;
     // an expired Codex one is left for the supervisor to renew.
     onLoginTrouble: ({ state, id }) => {

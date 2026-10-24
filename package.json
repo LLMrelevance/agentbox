@@ -31,6 +31,7 @@
   "files": [
     "bin/",
     "main/**/*.mjs",
+    "main/native/*/build/*.node",
     "shared/**/*.mjs",
     "shared/**/*.mts",
     "shared/**/*.json",
@@ -51,7 +52,7 @@
   ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "build": "node scripts/prepare-terminal.mjs && node scripts/read-claude-commands.mjs && node scripts/read-claude-models.mjs && vite build renderer",
+    "build": "node scripts/build-liquid-glass.mjs && node scripts/prepare-terminal.mjs && node scripts/read-claude-commands.mjs && node scripts/read-claude-models.mjs && vite build renderer",
     "start": "npm run build && node scripts/brand-electron.mjs && electron .",
     "test": "vitest run",
     "read:claude": "node scripts/read-claude-commands.mjs --snapshot && node scripts/read-claude-models.mjs --snapshot",
@@ -152,7 +153,8 @@
       "scripts/approval-server.sh",
       "scripts/cloud-shim.pl",
       "scripts/memory-gate-hook.sh",
-      "node_modules/node-pty/**"
+      "node_modules/node-pty/**",
+      "main/native/**/*.node"
     ],
     "mac": {
       "extendInfo": {
@@ -165,7 +167,7 @@
       },
       "category": "public.app-category.productivity",
       "icon": "build/icon.icns",
-      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/node_modules/node-pty/prebuilds/darwin-*/*",
+      "x64ArchFiles": "Contents/Resources/app.asar.unpacked/{node_modules/node-pty/prebuilds/darwin-*/*,main/native/**/*.node}",
       "target": [
         {
           "target": "dmg",

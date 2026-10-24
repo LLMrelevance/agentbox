@@ -108,7 +108,7 @@ describe('with "when this Mac is full"', () => {
 
 describe('the cloud menu', () => {
   const at = Date.UTC(2026, 9, 17, 20, 0);
-  const cloud = (mode) => ({ setUp: true, mode, running: 0, accounts: [{ engine: 'claude', key: 'a', ready: false, state: 'limited', limitedUntil: at + 2 * 3600_000 }] });
+  const cloud = (mode) => ({ setUp: true, mode, running: 0, accounts: [{ engine: 'claude', key: 'a', ready: false, state: 'limited', limitedUntil: at + 2 * 3600_000, inUse: true }] });
   it('says threads wait for the cloud with Everything, and run here with "when this Mac is full"', () => {
     expect(cloudFootLine(cloud('all'), at)).toMatch(/Threads wait for the cloud until then\.$/);
     expect(cloudFootLine(cloud('full'), at)).toMatch(/Threads run on this Mac until then\.$/);
