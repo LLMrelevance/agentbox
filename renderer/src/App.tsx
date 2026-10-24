@@ -121,6 +121,7 @@ import { searchFieldInStrip, workspaceDestinations, workspaceNavigationShown, wo
 import { SettingsIcon } from './components/SettingsIcon';
 import { UsagePill } from './components/UsagePill';
 import { engineWordFor } from './byline';
+import { lastUsedEngine } from './usage-last-used';
 import { SearchIcon } from './components/SearchIcon';
 import { CrossIcon } from './components/CrossIcon';
 import { ZoomPercent } from './components/ZoomPercent';
@@ -6196,6 +6197,8 @@ export default function App() {
             engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
             engine: snap.usage?.engine ?? null,
           })}
+          all={snap.usageByEngine ?? []}
+          recent={lastUsedEngine(snap)}
         />}
         page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}

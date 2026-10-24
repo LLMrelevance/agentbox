@@ -34,6 +34,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { headlineLimit, limitRows, usageSentence } from '../../../shared/usage.mjs';
 import { agoQuiet } from '../format';
 import type { Usage } from '../types';
+import { engineLabel } from '../../../shared/engines.mjs';
 
 // It is the one threshold and it is deliberately high: a corner that shouts at
 // half is a corner that is shouting all day. Stated as what is SPENT, like
@@ -50,9 +51,28 @@ const LINGER_MS = 220;
 // name, and the percent where Inbox shows its count (w-dcaa2c122e, picked from five).
 const GaugeIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><path d="M4.5 16.5a7.5 7.5 0 1 1 15 0"/><path d="m12 16.5 3.6-4.2"/></svg>;
 
-export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = false }: {
+// IN THE SIDEBAR IT NAMES THE AGENT YOU USED LAST (w-dcaa2c122e): "Claude Code
+// 47%". Using more than one, pointing at it lists each, that one first. An
+// agent counts while it has a reading from this week; older figures have reset.
+const WEEK = 7 * 24 * 60 * 60 * 1000;
+export function agentsInUse(all: Usage[], recent: string | null, sent: Usage | null, now: number): { word: string; usage: Usage }[] {
+  const fresh = all.filter((u) => now - u.at < WEEK && headlineLimit(u.limits));
+  const last = fresh.find((u) => u.engine === recent) ?? fresh.find((u) => u.engine === sent?.engine) ?? fresh[0];
+  return last ? [last, ...fresh.filter((u) => u !== last)].map((u) => ({ word: engineLabel(u.engine), usage: u })) : [];
+}
+export function UsagePill({ all, recent = null, ...props }: Parameters<typeof UsageOne>[0] & { all?: Usage[]; recent?: string | null }) {
+  if (!props.sidebar) return <UsageOne {...props} />;
+  const agents = agentsInUse(all ?? (props.usage ? [props.usage] : []), recent, props.usage, props.now);
+  const last = agents[0]?.usage ?? props.usage;
+  if (!last) return null;
+  return <UsageOne {...props} usage={last} engineWord={engineLabel(last.engine)} agents={agents} />;
+}
+
+function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agents = [] }: {
   usage: Usage | null;
   sidebar?: boolean;
+  /** In the sidebar, every agent in use, the one used last first. */
+  agents?: { word: string; usage: Usage }[];
   /**
    * Held by the caller so the reading moves with the rest of the app's clocks
    *  rather than starting a second one in the corner. */
@@ -119,11 +139,16 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
 
   const used = Math.max(0, Math.min(100, session.percent));
   const rows = limitRows(limits, now);
-  const sentence = usageSentence(limits, now, engineWord) ?? '';
+  const joint = agents.length > 1;
+  const sentence = joint
+    ? agents.map((a) => usageSentence(a.usage.limits, now, a.word)).join(' ')
+    : usageSentence(limits, now, engineWord) ?? '';
 
+  // In the sidebar it opens after a beat, so a pointer crossing the foot does not flash it.
   const enter = () => {
     if (linger.current) { clearTimeout(linger.current); linger.current = null; }
-    setHovering(true);
+    if (sidebar) linger.current = setTimeout(() => setHovering(true), 120);
+    else setHovering(true);
   };
   const leave = () => {
     if (linger.current) clearTimeout(linger.current);
@@ -131,7 +156,7 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
   };
 
   return (
-    <div className="usage-box" ref={box} onMouseEnter={sidebar ? undefined : enter} onMouseLeave={sidebar ? undefined : leave}>
+    <div className="usage-box" ref={box} onMouseEnter={enter} onMouseLeave={leave}>
       <button
         type="button"
         className={`usage-pill ${used >= CLOSE ? 'is-close' : ''}`}
@@ -142,7 +167,6 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
         // expanded. It is the only reading there is for somebody who cannot see
         // a bar.
         aria-label={sentence}
-        title={sidebar ? sentence : undefined}
         onClick={() => { const next = !pinned; setPinned(next); if (next) onOpen?.(); }}
         onFocus={sidebar ? undefined : enter}
         onBlur={sidebar ? undefined : leave}
@@ -159,7 +183,7 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
               are, or goes on saying what it always said. A second row saying
               "Coding agent: Codex" would be density on a glance surface, and a
               dense screen is a failed screen. */}
-          <h3>{engineWord ?? 'Your limits'}</h3>
+          {joint ? <h3>{agents[0].word}<small>Last used</small></h3> : <h3>{engineWord ?? 'Your limits'}</h3>}
           {rows.map((r) => (
             <div className="usage-lim" key={r.key}>
               <div className="usage-lim-top">
@@ -172,12 +196,27 @@ export function UsagePill({ usage, now, engineWord = null, onOpen, sidebar = fal
               {r.when && <div className="usage-lim-when">{r.when}</div>}
             </div>
           ))}
+          {joint && usage && <div className="usage-read">{agoQuiet(usage.at, now) === 'now' ? 'Read just now' : `Read ${agoQuiet(usage.at, now)} ago`}</div>}
+          {agents.slice(1).map((a) => <div className="usage-other" key={a.word}>
+            <h3>{a.word}</h3>
+            {limitRows(a.usage.limits, now).map((r) => (
+              <div className="usage-lim" key={r.key}>
+                <div className="usage-lim-top">
+                  <span className="usage-lim-name">{r.name}</span>
+                  <span className="usage-lim-used">{r.used}% used</span>
+                </div>
+                <span className="usage-meter wide" aria-hidden="true"><i style={{ width: `${r.used}%` }} /></span>
+                {r.when && <div className="usage-lim-when">{r.when}</div>}
+              </div>
+            ))}
+            <div className="usage-read">{agoQuiet(a.usage.at, now) === 'now' ? 'Read just now' : `Read ${agoQuiet(a.usage.at, now)} ago`}</div>
+          </div>)}
           {/* HOW OLD THE READING IS, because it is never live, and a panel that
               hides that can be quietly wrong for half an hour. `agoQuiet` is the
               app's own clock word: it says "now" under a minute and never counts
               seconds at her (hers, 2026-08-20). Its "now" is a whole answer and
               its "4m" is a span, so only the second one takes "ago". */}
-          {usage && (
+          {usage && !joint && (
             <div className="usage-panel-foot">
               {agoQuiet(usage.at, now) === 'now' ? 'Read just now' : `Read ${agoQuiet(usage.at, now)} ago`}
             </div>
