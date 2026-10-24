@@ -62,7 +62,7 @@ import os from 'node:os';
 import { isUrgent, itemPriority, normalizeOrder, orderFromTiers, placedScore, productRankScore } from '../shared/rank.mjs';
 import { keysForAgents } from '../shared/shortcuts.mjs';
 import { isCleanRun, ruleIdOf } from '../shared/repeats.mjs';
-import { teammateIdOf, OFFER_LABEL } from '../shared/teammates.mjs';
+import { teammateIdOf, mentionsIn, OFFER_LABEL } from '../shared/teammates.mjs';
 import { mayRunHere } from '../shared/team-rules.mjs';
 
 // WHO IS SIGNED IN, handed to the store server a worker talks through. An MCP
@@ -9868,16 +9868,37 @@ export class Supervisor {
   }
 
   /** What a reply sent to a running session carries: its files as a block (`attachmentBlock`), and its pictures for an engine that takes them in the turn. */
-  replyFiles(slug, answer, engine = DEFAULT_ENGINE) {
+  replyFiles(slug, answer, engine = DEFAULT_ENGINE, id = null) {
     let product = null;
     try { product = this.store.listProducts?.().find((p) => p.slug === slug) ?? null; } catch { /* none */ }
     if (!product?.dir) return { block: '', pictures: [] };
     const row = { answer };
-    return { block: this.attachmentBlock(row, product, [], engine), pictures: this.attachedPictures(row, product) };
+    let item = null;
+    try { item = id ? this.store.readItem?.(slug, id) ?? null : null; } catch { /* the hint is all that needs it */ }
+    const block = [this.attachmentBlock(row, product, [], engine), this.teammateNamedBlock(item, [answer])].filter(Boolean).join('\n\n');
+    return { block, pictures: this.attachedPictures(row, product) };
+  }
+
+  // A teammate named with @ in an ordinary thread is work for that teammate,
+  // handed over with team_pass rather than done here. Not on a teammate's own
+  // run: your message there already woke whoever it named.
+  teammateNamedBlock(item, texts) {
+    if (teammateIdOf(item)) return '';
+    let team = [];
+    try { team = (this.store.teammates?.list?.() ?? []).filter((t) => t.status === 'active' && !t.endedAt); } catch { return ''; }
+    const named = [...new Set(texts.flatMap((t) => mentionsIn(String(t ?? ''), team)))].map((id) => team.find((t) => t.id === id)?.name).filter(Boolean);
+    if (!named.length) return '';
+    const who = named.join(' and ');
+    return [`## ${who}, a teammate, is named`,
+      `The person named their teammate ${who} with @. What they ask of ${named.length > 1 ? 'each' : who} is ${named.length > 1 ? 'theirs' : `${who}'s`}: hand it over with team_pass (a short title, and everything needed in details), say in one line that you did, and do not do that part yourself.`].join('\n');
   }
 
   /** The other threads these words name, summed up (shared/named-threads.mjs). */
   namedThreadsBlock(item, product, texts) {
+    return [this._namedThreads(item, product, texts), this.teammateNamedBlock(item, texts)].filter(Boolean).join('\n\n');
+  }
+
+  _namedThreads(item, product, texts) {
     const find = (id) => {
       const all = this.store?.listProducts?.() ?? [];
       for (const p of [...all.filter((x) => x.slug === item.product), ...all.filter((x) => x.slug !== item.product)]) {

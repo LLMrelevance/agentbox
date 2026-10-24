@@ -52,7 +52,7 @@ export function submitReply(supervisor, payload, commit) {
     // A held Remote Control conversation is sitting idle rather than working,
     // and the slash commands it takes stop being commands once prose is wrapped
     // round them. Both reach it exactly as typed.
-    const files = session.remoteIdle ? null : supervisor.replyFiles?.(product, answer, session.engine);
+    const files = session.remoteIdle ? null : supervisor.replyFiles?.(product, answer, session.engine, id);
     const taken = session.remoteIdle
       ? session.child.steer(answer)
       : session.child.steer(liveReplyBrief(answer, files?.block), files?.pictures ?? []);
