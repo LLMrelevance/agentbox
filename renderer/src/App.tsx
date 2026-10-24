@@ -28,7 +28,7 @@ import { List } from './components/List';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
-import { arrivedAt, isUnread, readMoves } from './unread';
+import { arrivedAt, isUnread, readMoves, waitingSince } from './unread';
 import { Focus } from './components/Focus';
 import { TicketItems } from './components/TicketReference';
 import type { PendingSaid } from './item-thread';
@@ -3049,7 +3049,7 @@ export default function App() {
           id: i.id,
           title: rowTitle(i),
           says: i.status === 'blocked' ? 'needs you' : 'is ready for you',
-          since: i.wrote?.status?.ts ?? i.updatedAt,
+          since: waitingSince(i),
         })),
         ...(snap.approvals ?? []).map((a) => ({ id: a.id, title: productName(a.product ?? ''), says: 'needs a yes', since: a.at, open: null })),
       ],
