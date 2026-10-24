@@ -481,10 +481,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // title-free activity of their private work. Null on a build with no
       // team cloud, which is the single-person app.
       team: team ? teamForWindow(team.state(), alpha.multiplayer) : null,
-      // TEAMMATES: who they are, what each is on, and the one team chat.
-      teammates: (() => { try { return store.teammatesView(items, now); } catch (err) { return { list: [], chat: [], runs: [], error: err.message }; } })(),
       // Which alpha features are on (Settings, Alpha features).
       alpha,
+      // TEAMMATES: who they are, what each is on, and the one team chat.
+      teammates: (() => { try { return store.teammatesView(items, now); } catch (err) { return { list: [], chat: [], runs: [], error: err.message }; } })(),
       agents: liveAgents(),
       approvals: approvals.listPending(config.storeRoot),
       supervisor: running,

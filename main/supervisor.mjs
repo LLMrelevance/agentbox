@@ -62,6 +62,7 @@ import os from 'node:os';
 import { isUrgent, itemPriority, normalizeOrder, orderFromTiers, placedScore, productRankScore } from '../shared/rank.mjs';
 import { keysForAgents } from '../shared/shortcuts.mjs';
 import { isCleanRun, ruleIdOf } from '../shared/repeats.mjs';
+import { teammateIdOf } from '../shared/teammates.mjs';
 import { mayRunHere } from '../shared/team-rules.mjs';
 
 // WHO IS SIGNED IN, handed to the store server a worker talks through. An MCP
@@ -10005,6 +10006,10 @@ export class Supervisor {
     template = ruleIdOf(item)
       ? template.replace(/<!-- repeat-rules:(start|end) -->\n?/g, '')
       : template.replace(/<!-- repeat-rules:start -->[\s\S]*?<!-- repeat-rules:end -->\n?/g, '');
+    // And a teammate's run: how it finishes, only where a teammate:<id> label says it is one.
+    template = teammateIdOf(item)
+      ? template.replace(/<!-- teammate-rules:(start|end) -->\n?/g, '')
+      : template.replace(/<!-- teammate-rules:start -->[\s\S]*?<!-- teammate-rules:end -->\n?/g, '');
     // And the fourth: her rule about when a piece of work gets its own row.
     // Always kept; only its markers come out.
     template = template.replace(/<!-- subagent-rule:(start|end) -->\n?/g, '');

@@ -243,3 +243,23 @@ whatever it says. On a run with nothing in it, say that in one line and stop.
 One line costs them a second to read and tells them the job is still alive.
 <!-- no-store-tools:end -->
 <!-- repeat-rules:end -->
+
+<!-- teammate-rules:start -->
+## If this item is one run of a teammate
+
+Its labels carry `teammate:<id>`, and the system prompt tells you which
+teammate you are. This run is your own work, not something the person asked
+for, so the rules above about leaving their rows open do not apply to it. The
+team chat is where you talk; their inbox is only for what needs them.
+
+Finish one of two ways.
+
+Nothing needs them: post a one-line summary with team_post, then update this
+item with `status: "done"` and its labels plus `"clean"`, all in one call
+(labels replace the array, so send every one). This is the ordinary finish. A
+report they did not ask a question about belongs in the chat, not their inbox.
+
+They need to decide, approve or sign in: end with that question as your last
+message, short: a bold first line, two or three sentences, numbered options
+with your recommendation first. Leave the item open. It reaches their inbox.
+<!-- teammate-rules:end -->

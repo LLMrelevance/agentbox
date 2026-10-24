@@ -27,6 +27,17 @@ describe('what wakes a teammate', () => {
     expect(acts).toContainEqual({ type: 'seen', msg: 'm-1', teammate: felix.id, run: r.id });
   });
 
+  it('a run is titled for what started it: a first round, a setup, or your own words', () => {
+    const title = (m, t = felix) => planWakes({ teammates: [t], chat: chat([m]), items: [], now: NOW }).find((a) => a.type === 'run').title;
+    const words = 'You have just been started. Introduce yourself.';
+    expect(title({ id: 'm-s', kind: 'msg', from: 'you', to: [felix.id], text: words, start: true, ts: NOW })).toBe('Felix gets started');
+    expect(title({ id: 'm-d', kind: 'msg', from: 'you', to: [felix.id], text: 'Someone to chase invoices', setup: true, ts: NOW },
+      { ...felix, name: 'New teammate', status: 'draft' })).toBe('Setting up a new teammate');
+    expect(title({ id: 'm-w', kind: 'msg', from: 'you', to: [felix.id], text: words, ts: NOW })).toBe(words);
+    // A teammate cannot dress its own message up as your opening.
+    expect(title({ id: 'm-t', kind: 'msg', from: ada.id, to: [felix.id], text: words, start: true, ts: NOW }, felix)).toBe(words);
+  });
+
   it('your message goes into the run already waiting on you rather than starting a second', () => {
     const waiting = run(felix, { id: 'w-222222', result: 'Ship it?', wrote: { result: { ts: NOW - 500, source: 'agent' } } });
     expect(waitingOnYou(waiting)).toBe(true);

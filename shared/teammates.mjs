@@ -230,8 +230,8 @@ function clip(text, max) {
 export function runTitle(trigger, teammate) {
   if (trigger.kind === 'schedule') return clip(`${teammate.name}'s ${trigger.label ?? 'round'}`, 120);
   if (trigger.kind === 'pass') return clip(trigger.title || 'Work passed on', 120);
-  if (trigger.kind === 'setup') return clip(`Set up ${teammate.name}`, 120);
-  if (trigger.kind === 'start') return clip(`${teammate.name}'s first round`, 120);
+  if (trigger.opening === 'setup') return teammate.status === 'draft' && teammate.name === 'New teammate' ? 'Setting up a new teammate' : clip(`Setting up ${teammate.name}`, 120);
+  if (trigger.opening === 'start') return clip(`${teammate.name} gets started`, 120);
   return clip(trigger.text || 'A message', 120);
 }
 
@@ -297,7 +297,7 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
       }
       const trigger = m.kind === 'pass'
         ? { kind: 'pass', from: m.from, title: m.title, details: m.details, msg: m.id, hop }
-        : { kind: 'message', from: m.from, text: m.text, msg: m.id, hop };
+        : { kind: 'message', from: m.from, text: m.text, msg: m.id, hop, ...(fromYou && m.start ? { opening: 'start' } : fromYou && m.setup ? { opening: 'setup' } : {}) };
       const id = newRun(t, trigger, `${m.id}>${tid}`, { fromYou });
       if (id) actions.push({ type: 'seen', msg: m.id, teammate: tid, run: id });
     }
