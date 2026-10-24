@@ -572,10 +572,13 @@
 .gt-sumleft .focus-pane[data-summary="rail"] > .task-terminal { margin-right: 0; margin-left: var(--ts-rail-w); }
 .gt-sumleft .ts-rail { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--line); }
 .gt-sumleft .ts-rail-ic svg, .gt-sumleft .ts-close svg { transform: scaleX(-1); }
-/* A thread's own header, as it always was, with its arrow on the summary's
-   left edge and its corner where the Inbox's is. Its height is its own: a
-   document's header has a second line. */
-.workspace-layout.gt-inset.workspace-task:not([data-artifact-layout]) > .topbar { padding-left: 36px; }
+/* A thread's trail, its arrow on the 44-point edge the summary, a document's
+   conversation and its reply box all start on, and its corner where the Inbox's is. */
+.workspace-layout.gt-inset.workspace-task > .topbar { padding-left: 36px; }
+.workspace-layout.gt-inset[data-artifact-layout="beside"] .focus { padding-left: 44px; }
+.workspace-layout.gt-inset[data-artifact-layout="beside"] .focus-dock { padding-left: 44px; }
+/* With no sidebar your face shares the corner with the thread's menu, so the trail stops short of both. */
+.gt-noside .workspace-task-header:has(> .thread-crumb) { margin-right: 124px; }
 .workspace-layout.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }
 
 /* ROUND 18 TRIAL (w-dcaa2c122e), not for shipping: the sidebar stays narrow,

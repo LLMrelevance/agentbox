@@ -6564,6 +6564,7 @@ export default function App() {
                   // is headed Threads (w-34eb858714).
                   crumbFrom={teamOpen ? 'Team' : search !== null ? 'Search'
                     : onBoard ? 'Threads'
+                    : directOpen && roomsUi.openId ? 'Groups'
                     : view === 'inbox' && team ? needsWord(picked, team.me)
                       : INBOX_TABS.find((t) => t.view === view)?.label}
                   inlineArtifacts={workspaceNavigation}

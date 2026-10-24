@@ -26,6 +26,15 @@ function Said({ parts }: { parts: (string | null)[] }) {
   return <span className="fm-said">{kept.join(' · ')}</span>;
 }
 
+/** A conversation's faces and Add people, at the end of its trail, now that no line under a title carries them. */
+export function ConversationAside({ item, onAddPeople }: { item: WorkItem; onAddPeople?: (who: { to: string; also: string[] }) => void }) {
+  const team = useContext(TeamContext);
+  return <span className="crumb-aside">
+    {teamHeld(item, team) && <TeamPeople item={item} />}
+    {onAddPeople && <AddPeople product={team?.products.get(item.product) ?? null} onAdd={onAddPeople} />}
+  </span>;
+}
+
 export function Byline({ item, facts, returned, lead, stateShown, onAddPeople }: {
   item: WorkItem;
   facts: LiveFacts & WhereFacts & EngineFacts;
