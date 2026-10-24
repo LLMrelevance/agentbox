@@ -299,15 +299,17 @@ export function withCloudTurn(snapshot, { reply, answer, repliedAt, answeredAt, 
   if (!snapshot || typeof snapshot !== 'object' || !snapshot.item?.id) return null;
   const ctx = { home: null };
   const id = snapshot.item.id;
+  // No reply for a new thread's first turn: her ask is already its first line.
+  const replied = reply !== null && reply !== undefined;
   const said = clip(String(reply ?? ''), limits.textChars, ctx);
   const result = clip(String(answer ?? ''), limits.textChars, ctx);
   const lines = [
-    { id, ts: repliedAt, source: 'founder', patch: { answer: said, status: 'open' } },
+    ...(replied ? [{ id, ts: repliedAt, source: 'founder', patch: { answer: said, status: 'open' } }] : []),
     { id, ts: answeredAt, source: 'agent', patch: { result } },
     { id, ts: answeredAt, source: 'system', patch: { status } },
   ];
-  const wrote = { ...(snapshot.item.wrote ?? {}), answer: { ts: repliedAt, source: 'founder' }, result: { ts: answeredAt, source: 'agent' }, status: { ts: answeredAt, source: 'system' } };
-  const item = { ...snapshot.item, answer: said, result, status, updatedAt: answeredAt, wrote };
+  const wrote = { ...(snapshot.item.wrote ?? {}), ...(replied ? { answer: { ts: repliedAt, source: 'founder' } } : {}), result: { ts: answeredAt, source: 'agent' }, status: { ts: answeredAt, source: 'system' } };
+  const item = { ...snapshot.item, ...(replied ? { answer: said } : {}), result, status, updatedAt: answeredAt, wrote };
   let history = [...(Array.isArray(snapshot.history) ? snapshot.history : []), ...lines];
   let older = Number(snapshot.olderLines) || 0;
   while (history.length > limits.lines || (history.length > lines.length && bytesOf({ ...snapshot, item, history }) > limits.bytes)) {
@@ -315,4 +317,16 @@ export function withCloudTurn(snapshot, { reply, answer, repliedAt, answeredAt, 
     older += 1;
   }
   return { ...snapshot, item, history, olderLines: older };
+}
+
+// THE PHONE'S COPY OF A THREAD THE CLOUD STARTED FROM THE PHONE, before its
+// computer has one: the row her ask made, being worked on.
+export function newThreadSnapshot({ itemId, title, body = '', at }, limits = SNAPSHOT_LIMITS) {
+  const words = { title: String(title ?? ''), ...(body ? { body: String(body) } : {}) };
+  const said = { ts: at, source: 'founder' };
+  return threadSnapshot(
+    { id: itemId, ...words, kind: 'directive', labels: ['founder'], priority: 0, status: 'claimed', createdAt: at, updatedAt: at, wrote: { title: said, ...(body ? { body: said } : {}) } },
+    [{ ts: at, source: 'founder', patch: { ...words, status: 'open' } }],
+    limits,
+  );
 }

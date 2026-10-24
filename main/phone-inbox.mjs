@@ -114,6 +114,11 @@ export function createPhoneInbox({
   // A reply the server fed a run after this computer took it; whether that run is home.
   cloudReplies = null,
   runHome = null,
+  // A NEW THREAD the cloud started from the phone with the lid shut: asked
+  // each pass to keep the projects' new-thread kits, and handed each such run
+  // to make its row and folder and join it (Supervisor#adoptCloudNewThread).
+  newThreadKits = null,
+  adoptNew = null,
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -177,6 +182,7 @@ export function createPhoneInbox({
     let sent = 0;
     const chosen = projects();
     try { carrying?.({ device, slugs: chosen.map((p) => p.slug) }); } catch { /* the supervisor's trouble, not the phone's */ }
+    try { newThreadKits?.({ device, slugs: chosen.map((p) => p.slug) }); } catch { /* the supervisor's trouble, not the phone's */ }
     let asks = [];
     try { asks = approvalsOf() ?? []; } catch { /* the cards' trouble, not the phone's */ }
     const known = new Set(chosen.map((p) => p.slug));
@@ -441,7 +447,9 @@ export function createPhoneInbox({
       if (rec.over) continue;
       const first = cmds[0];
       const project = first.project;
-      const item = first.item && state.made[first.item] ? state.made[first.item].id : first.item;
+      // A run the cloud started for a new thread runs under the id the phone gave it.
+      const started = first.kind === 'new' ? first : null;
+      const item = started ? madeHere(started.id) : first.item && state.made[first.item] ? state.made[first.item].id : first.item;
       const fresh = cmds.filter((c) => c.kind === 'reply' && !rec.placed.includes(c.id));
       const replies = [];
       for (const c of fresh) {
@@ -451,7 +459,14 @@ export function createPhoneInbox({
       }
       if (!rec.done) {
         let out = 'not-a-reply';
-        if (item && fresh.length) {
+        if (started && adoptNew) {
+          const p = started.payload ?? {};
+          const title = String(p.title ?? '').trim() || String(p.body ?? '').trim().split('\n')[0].slice(0, 200);
+          try { out = await adoptNew({ project, item, runId, title, body: String(p.body ?? ''), command: started.id, replies, choices: phoneChoices('new', p) }); } catch (err) {
+            out = 'failed';
+            sayOnce(`adopt:${err?.message}`, `phone: could not take in the new thread the cloud started (${item}): ${err?.message ?? err}`);
+          }
+        } else if (item && fresh.length) {
           try { out = await adopt({ project, item, runId, replies, commands: fresh.map((c) => c.id) }); } catch (err) {
             out = 'failed';
             sayOnce(`adopt:${err?.message}`, `phone: could not join the cloud's run for ${item}: ${err?.message ?? err}`);

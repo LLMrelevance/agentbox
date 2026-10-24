@@ -21,6 +21,9 @@ import {
   kitKey, replyPrompt, resultsInLines, runKey, serverRunKey, startPayload,
 } from '../../shared/cloud-kit.mjs';
 import { withCloudTurn } from '../../shared/phone-snapshot.mjs';
+import { fillNewThreadKit, newThreadKitKey } from '../../shared/cloud-kit.mjs';
+import { madeHere, newThreadSnapshot } from '../../shared/phone-snapshot.mjs';
+import { codexOpenLines, codexTurnLines, codexReadLines, codexAnswersIn } from '../../shared/cloud-kit.mjs';
 import { phoneBanner } from '../../shared/notify-rules.mjs';
 import { handsBack, HAND_BACK } from '../../shared/cloud-hand-back.mjs';
 import { LOGIN_NAME } from '../../shared/cloud-login-name.mjs';
@@ -63,7 +66,7 @@ export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = D
   }
   const thread = (owner, device, project, item) => `owner=eq.${q(owner)}&device=eq.${q(device)}&project=eq.${q(project)}&item=eq.${q(item)}`;
   return {
-    waitingReplies: ({ after, before, limit }) => call('GET', `phone_commands?select=id,owner,device,project,item,kind,payload,created_at&kind=eq.reply&taken_at=is.null&claimed_at=is.null&created_at=gt.${q(iso(after))}&created_at=lt.${q(iso(before))}&order=created_at.asc&limit=${limit}`),
+    waitingReplies: ({ after, before, limit }) => call('GET', `phone_commands?select=id,owner,device,project,item,kind,payload,created_at&kind=in.(reply,new)&taken_at=is.null&claimed_at=is.null&created_at=gt.${q(iso(after))}&created_at=lt.${q(iso(before))}&order=created_at.asc&limit=${limit}`),
     async claim(id, by, at) {
       const rows = await call('PATCH', `phone_commands?id=eq.${q(id)}&claimed_at=is.null&taken_at=is.null`, { body: { claimed_at: at, claimed_by: by }, prefer: 'return=representation' });
       return Array.isArray(rows) && rows.length === 1;
@@ -75,6 +78,8 @@ export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = D
       return Array.isArray(rows) && rows[0] ? rows[0] : null;
     },
     writeThread: (owner, device, project, item, snapshot) => call('PATCH', `phone_threads?${thread(owner, device, project, item)}`, { body: { snapshot, updated_at: iso(Date.now()) } }),
+    // A thread the cloud started from the phone; one already there is kept.
+    newThread: (owner, device, project, item, snapshot) => call('POST', 'phone_threads?on_conflict=owner,device,project,item', { body: { owner, device, project, item, snapshot, updated_at: iso(Date.now()) }, prefer: 'resolution=ignore-duplicates,return=minimal' }),
     pushDevices: (owner) => call('GET', `push_devices?select=token&owner=eq.${q(owner)}`),
     dropPushDevice: (owner, token) => call('DELETE', `push_devices?owner=eq.${q(owner)}&token=eq.${q(token)}`),
   };
@@ -171,6 +176,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   // The run's new output, read without counting as the computer, and every
   // turn it finished since the last look.
   async function relay(rec) {
+    if (rec.codex) await codexNextTurn(rec);
     for (let p = 0; p < PAGES_PER_SWEEP; p += 1) {
       let page;
       try { page = await input(rec.owner, rec.sessionId, { action: 'events', runId: rec.runId, since: rec.cursor, peek: true, maxBytes: PAGE_BYTES }); } catch (err) {
@@ -185,11 +191,50 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
       rec.partial = lines.pop();
       if (rec.partial.length > PARTIAL_MAX) rec.partial = '';
       rec.cursor += page.events.length;
-      const results = resultsInLines(lines);
+      const results = rec.codex ? codexReadLines(lines, rec.codex.read) : resultsInLines(lines);
       await save(rec);
       for (const r of results) await relayTurn(rec, answerText(r));
+      if (rec.codex) await codexNextTurn(rec);
       if (!page.more) return;
     }
+  }
+
+  // A CODEX RUN (shared/cloud-kit.mjs): its thread is opened first, and her
+  // words go as one `turn/start` each, the next only once the last has
+  // answered, numbered on from the kit's first turn id.
+  const busy = (rec) => (rec.codex ? rec.codex.read.resumed !== true || rec.relayed < rec.codex.turnsSent : rec.relayed < rec.sent);
+
+  function firstInput(rec, kit, text) {
+    if (kit.engine !== 'codex') return stdinOf(kit.frame, text, kit.note ?? null);
+    rec.codex = { resumeId: kit.codex.resumeId, nextId: kit.codex.firstTurnId, turn: kit.codex.turn, turnsSent: 0, read: { resumeId: kit.codex.resumeId, turnIds: [] } };
+    return Buffer.from(codexOpenLines(kit)).toString('base64');
+  }
+
+  async function sendCodexTurn(rec, text) {
+    const id = rec.codex.nextId;
+    const n = rec.sent + 1;
+    const data = Buffer.from(codexTurnLines({ frame: rec.frame, codex: { turn: rec.codex.turn } }, text, { id })).toString('base64');
+    if (!(await send(rec, { action: 'stdin', n, data }))) return false;
+    rec.sent = n;
+    rec.codex.nextId = id + 1;
+    rec.codex.turnsSent += 1;
+    rec.codex.read.turnIds.push(id);
+    await save(rec);
+    return true;
+  }
+
+  async function codexNextTurn(rec) {
+    const c = rec.codex;
+    if (rec.closedAt || rec.joined || rec.state !== 'open') return;
+    if (typeof c.read.resumed === 'string') {
+      // Nothing it was asked can be answered: each reply is told why, and the run is closed.
+      while (rec.relayed < rec.turns.length) await relayTurn(rec, `Agentbox Cloud could not open this thread (${c.read.resumed}). It carries on when your computer is back.`);
+      const n = rec.sent + 1;
+      if (await send(rec, { action: 'stdin', n, end: true })) { rec.sent = n; rec.closedAt = now(); await save(rec); }
+      return;
+    }
+    if (c.read.resumed !== true || rec.relayed < c.turnsSent || c.turnsSent >= rec.turns.length) return;
+    if (!(await sendCodexTurn(rec, rec.turns[c.turnsSent].reply))) once(`turn:${rec.runId}`, `phone: could not send a reply to cloud run ${rec.runId}; tried again next minute`);
   }
 
   async function startRun(person, cmd, text, tries) {
@@ -226,7 +271,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
       return giveBack(err?.error || 'cloud');
     }
     if (!answer?.ok) return giveBack(answer?.error || 'no answer');
-    if (!(await send(rec, { action: 'stdin', n: 1, data: stdinOf(kit.frame, text, kit.note ?? null) }))) {
+    if (!(await send(rec, { action: 'stdin', n: 1, data: firstInput(rec, kit, text) }))) {
       // A run with no reply would sit until its ceiling.
       await stop(person, rec.sessionId).catch(() => {});
       return giveBack('the reply did not reach the run');
@@ -250,22 +295,126 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
       return 'left';
     }
     // Closing, or still on its last reply: the next look takes it.
-    if (rec.closedAt || rec.relayed < rec.sent) return 'waits';
+    if (rec.closedAt || busy(rec)) return 'waits';
     const claim = cloudClaim(rec.runId);
     if (!(await db.claim(cmd.id, claim, iso(now())))) return 'computer';
     const n = rec.sent + 1;
-    if (!(await send(rec, { action: 'stdin', n, data: stdinOf(rec.frame, text, null) }))) {
+    const went = rec.codex ? await sendCodexTurn(rec, text) : await send(rec, { action: 'stdin', n, data: stdinOf(rec.frame, text, null) });
+    if (!went) {
       try { await db.giveBack(cmd.id, claim); } catch (err) { log(`phone: could not give back the claim on ${cmd.id}: ${err?.message || err}`); }
       await failed(rec.owner, cmd, tries, 'the reply did not reach the run');
       return 'refused';
     }
-    rec.sent = n;
+    if (!rec.codex) rec.sent = n;
     rec.turns.push({ command: cmd.id, reply: text, repliedAt: cmd.created_at });
     await save(rec);
     return 'sent';
   }
 
+  // A NEW THREAD FROM THE PHONE, started from its project's new-thread kit
+  // under the id its computer gives a thread the phone started (madeHere), on
+  // a branch at the main the kit saw. Its turns are relayed as a reply's are,
+  // and her replies to it go to the same run.
+  const titleOf = (p) => String(p?.title ?? '').trim() || String(p?.body ?? '').trim().split('\n')[0].slice(0, 200);
+  // What a new thread's kit cannot do as she asked, so her computer does it.
+  function newThreadLeft(p, kit) {
+    if (p.start === 'later' || Number(p.runAt) > 0) return 'it is to start later';
+    if (p.engine && p.engine !== kit.engine) return 'it is for another coding agent';
+    if (p.model && p.model !== (kit.newThread?.model ?? null)) return 'it asks for a model its kit does not run';
+    if (p.effort && p.effort !== (kit.newThread?.effort ?? null)) return 'it asks for an effort its kit does not run';
+    if (p.assignee || p.due || p.visibility || p.visibleTo || p.people) return 'it is for the team';
+    if (PHONE_FILE.test(String(p.body ?? ''))) return 'it carries a file from the phone';
+    if (!titleOf(p)) return 'it has no words';
+    return null;
+  }
+
+  async function projectKitOf(person, cmd) {
+    const text = await readFile(scopedKey(person, newThreadKitKey(cmd.device, cmd.project)));
+    if (!text) return null;
+    let kit;
+    try { kit = JSON.parse(text); } catch { once('new-kit-json', 'phone: a new-thread kit that is not JSON was left to its computer'); return null; }
+    const elsewhere = (kit?.device && kit.device !== cmd.device) || (kit?.project && kit.project !== cmd.project);
+    const problem = checkKit(kit, { now: now() }) || (!kit.newThread ? 'not a new-thread kit' : null) || (elsewhere ? 'a kit for another project' : null);
+    if (problem) { once(`new-kit:${problem}`, `phone: a new-thread kit was left to its computer: ${problem}`); return null; }
+    return kit;
+  }
+
+  async function startNewRun(person, cmd, itemId, tries) {
+    const project = await projectKitOf(person, cmd);
+    if (!project) return null;
+    const p = cmd.payload ?? {};
+    const why = newThreadLeft(p, project);
+    if (why) { once(`new:${why}`, `phone: a new thread is left to its computer: ${why}`); return null; }
+    const title = titleOf(p);
+    const body = String(p.body ?? '');
+    const filled = fillNewThreadKit(project, { itemId, title, body });
+    if (!filled) { once('new-fill', 'phone: a new-thread kit could not be filled, so the thread is left to its computer'); return null; }
+    const free = await room(person);
+    if (!free.ok) { once(`room:${free.error}`, `phone: no room to start a new thread in the cloud (${free.error})`); return null; }
+    const runId = crypto.randomUUID();
+    const claim = cloudClaim(runId);
+    if (!(await db.claim(cmd.id, claim, iso(now())))) return null;
+    const { kit } = filled;
+    const rec = {
+      runId, sessionId: cloudSessionId(itemId, runId), owner: person, device: cmd.device, project: cmd.project, item: itemId,
+      startedAt: now(), kitMadeAt: project.madeAt, frame: kit.frame, state: 'open', newThread: true,
+      turns: [{ command: cmd.id, reply: null, repliedAt: cmd.created_at }], sent: 0, relayed: 0, cursor: 0, partial: '',
+    };
+    const giveBack = async (reason) => {
+      try { await db.giveBack(cmd.id, claim); } catch (err) { log(`phone: could not give back the claim on ${cmd.id}: ${err?.message || err}`); }
+      await failed(person, cmd, tries, reason);
+      return null;
+    };
+    let answer;
+    try {
+      const payload = await startPayload(kit, {
+        runId,
+        getUrl: (k) => links.get(scopedKey(person, k), LINK_SECONDS),
+        putUrl: (k) => links.put(scopedKey(person, k), LINK_SECONDS),
+        loginName: (k) => `${LOGIN_NAME}${k}`,
+        kept: kit.kept ?? null,
+        endTurn: null,
+        refs: filled.refs,
+      });
+      answer = await start(person, rec.sessionId, payload);
+    } catch (err) {
+      return giveBack(err?.error || 'cloud');
+    }
+    if (!answer?.ok) return giveBack(answer?.error || 'no answer');
+    // A fresh thread's command line carries the cloud's note; its first message is the brief.
+    const data = Buffer.from(cloudUserLine(filled.prompt, { note: kit.note ?? null, uuid: crypto.randomUUID() })).toString('base64');
+    if (!(await send(rec, { action: 'stdin', n: 1, data }))) {
+      await stop(person, rec.sessionId).catch(() => {});
+      return giveBack('her ask did not reach the run');
+    }
+    rec.sent = 1;
+    await save(rec);
+    try { await db.newThread(person, cmd.device, cmd.project, itemId, newThreadSnapshot({ itemId, title, body, at: Date.parse(cmd.created_at) || now() })); } catch (err) {
+      once('new-copy', `phone: could not write a new thread's copy for the phone: ${err?.message || err}`);
+    }
+    const forComputer = { runId, sessionId: rec.sessionId, command: cmd.id, device: cmd.device, project: cmd.project, item: itemId, new: { title, body }, repliedAt: cmd.created_at, startedAt: rec.startedAt, kitMadeAt: project.madeAt };
+    try { await runFiles.put(scopedKey(person, serverRunKey(runId)), JSON.stringify(forComputer)); } catch (err) { once('record', `phone: could not leave the run's record for the computer: ${err?.message || err}`); }
+    log(`phone: started new thread ${itemId} in the cloud as ${runId}`);
+    return rec;
+  }
+
+  async function considerNew(cmd, open) {
+    const person = String(cmd.owner || '').toLowerCase();
+    if (!PERSON.test(person) || cmd.item) return 'left';
+    const itemId = madeHere(cmd.id);
+    if (open.has(threadOf({ owner: person, device: cmd.device, project: cmd.project, item: itemId }))) return 'left';
+    const tries = await readJson(tryKey(person, cmd.id));
+    if (tries && (tries.n >= PHONE_TRIES || now() - tries.at < TRY_AGAIN_MS)) return 'left';
+    // A computer that is awake makes the thread within seconds.
+    if (now() - Date.parse(cmd.created_at) < CLOUD_TAKES_AFTER_MS) return 'left';
+    const made = await startNewRun(person, cmd, itemId, tries);
+    if (!made) return 'left';
+    open.set(threadOf(made), made);
+    return 'started';
+  }
+
   async function consider(cmd, open) {
+    if (cmd.kind === 'new') return considerNew(cmd, open);
     const person = String(cmd.owner || '').toLowerCase();
     const text = cmd.payload?.text;
     if (!PERSON.test(person) || typeof text !== 'string' || !text.trim() || PHONE_FILE.test(text) || !cmd.item) return 'left';
@@ -282,7 +431,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   }
 
   async function closeIfIdle(rec) {
-    if (rec.state !== 'open' || rec.joined || rec.closedAt || rec.relayed < rec.sent || !rec.lastTurnEndedAt) return;
+    if (rec.state !== 'open' || rec.joined || rec.closedAt || busy(rec) || !rec.lastTurnEndedAt) return;
     if (now() - rec.lastTurnEndedAt < IDLE_CLOSE_MS) return;
     const n = rec.sent + 1;
     if (!(await send(rec, { action: 'stdin', n, end: true }))) { once(`close:${rec.runId}`, `phone: could not close cloud run ${rec.runId}; tried again next minute`); return; }
@@ -305,7 +454,8 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
         await objects.del(openKey(person, runId));
         return true;
       }
-      const answers = answersIn(await readFile(scopedKey(person, runKey(runId, 'events.jsonl'))));
+      const events = await readFile(scopedKey(person, runKey(runId, 'events.jsonl')));
+      const answers = rec.codex ? codexAnswersIn(events, { resumeId: rec.codex.resumeId, turnIds: [...rec.codex.read.turnIds] }) : answersIn(events);
       while (rec.relayed < rec.turns.length) await relayTurn(rec, answerText(answers[rec.relayed]));
       rec.state = 'ended-not-home';
       rec.endedAt = now();

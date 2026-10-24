@@ -79,9 +79,10 @@ describe('a kit the server trusts', () => {
   it('a whole, fresh Claude Code kit passes', () => {
     expect(checkKit(kit(), { now: NOW })).toBeNull();
   });
-  it('an old one, a Codex one, or one with no sign-in or no copy of the folder does not', () => {
+  it('an old one, another engine, a Codex one with no thread to open, or one with no sign-in or no copy of the folder does not', () => {
     expect(checkKit(kit({ madeAt: NOW - 7 * 24 * 3600_000 }), { now: NOW })).toMatch(/too old/);
-    expect(checkKit(kit({ engine: 'codex' }), { now: NOW })).toMatch(/Claude Code/);
+    expect(checkKit(kit({ engine: 'opencode' }), { now: NOW })).toMatch(/Claude Code and Codex/);
+    expect(checkKit(kit({ engine: 'codex' }), { now: NOW })).toMatch(/Codex kit/);
     expect(checkKit(kit({ login: null }), { now: NOW })).toMatch(/sign-in/);
     expect(checkKit(kit({ bundleKey: null }), { now: NOW })).toMatch(/copy of the folder/);
   });

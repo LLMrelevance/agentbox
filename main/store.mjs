@@ -558,20 +558,20 @@ export class Store {
     return this.modules.workItemsDisk.updateWorkItem(this.productDir(slug), id, allowed, { source: 'founder' });
   }
 
-  composeItem(slug, { title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
+  composeItem(slug, { id = null, title, body, kind = 'directive', priority = 0, labels, runAt, start, engine, model, effort, assignee, due, people, visibility, visibleTo, fromPhone }) {
     const { workItemsDisk } = this.modules;
     const dir = this.productDir(slug);
     // The 'founder' label is the human-in-the-loop marker: only items the
     // founder composed (or explicitly approved) execute; agent-filed items
     // are proposals until then.
     const allLabels = [...new Set(['founder', ...(labels ?? [])])];
-    const created = workItemsDisk.createWorkItem(
-      dir,
-      // The phone command that asked for it, on the very line that makes the
-      // row, so no row it made is ever without it (Codex's fourth review).
-      { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) },
-      { source: 'system' }
-    );
+    // The phone command that asked for it, on the very line that makes the
+    // row, so no row it made is ever without it (Codex's fourth review).
+    const first = { title, kind, priority, labels: allLabels, ...(fromPhone ? { fromPhone: String(fromPhone) } : {}) };
+    // A thread the cloud started from the phone keeps the id it ran under there.
+    const created = id
+      ? workItemsDisk.createWorkItemIfAbsent(dir, id, first, { source: 'system' }).item
+      : workItemsDisk.createWorkItem(dir, first, { source: 'system' });
     // The founder's words carry founder authority; the lifecycle does not.
     // A runAt sent with the compose is "send later": the item exists now and
     // starts then, which is why it rides in with her content rather than after.

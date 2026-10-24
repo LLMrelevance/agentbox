@@ -107,7 +107,9 @@ describe('after a turn', () => {
     expect(warned.filter((w) => /no kit for the phone/.test(w))).toHaveLength(1);
   });
 
-  it('leaves none for a thread not on her phone, a Codex thread, a failed run, or a computer not on the managed cloud', () => {
+  // A Codex thread with a conversation to resume does leave one
+  // (tests/a-codex-thread-on-the-phone-carries-on-in-the-cloud-with-the-computer-shut).
+  it('leaves none for a thread not on her phone, a Codex thread with no conversation yet, a failed run, or a computer not on the managed cloud', () => {
     sup.phoneCarrying({ device: DEVICE, slugs: ['other'] });
     sup._leaveKitForThePhone(row, finished());
     sup.phoneCarrying({ device: DEVICE, slugs: ['team'] });

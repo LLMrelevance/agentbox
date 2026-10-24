@@ -473,6 +473,9 @@ async function createWindow() {
       adopt: ({ project, item, runId, replies }) => supervisor.adoptCloudRun({ product: project, itemId: item, runId, replies }),
       cloudReplies: ({ project, item, replies }) => supervisor.cloudRunReplies({ product: project, itemId: item, replies }),
       runHome: ({ project, item, runId }) => supervisor.cloudRunHome({ product: project, itemId: item, runId }),
+      // And a new thread she starts with the lid shut.
+      newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
+      adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),

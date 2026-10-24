@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
+import { NEW_THREAD } from '../../shared/cloud-kit.mjs';
 import { cloudClients } from './clients.mjs';
 import { readCloudConfig, readCloudKey, imageCaps, noteImageCaps } from './config.mjs';
 import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom, cloudAccountFrom, cloudLoginInUse, noCloudAccountSentence } from './logins.mjs';
@@ -72,7 +73,8 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
   // (shared/cloud-kit.mjs, Supervisor#_writeKit).
   const importOnly = args[0] === '--agentbox-import-only';
   const kitOnly = args[0] === '--agentbox-kit';
-  const codex = args[0] === '--agentbox-codex';
+  // A kit for a Codex thread: `--agentbox-kit --agentbox-codex app-server`.
+  const codex = args[0] === '--agentbox-codex' || (kitOnly && args[1] === '--agentbox-codex');
   const engine = codex ? 'codex' : 'claude';
   // The cloud account it runs on (main/cloud/logins.mjs pickCloudLogin). The
   // folder below only says where the conversation is kept.
@@ -105,7 +107,7 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
     imageCaps: imageCaps(config),
     onCaps: (caps) => noteImageCaps(config, caps),
     remoteCommand: codex ? 'codex' : 'claude',
-    argv: importOnly ? [] : args.slice(codex || kitOnly ? 1 : 0),
+    argv: importOnly ? [] : args.slice((codex ? 1 : 0) + (kitOnly ? 1 : 0)),
     env, cwd, transport, storage,
     ...(stdin ? { stdin, stdout, stderr } : {}),
     ...(signals ? { signals } : {}),
@@ -126,7 +128,35 @@ export function kitFrom(env) {
   try { frame = JSON.parse(fs.readFileSync(env.AGENTBOX_KIT_FRAME, 'utf8')); } catch { return null; }
   fs.rmSync(env.AGENTBOX_KIT_FRAME, { force: true });
   if (typeof frame?.before !== 'string' || typeof frame?.after !== 'string') return null;
-  return { device, project, item, frame: { before: frame.before, after: frame.after }, copy: env.AGENTBOX_KIT_COPY || null };
+  const codex = env.AGENTBOX_KIT_CODEX ? codexKitAsked(env.AGENTBOX_KIT_CODEX) : undefined;
+  if (codex === null) return null;
+  const newThread = env.AGENTBOX_KIT_NEW ? newThreadAsked(env.AGENTBOX_KIT_NEW) : undefined;
+  if (newThread === null) return null;
+  return {
+    device, project, item: newThread ? NEW_THREAD : item, frame: { before: frame.before, after: frame.after }, copy: env.AGENTBOX_KIT_COPY || null,
+    ...(codex ? { codex } : {}), ...(newThread ? { newThread } : {}),
+  };
+}
+
+// A project's kit for a new thread (Supervisor#_leaveNewThreadKit) names where
+// the thread's folder will be, its first prompt with the marks, and the model
+// and effort its command line runs, in a file read once.
+function newThreadAsked(file) {
+  let n = null;
+  try { n = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  fs.rmSync(file, { force: true });
+  if (typeof n?.cwd !== 'string' || !path.isAbsolute(n.cwd) || typeof n.brief !== 'string') return null;
+  return { cwd: n.cwd, brief: n.brief, model: typeof n.model === 'string' ? n.model : null, effort: typeof n.effort === 'string' ? n.effort : null };
+}
+
+// A Codex thread's kit also names the thread to resume and its turn's
+// settings (Supervisor#_writeKit), in a file read once.
+function codexKitAsked(file) {
+  let asked = null;
+  try { asked = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  fs.rmSync(file, { force: true });
+  if (typeof asked?.resume?.threadId !== 'string' || typeof asked?.turn?.threadId !== 'string') return null;
+  return { resume: asked.resume, turn: asked.turn };
 }
 
 // Run as a program, not imported by the host: by the file's name, which holds

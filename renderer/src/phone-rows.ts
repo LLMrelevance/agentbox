@@ -142,10 +142,13 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     else if (c.kind === 'snooze' && row) items.set(key, { ...row, snoozedUntil: Number(c.payload?.until) || null, updatedAt: at });
     else if (c.kind === 'new' && names.has(slug)) {
       const made = madeHere(c.id);
+      // Started in the cloud with the computer away: the copy the cloud wrote is the thread.
+      const inCloud = takenAt === null && !!runOfClaim(c.claimed_by);
+      if (inCloud && items.has(`${slug}/${made}`)) continue;
       items.set(`${slug}/${made}`, {
         id: made, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
         body: String(c.payload?.body ?? ''), kind: 'directive', labels: ['founder'], priority: 0, createdAt: at, updatedAt: at,
-        ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : { status: 'open', waitsForMac: true }),
+        ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : inCloud ? { status: 'claimed' } : { status: 'open', waitsForMac: true }),
       });
     }
   }

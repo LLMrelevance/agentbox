@@ -73,12 +73,13 @@ const strings = (a) => Array.isArray(a) && a.every((s) => typeof s === 'string')
 export function checkKit(kit, { now = Date.now() } = {}) {
   if (!kit || typeof kit !== 'object') return 'not a kit';
   if (kit.v !== KIT_VERSION) return 'another version of kit';
-  if (kit.engine !== 'claude') return 'only Claude Code threads carry on in the cloud';
+  if (kit.engine !== 'claude' && kit.engine !== 'codex') return 'only Claude Code and Codex threads carry on in the cloud';
+  if (kit.engine === 'codex') { const p = codexKitProblem(kit.codex); if (p) return p; }
   if (!(now - Number(kit.madeAt) < KIT_FRESH_MS)) return 'the kit is too old';
   if (!isPath(kit.cwd)) return 'no folder';
   if (!strings(kit.argv) || !kit.argv.length) return 'no command';
   if (!kit.frame || typeof kit.frame.before !== 'string' || typeof kit.frame.after !== 'string') return 'no place for the reply';
-  if (!kit.login || kit.login.engine !== 'claude' || !isLoginKey(kit.login.key)) return 'no sign-in';
+  if (!kit.login || kit.login.engine !== kit.engine || !isLoginKey(kit.login.key)) return 'no sign-in';
   if (kit.env && (typeof kit.env !== 'object' || !Object.values(kit.env).every((v) => typeof v === 'string'))) return 'bad environment';
   if (!kit.plain && typeof kit.branch !== 'string') return 'no branch';
   if (kit.bundleKey !== undefined && kit.bundleKey !== null && !isKey(kit.bundleKey)) return 'bad bundle';
@@ -97,7 +98,7 @@ export function checkKit(kit, { now = Date.now() } = {}) {
  * built as main/cloud/run.mjs builds one. `getUrl(key)` and `putUrl(key)` make
  * links; the sign-in goes by name (`loginName(key)`) for the server to swap.
  */
-export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offlineAfterMs = 90_000, kept = null, endTurn = 'claude-stream-json' }) {
+export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offlineAfterMs = 90_000, kept = null, endTurn = 'claude-stream-json', refs = null }) {
   const results = {
     bundleUrl: await putUrl(runKey(runId, 'out.bundle')),
     changesUrl: await putUrl(runKey(runId, 'changes.bundle')),
@@ -112,7 +113,9 @@ export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offl
     action: 'start', runId, cwd: kit.cwd, branch: kit.branch ?? null,
     ...(kit.bundleKey ? { bundleUrl: await getUrl(kit.bundleKey) } : {}),
     ...(kit.plain ? { plain: true } : {}),
-    ...(kit.base ? { base: { url: await getUrl(kit.base.key), sha: kit.base.sha }, refs: kit.refs ?? null } : {}),
+    ...(kit.base ? { base: { url: await getUrl(kit.base.key), sha: kit.base.sha }, refs: refs ? { ...(kit.refs ?? {}), ...refs } : (kit.refs ?? null) } : {}),
+    // A new thread's branch, made at the main its kit saw (`fillNewThreadKit`).
+    ...(!kit.base && refs ? { refs } : {}),
     argv: kit.argv, env: kit.env ?? {}, files,
     ...(kit.changesRef ? { changesRef: kit.changesRef } : {}),
     ...(kit.remote ? { remote: kit.remote } : {}),
@@ -170,4 +173,129 @@ export function lastAnswerIn(eventsText) {
     if (msg?.type === 'result') answer = { text: String(msg.result ?? ''), isError: msg.is_error === true };
   }
   return answer;
+}
+
+// A CODEX KIT'S THREAD (main/codex-app-server.mjs). A Codex run is
+// `codex app-server` spoken to in JSON-RPC, so the kit holds the lines the
+// computer's own client would send to open the thread in the cloud
+// (initialize, initialized, thread/resume rewritten as main/cloud/run.mjs
+// rewrites them) and the turn's settings; her reply goes into a `turn/start`
+// whose input is the turn's prompt. Request ids are fixed: `resumeId` names
+// the resume's answer, and turns go from `firstTurnId` on.
+function codexKitProblem(c) {
+  if (!c || !strings(c.open) || c.open.length < 3) return 'a Codex kit with no lines to open its thread';
+  if (!Number.isInteger(c.resumeId) || !Number.isInteger(c.firstTurnId) || c.firstTurnId <= c.resumeId) return 'a Codex kit with no request ids';
+  if (!c.turn || typeof c.turn !== 'object' || typeof c.turn.threadId !== 'string' || !c.turn.threadId) return 'a Codex kit with no thread to resume';
+  return null;
+}
+
+/** What opens a Codex kit's thread in the cloud, as one input. */
+export const codexOpenLines = (kit) => kit.codex.open.map((l) => (l.endsWith('\n') ? l : `${l}\n`)).join('');
+
+/** Her reply as one turn of the kit's thread, with request id `id`. */
+export function codexTurnLines(kit, reply, { id }) {
+  const { threadId, ...settings } = kit.codex.turn;
+  return `${JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/start', params: { threadId, ...settings, input: [{ type: 'text', text: replyPrompt(kit.frame, reply) }] } })}\n`;
+}
+
+// WHAT A CODEX RUN SAID, read as main/codex.mjs `captureCodexEvent` reads it:
+// a turn's answer is its `agentMessage` with `phase: "final_answer"` (one with
+// no phase still counts, a `commentary` never does), or the final answer in
+// `turn.items`; a failed turn says why. `state` carries a turn across reads
+// and is told the resume's answer (`resumed`: true, or why it was refused);
+// a refused `turn/start` (one of `turnIds`) is a failed turn of its own.
+export function codexReadLines(lines, state = {}) {
+  const answers = [];
+  for (const raw of lines) {
+    if (!raw || !raw.trim()) continue;
+    let msg;
+    try { msg = JSON.parse(raw); } catch { continue; }
+    if (!msg || typeof msg !== 'object') continue;
+    if (msg.id !== undefined && msg.method === undefined) {
+      const why = msg.error ? String(msg.error.message ?? 'refused') : null;
+      if (msg.id === state.resumeId) state.resumed = why ?? true;
+      else if (why && (state.turnIds ?? []).includes(msg.id)) answers.push({ text: why, isError: true });
+      continue;
+    }
+    const p = msg.params ?? {};
+    if (msg.method === 'item/completed') {
+      const item = p.item ?? {};
+      if (item.type !== 'agentMessage') continue;
+      const phase = typeof item.phase === 'string' ? item.phase : null;
+      if (phase === 'commentary' || (state.final && phase !== 'final_answer')) continue;
+      state.result = String(item.text ?? '');
+      if (phase === 'final_answer') state.final = true;
+      continue;
+    }
+    if (msg.method === 'turn/completed' || msg.method === 'turn/failed') {
+      const turn = p.turn ?? {};
+      const status = typeof turn.status === 'string' ? turn.status : msg.method === 'turn/failed' ? 'failed' : 'completed';
+      if (status === 'completed') {
+        const kept = Array.isArray(turn.items) ? [...turn.items].reverse().find((i) => i?.type === 'agentMessage' && i.phase === 'final_answer') : null;
+        const text = state.result ?? (kept ? String(kept.text ?? '') : null);
+        answers.push(text == null ? { text: '', isError: true } : { text, isError: false });
+      } else {
+        const why = String(turn.error?.message ?? '').trim() || (status === 'interrupted' ? 'the turn was interrupted' : `the turn ${status}`);
+        answers.push({ text: why, isError: true });
+      }
+      state.result = null;
+      state.final = false;
+    }
+  }
+  return answers;
+}
+
+const stdoutOf = (eventsText) => {
+  let out = '';
+  for (const raw of String(eventsText ?? '').split('\n')) {
+    if (!raw.trim()) continue;
+    let e;
+    try { e = JSON.parse(raw); } catch { continue; }
+    if (e?.kind === 'stdout' && typeof e.data === 'string') out += Buffer.from(e.data, 'base64').toString('utf8');
+  }
+  return out;
+};
+
+/** Each Codex turn's answer, in order, off a run's event log. */
+export const codexAnswersIn = (eventsText, state = {}) => codexReadLines(stdoutOf(eventsText).split('\n'), state);
+
+/** A Codex run's last answer off its event log, or null. */
+export function codexAnswerIn(eventsText) {
+  const all = codexAnswersIn(eventsText);
+  return all.length ? all[all.length - 1] : null;
+}
+
+// A NEW THREAD FROM THE PHONE WITH THE COMPUTER SHUT. Each project on the
+// phone keeps a kit for a fresh thread beside its threads' kits, built for a
+// stand-in item whose id, title and body are these marks and packed from
+// main (main/cloud/run.mjs, Supervisor#_leaveNewThreadKit). The item's mark
+// is plain letters, so a folder name made from a path that holds it
+// (Claude Code's transcripts) holds it unchanged too.
+export const NEW_THREAD = '_new';
+export const NEW_ITEM_MARK = 'xagentboxnewitemx';
+export const NEW_TITLE_MARK = '⁣AGENTBOX-NEW-TITLE⁣';
+export const NEW_BODY_MARK = '⁣AGENTBOX-NEW-BODY⁣';
+export const newThreadKitKey = (device, project) => kitKey(device, project, NEW_THREAD);
+
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const WORDS = new RegExp(`${esc(NEW_TITLE_MARK)}|${esc(NEW_BODY_MARK)}`, 'g');
+
+/**
+ * A project's new-thread kit made the kit of thread `itemId`, the id the
+ * computer gives a thread the phone started (madeHere): every mark of the
+ * item put in, her title and body in its first prompt, and the branch to make
+ * at the main the kit saw. Null for a kit that is not one, or an id no folder
+ * may have.
+ */
+export function fillNewThreadKit(kit, { itemId, title = '', body = '' }) {
+  const n = kit?.newThread;
+  if (!n || typeof n.brief !== 'string' || typeof n.mainSha !== 'string' || !ID.test(String(itemId ?? ''))) return null;
+  const swap = (v) => (typeof v === 'string' ? v.split(NEW_ITEM_MARK).join(itemId)
+    : Array.isArray(v) ? v.map(swap)
+      : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)])) : v);
+  const { newThread: _n, ...rest } = kit;
+  const filled = { ...swap(rest), item: itemId };
+  const prompt = swap(n.brief).replace(WORDS, (m) => (m === NEW_TITLE_MARK ? String(title) : String(body)));
+  return { kit: filled, prompt, refs: { [`refs/heads/${filled.branch}`]: n.mainSha }, mainSha: n.mainSha };
 }
