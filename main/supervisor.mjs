@@ -3701,8 +3701,13 @@ export class Supervisor {
       if (keep !== undefined && this.cloudHandBacks?.[id]) { delete this.cloudHandBacks[id]; changed = true; }
       if (keep === null || keep === false) this._handedBack?.delete(id);
       const session = this.sessions.get(id);
+      // A cloud run picked back up after a restart is followed in `_comingHome`, not `sessions`.
+      const joined = session ? null : this._comingHome?.get(id);
       if (keep === true && session?.cloud) {
         this._kill(session);
+        this._recoverPending = true;
+      } else if (keep === true && joined) {
+        joined.stop();
         this._recoverPending = true;
       }
     }
