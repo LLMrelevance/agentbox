@@ -6,7 +6,7 @@
 // row can say what is happening without four more props threaded through two
 // components that have nothing to do with agents.
 import { createContext } from 'react';
-import type { RunningSession } from './types';
+import type { RunningSession, WhyNotCloud } from './types';
 
 export interface Fleet {
   /** The run on each thread an agent is on right now, by thread id. */
@@ -24,7 +24,7 @@ export interface Fleet {
   /** `supervisor.shipping`: the app still owes these a ship. */
   shipping?: string[];
   /** `snapshot.approvals`: an agent on each of these is stopped on a permission
-   *  request, so the row says Needs you rather than Working. */
+   *  request, so the row says Asking rather than Working. */
   asking?: string[];
   /** `supervisor.stalled`: a worker died on these. */
   stalled?: string[];
@@ -32,6 +32,8 @@ export interface Fleet {
   silent?: Record<string, { runs: number; endedAt: number }>;
   /** Spawning is off altogether. */
   paused?: boolean;
+  /** `supervisor.whyNotCloud`: why a thread runs locally or waits, with the cloud on Everything. */
+  whyNotCloud?: Record<string, WhyNotCloud>;
 }
 
 export const FleetContext = createContext<Fleet>({});

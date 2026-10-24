@@ -84,7 +84,7 @@ export function createRooms({
   let mentioned = []; // my newest mentions, which may be older than the messages held
   let unsubscribe = null;
   let started = null; // the backend rooms were started on
-  let setUp = false; // my profile made, General joined if I have nowhere else, realtime on
+  let setUp = false; // my profile made, Coworking joined if I have nowhere else, realtime on
   let lastSent = null;
   let lastSentAt = 0;
   let refreshing = null;
@@ -120,7 +120,7 @@ export function createRooms({
       for (const m of pool.values()) {
         if (m.mentions.includes(who)) mentions.push({ id: `room-mention:${m.id}`, messageId: m.id, roomId: r.id, roomName: r.name, by: m.by, byName: nameOf(m.by), body: m.body, at: m.at });
       }
-      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine, names: called });
+      const wall = wallCards({ members: people.get(r.id) ?? [], profiles: [...profiles.values()], presence, teammates, teamCards: t.cards ?? [], meId: who, now: at, mine, names: called, listed: !!r.listed });
       return {
         ...r,
         pinned: pinned.has(r.id),
@@ -302,8 +302,9 @@ export function createRooms({
     // The cloud keeps an address of up to 500 characters, not a picture's bytes.
     const face = me()?.avatarUrl ?? null;
     const avatar = typeof face === 'string' && /^https?:\/\//.test(face) && face.length <= 500 ? face : null;
-    // Said here as well as in the cloud's default, for a cloud from before it changed.
-    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar, show_working: 'everyone' });
+    // Thread names reach strangers only once their owner turns that on. Said
+    // here as well as in the cloud's default, for a cloud from before it changed.
+    return b.saveRoomProfile({ display_name: displayNameOf(me()?.name ?? '') || 'Someone', avatar_url: avatar, show_working: 'team' });
   }
 
   // Tried on every pass until it works: a cloud without the rooms tables yet,
@@ -312,9 +313,9 @@ export function createRooms({
     try {
       const mine = await ensureProfile(b);
       state = { ...state, me: mine };
-      // Someone with no team and no room starts in General, pinned.
+      // Someone with no team and no room starts in Coworking, pinned.
       const rooms = await b.myRooms();
-      if (!rooms.length && !(team()?.team)) await b.joinListedRoom(GENERAL_ROOM).catch((err) => log(`rooms: General: ${err.message}`));
+      if (!rooms.length && !(team()?.team)) await b.joinListedRoom(GENERAL_ROOM).catch((err) => log(`rooms: Coworking: ${err.message}`));
       unsubscribe ??= b.subscribeRooms(hear);
       setUp = true;
       state = { ...state, error: null };

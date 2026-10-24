@@ -104,7 +104,7 @@ import { BackToWhatSheWasReading } from './UrgentBar';
 import { AgentThread } from './AgentThread';
 import { Live } from './Live';
 import { SidebarIcon } from './SidebarIcon';
-import { Byline } from './Byline';
+import { Byline, ConversationAside } from './Byline';
 import { ItemThread } from './ItemThread';
 import type { PendingSaid } from '../item-thread';
 import { isTroubleRow } from '../trouble-row';
@@ -1508,8 +1508,10 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const threadName = named ? talkFull : rowTitle(item);
   const rename = named ? undefined
     : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
-  const barContent = summaryOffered && crumbFrom
-    ? <ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
+  // Every thread opened from a list wears it, summary or not, document open or not.
+  const barContent = crumbFrom
+    ? <><ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
+      {direct && <ConversationAside item={item} onAddPeople={onAddPeople} />}</>
     : <>{backButton}{bandLine}</>;
 
   // ANYTHING ADDED TO THIS ELEMENT RIDES BESIDE THE LITERAL, NEVER INSIDE IT.

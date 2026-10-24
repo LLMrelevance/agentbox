@@ -32,7 +32,7 @@
 import { spanLabel } from './notes';
 import { Name } from '../../shared/product-name.mjs';
 import { resetDay } from '../../shared/usage.mjs';
-import type { RunningSession, WorkItem } from './types';
+import type { RunningSession, WhyNotCloud, WorkItem } from './types';
 
 // THE FIFTH STATE, AND IT IS THE ONE SOMEBODY OUTSIDE THIS BUILDING ASKED FOR.
 //
@@ -96,6 +96,8 @@ export interface LiveFacts {
   silent?: { runs: number; endedAt: number } | null;
   /** Spawning is off, globally or for this product. */
   paused?: boolean;
+  /** `supervisor.whyNotCloud[id]`: why it runs locally or waits, with the cloud on Everything. */
+  whyNotCloud?: WhyNotCloud | null;
   /** How many workers are up, and how many may be. Both measured, both real. */
   running?: number;
   capacity?: number;

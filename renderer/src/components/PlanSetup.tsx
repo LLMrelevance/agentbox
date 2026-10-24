@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import {
   COPY, afterCheck, afterFound, enginesFor, foundLede, foundRows, litRow, planName, planNote,
-  planRows, readyEngines, setupLede, setupRows,
+  planRows, readLog, readyEngines, setupLede, setupRows,
   type AskRow, type Engine, type EngineSetupState, type Plan, type StepRow,
 } from '../plan-setup';
 import { Cap } from './Onboarding';
@@ -164,10 +164,13 @@ const RowIcon = ({ state }: { state: StepRow['state'] }) => (
  *  said nothing at all, so the first anybody knew of whose plan was being spent
  *  was an agent spending it.
  */
-export function PlanQuestion({ onPick, onReady, look, found = null }: {
+export function PlanQuestion({ onPick, onReady, onSkip, look, found = null }: {
   onPick: (plan: Plan) => void;
   /** Done here: on, to the folder screen. */
   onReady: () => void;
+  /** Not now: on to the folder screen with no plan, which `PlanBar` on the
+   *  inbox picks up afterwards. */
+  onSkip: () => void;
   /**
    * WHAT THE WALK ALREADY FOUND, when it found something (w-e217e577e5). The
    * screen is the question or the answer, and which one is known before it is
@@ -213,11 +216,12 @@ export function PlanQuestion({ onPick, onReady, look, found = null }: {
     catch { next = { t: 'nothing' }; }
     setLooking(false);
     setLooked(true);
-    // READY IS NOW AN ANSWER ON THIS SCREEN, not a reason to leave it. Nobody
-    // was ever told which account their agents were about to spend.
-    if (next.t === 'ready') setReady(rs);
-    else if (next.t === 'setup') onPick(next.plan);
-  }, [onPick, readings]);
+    // READY IS AN ANSWER ON THIS SCREEN, not a reason to leave it, and so is a
+    // tool on the disk signed out: both draw the found screen and neither
+    // mounts the setup card, which would open a browser nobody asked for. What
+    // differs is the lede and the words at the right of the rows.
+    if (next.t === 'ready' || next.t === 'found') setReady(rs);
+  }, [readings]);
 
   /*
    * ON ARRIVAL, beside the question rather than instead of it: the card is on
@@ -264,13 +268,18 @@ export function PlanQuestion({ onPick, onReady, look, found = null }: {
 
   const choose = useCallback((key: string) => {
     if (key === 'mine') void mine();
+    else if (key === 'skip') onSkip();
     else onPick(key as Plan);
-  }, [mine, onPick]);
+  }, [mine, onPick, onSkip]);
 
   /*
-   * WHAT IT FOUND, ON THE SCREEN THAT WOULD HAVE ASKED. Two rows and two
-   * things they can mean: the ticked one is a yes and carries on, the other is
-   * a second plan somebody can set up while they are here.
+   * WHAT IT FOUND, ON THE SCREEN THAT WOULD HAVE ASKED. The ticked row is a
+   * yes and carries on; any other row is that plan to set up; the last one,
+   * when nothing here can run an agent yet, is the way past.
+   *
+   * WITH NOTHING SIGNED IN THERE IS NO PLAN TO CLAIM, so the lede says what the
+   * next press does instead -- which is open a page in somebody's browser, the
+   * thing that used to happen with no warning at all.
    */
   if (ready) {
     const rows = foundRows(ready);
@@ -278,12 +287,17 @@ export function PlanQuestion({ onPick, onReady, look, found = null }: {
     return (
       <div className="fr-stack fr-stack-folders">
         <h1 className="fr-page">{COPY.foundHead}</h1>
-        <p className="fr-lede">{foundLede(have)}</p>
+        <p className="fr-lede">{foundLede(have) ?? COPY.foundOut}</p>
         <AskList
+          // THE TWO SCREENS ARE TWO LISTS. A copy opened straight onto this
+          // step draws the question for one frame, and without a key of its own
+          // this remounts as that list, keeping the row Return rested on there.
+          key="found"
           rows={rows}
           start={litRow(rows)}
           label={COPY.foundHead}
           onPick={(key) => {
+            if (key === 'skip') return onSkip();
             const next = afterFound(key, have);
             if (next.t === 'go') onReady();
             else onPick(next.plan);
@@ -304,7 +318,7 @@ export function PlanQuestion({ onPick, onReady, look, found = null }: {
       {/* ANSWERABLE WHILE THE LOOK RUNS. The card is not held back behind it:
           somebody who knows which plan they pay for should not wait on a probe
           about a machine they already know the answer for. */}
-      <AskList rows={planRows()} label={COPY.planHead} onPick={choose} busy={busy} />
+      <AskList key="ask" rows={planRows()} label={COPY.planHead} onPick={choose} busy={busy} />
       <p className={note.bad ? 'fr-note fr-refused' : 'fr-note'}>{note.text}</p>
     </div>
   );
@@ -315,21 +329,26 @@ export function PlanQuestion({ onPick, onReady, look, found = null }: {
  *  the other, and hands back when every one is ready. The only thing it ever
  *  asks of anybody is the approval in their browser.
  */
-export function PlanSetupCard({ plan, onDone, onSkip }: {
+export function PlanSetupCard({ plan, onDone, onSkip, state: given }: {
   plan: Plan;
   onDone: () => void;
   onSkip: () => void;
+  /** A seam for the tests: one phase, drawn with no main process behind it.
+   *  Nothing in the app passes it. */
+  state?: EngineSetupState;
 }) {
   const engines = enginesFor(plan);
   const [at, setAt] = useState(0);
   const engine = engines[Math.min(at, engines.length - 1)];
-  const [state, setState] = useState<EngineSetupState>({ engine, phase: 'installing', error: null, log: '' });
+  const [state, setState] = useState<EngineSetupState>(given ?? { engine, phase: 'installing', error: null, log: '' });
   const [showLog, setShowLog] = useState(false);
+  const [copied, setCopied] = useState(false);
   // Bumped by Try again, which starts the same loop over on the same tool.
   const [round, setRound] = useState(0);
   const finished = useRef(false);
 
   useEffect(() => {
+    if (given) return;
     let live = true;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = async (first: boolean) => {
@@ -356,9 +375,20 @@ export function PlanSetupCard({ plan, onDone, onSkip }: {
 
   const retry = () => { setState({ engine, phase: 'installing', error: null, log: '' }); setRound((n) => n + 1); };
 
+  // `codex login` holds a port and opens a page on its own, so leaving the
+  // card has to stop it or a browser tab arrives afterwards.
+  const leave = () => { void api.engineSetup('cancel', engine); onSkip(); };
+
   const name = planName(engine);
   const rows = setupRows(state);
   const head = COPY.setupHead(name);
+  const said = readLog(state.log);
+  const copy = () => {
+    if (!said.url) return;
+    navigator.clipboard.writeText(said.url)
+      .then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); })
+      .catch(() => { /* the panel below still has the link in words */ });
+  };
 
   return (
     <div className="fr-stack fr-stack-folders">
@@ -385,16 +415,30 @@ export function PlanSetupCard({ plan, onDone, onSkip }: {
           <button type="button" className="fr-gate-again" onClick={() => void api.engineSetup('again', engine)}>{COPY.openAgain}</button>
         )}
         {state.phase === 'failed' && (
-          <>
-            <button type="button" className="fr-finish-go" onClick={retry}>{COPY.tryAgain}</button>
-            <button type="button" className="fr-gate-again" onClick={onSkip}>{COPY.skip}</button>
-          </>
+          <button type="button" className="fr-finish-go" onClick={retry}>{COPY.tryAgain}</button>
+        )}
+        {/* NOT HIDDEN BEHIND "Show what is happening": on a headless or remote
+            computer the link is the only way through. */}
+        {said.url && state.phase === 'signing-in' && (
+          <button type="button" className="fr-gate-again" onClick={copy}>{copied ? COPY.copiedLink : COPY.copyLink}</button>
+        )}
+        {/* NOT ONLY AFTER A FAILURE. A sign-in that simply waits for ever is
+            not a failure, and it needs a way out most of all. */}
+        {state.phase !== 'ready' && (
+          <button type="button" className="fr-gate-again" onClick={leave}>{COPY.skip}</button>
         )}
       </div>
       <div className="ps-acts ps-acts-quiet">
         <button type="button" className="ps-link" onClick={() => setShowLog((v) => !v)}>{showLog ? COPY.hideLog : COPY.showLog}</button>
       </div>
-      {showLog && <pre className="ps-log">{state.log.trim().split('\n').slice(-14).join('\n') || '…'}</pre>}
+      {showLog && (
+        <div className="ps-log">
+          {said.lines.length ? said.lines.map((line) => <p key={line}>{line}</p>) : <p>…</p>}
+          {/* An anchor, so the address can still be read and copied by hand
+              when the clipboard is refused. */}
+          {said.url && <a className="ps-log-link" href={said.url} target="_blank" rel="noreferrer">{said.url}</a>}
+        </div>
+      )}
     </div>
   );
 }

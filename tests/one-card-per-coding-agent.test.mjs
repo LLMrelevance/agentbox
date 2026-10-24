@@ -141,7 +141,11 @@ describe('nothing in the card is a black square', () => {
 
 describe('the card gathers what the page used to scatter', () => {
   it('holds the agent, its limits and its logins in one place', () => {
-    expect(enginePage).toContain('<UsageRows reading={agent.reading}');
+    // The reading is `agent.reading` or something newer that Refresh fetched
+    // (`newerReading`, w-18bae174fe); what this holds is that the limits are on
+    // the card at all.
+    expect(enginePage).toContain('<UsageRows reading={codexShown}');
+    expect(enginePage).toContain('newerReading(agent.reading, codexReading)');
     expect(enginePage).toContain('<AccountRows');
     expect(settings).toContain("{model && w && pane === 'claude' && enginePage('claude')}");
   });

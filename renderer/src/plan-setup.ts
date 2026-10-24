@@ -25,6 +25,10 @@ export interface EngineSetupState {
   /** Only on a `ready` question: whether the tool is on the Mac at all. */
   found?: boolean;
   signedIn?: boolean;
+  /** Where the tool is, once something has looked for it. */
+  bin?: string | null;
+  /** Whether it was on the computer before this setup started. */
+  already?: boolean;
 }
 
 export const COPY = {
@@ -78,6 +82,9 @@ export const COPY = {
    * a whole setup, and the row it belongs to is the one with no tick.
    */
   foundNote: "You sign in on Claude's or OpenAI's own page.",
+  /** The same screen with nothing signed in: no plan to claim yet, and the
+   *  next press opens a browser, which it has to say before one opens. */
+  foundOut: 'Pick the plan you pay for. Signing in opens a page in your browser.',
 
   setupHead: (name: string) => `Setting up ${name}.`,
   setupLedeWait: 'One step needs you: approve the sign-in in your browser.',
@@ -85,6 +92,8 @@ export const COPY = {
   setupLedeFailed: 'Something stopped the setup. Try again, or skip it for now.',
   setupOf: (n: number, of: number) => `${n} of ${of}`,
   install: (tool: string) => `Install ${tool}`,
+  /** The same row when nothing was installed because it was already here. */
+  found: (tool: string) => `Found ${tool}`,
   signInStep: (name: string) => `Sign in to your ${name} plan`,
   signInSub: (name: string) => `A ${name === 'Claude' ? 'Claude' : 'ChatGPT'} page opened in your browser. Click Authorize there, then come back here.`,
   ready: 'Check that agents can start',
@@ -94,6 +103,12 @@ export const COPY = {
   openAgain: 'Open the sign-in page again',
   tryAgain: 'Try again',
   skip: 'Skip for now',
+  /** The way past the plan screens. `PlanBar` on the inbox is where somebody
+   *  who takes it picks this back up. */
+  notNow: 'Not now, I will set this up later',
+  /** The in-app answer to Codex's own "on a remote or headless machine" line. */
+  copyLink: 'Copy the sign-in link',
+  copiedLink: 'Link copied',
   showLog: 'Show what is happening',
   hideLog: 'Hide what is happening',
 
@@ -127,17 +142,20 @@ export function needsPlan(readiness: Array<Pick<EngineSetupState, 'found' | 'sig
 }
 
 /**
- * WHAT "CHECK THIS MAC FOR ME" FOUND. A ready tool ends the question; one that
- *  is there but signed out goes straight to its sign-in, with no plan asked;
- *  nothing at all is said out loud, under the four rows.
+ * WHAT A LOOK AT THE COMPUTER FOUND, AND IT NEVER STARTS ANYTHING. There is no
+ *  answer here that mounts the setup card, because that card opens the tool's
+ *  own login on its first render, and a browser may only be opened by a press
+ *  (tests/nothing-signs-you-in-until-you-pick-it).
+ *
+ *  `ready` is something signed in, so there is nothing to ask. `found` is a
+ *  tool on the disk signed out: still the found screen, because the screen
+ *  knows which plan is here and which is not, and says so on the rows. Nothing
+ *  at all is the question.
  */
 export function afterCheck(readiness: Array<Pick<EngineSetupState, 'engine' | 'found' | 'signedIn'>>):
-  | { t: 'ready' } | { t: 'setup'; plan: Plan } | { t: 'nothing' } {
+  | { t: 'ready' } | { t: 'found' } | { t: 'nothing' } {
   if (!needsPlan(readiness)) return { t: 'ready' };
-  const there = readiness.filter((r) => r.found).map((r) => r.engine);
-  if (there.length === 2) return { t: 'setup', plan: 'both' };
-  if (there.length === 1) return { t: 'setup', plan: there[0] };
-  return { t: 'nothing' };
+  return readiness.some((r) => r.found) ? { t: 'found' } : { t: 'nothing' };
 }
 
 /* ------------------------- WHAT THE QUESTION OFFERS ----------------------- */
@@ -210,8 +228,13 @@ export function planRows(): AskRow[] {
     { ...PLAN_ROW.codex },
     { key: 'both', plan: 'both', mark: '+', name: COPY.both, sub: COPY.bothPlans },
     { key: 'mine', name: COPY.haveOne, other: true },
+    SKIP_ROW,
   ];
 }
+
+/** The way past, on every plan screen that can stand between somebody and
+ *  their inbox. `PlanBar` on the inbox is where it comes back. */
+const SKIP_ROW: AskRow = { key: 'skip', name: COPY.notNow, other: true };
 
 /**
  * ONE PLAN, DRAWN THE SAME WAY WHEREVER IT APPEARS. The question and the
@@ -255,10 +278,14 @@ export function foundLede(ready: Engine[]): string | null {
  *
  *  AND AN INSTALL IS NOT A SIGN-IN. A tool sitting on the disk signed out needs
  *  a sign-in, so offering to "Set up" it offers to install what is installed.
+ *
+ *  THE WAY OUT IS HERE ONLY WHEN NOTHING CAN RUN YET. With a plan signed in the
+ *  ticked row IS the way on, and a second word for the same press is a choice
+ *  nobody has to make.
  */
 export function foundRows(readings: Reading[]): AskRow[] {
   const ready = readyEngines(readings);
-  return (['claude', 'codex'] as Engine[]).map((e) => {
+  const plans = (['claude', 'codex'] as Engine[]).map((e) => {
     const r = readings.find((x) => x.engine === e);
     const isReady = ready.includes(e);
     return {
@@ -267,12 +294,19 @@ export function foundRows(readings: Reading[]): AskRow[] {
       ...(isReady ? { tick: true } : {}),
     };
   });
+  return ready.length ? plans : [...plans, SKIP_ROW];
 }
 
-/** Where Return rests: on the one that is already running agents. */
+/**
+ * WHERE RETURN RESTS: on the one that is already running agents, and failing
+ *  that on the one that is at least on the computer, so a blind Return never
+ *  goes off to install a second tool beside the one already sitting there.
+ */
 export function litRow(rows: AskRow[]): number {
   const at = rows.findIndex((r) => r.tick);
-  return at === -1 ? 0 : at;
+  if (at !== -1) return at;
+  const here = rows.findIndex((r) => r.right === COPY.signIn);
+  return here === -1 ? 0 : here;
 }
 
 /**
@@ -311,11 +345,19 @@ export interface StepRow {
 /**
  * THE THREE ROWS OF THE SETUP CARD for one tool, at one moment. Install is
  *  drawn even when the tool was already there, ticked, so the card has the
- *  same shape for everyone and nobody wonders what was skipped.
+ *  same shape for everyone and nobody wonders what was skipped. It says which
+ *  of the two happened, and where, because a ticked Install on a computer
+ *  where nothing was installed says the opposite of what happened.
  */
-export function setupRows(s: Pick<EngineSetupState, 'engine' | 'phase'>): StepRow[] {
+export function setupRows(s: Pick<EngineSetupState, 'engine' | 'phase' | 'bin' | 'already'>): StepRow[] {
   const name = planName(s.engine);
-  const install: StepRow = { state: 'todo', title: COPY.install(toolName(s.engine)) };
+  const install: StepRow = {
+    state: 'todo',
+    title: s.already ? COPY.found(toolName(s.engine)) : COPY.install(toolName(s.engine)),
+    // Only once something has looked. Before that there is no path to name and
+    // no honest way to say whether it will be an install or a find.
+    ...(s.bin ? { sub: s.bin } : {}),
+  };
   const sign: StepRow = { state: 'todo', title: COPY.signInStep(name) };
   const check: StepRow = { state: 'todo', title: COPY.ready };
   switch (s.phase) {
@@ -347,4 +389,44 @@ export function setupLede(phase: Phase): string {
   if (phase === 'signing-in') return COPY.setupLedeWait;
   if (phase === 'failed') return COPY.setupLedeFailed;
   return COPY.setupLedeBusy;
+}
+
+/**
+ * Lines of Codex's own that nobody can act on. A warning that says it is
+ * proceeding has already proceeded; any OTHER warning is kept. Its device-auth
+ * advice is `COPY.copyLink`, as a button.
+ */
+const LOG_NOISE = [/^WARNING: proceeding/i, /device-auth/i];
+
+/** What a line Codex prints means, said the way a person would say it. */
+const LOG_PLAIN: Array<[RegExp, string]> = [
+  [/^Starting local login server/i, 'Waiting for your browser to come back.'],
+  [/browser did not open/i, `No page opened? ${COPY.copyLink} above.`],
+  [/successfully logged in/i, 'Signed in.'],
+];
+
+/**
+ * THE LOG, READ OUT LOUD, AND THE SIGN-IN LINK PULLED OUT OF IT so it can be a
+ * button rather than text nobody can press, which on a machine where no
+ * browser opens is the only way through.
+ *
+ * A LINE THIS DOES NOT RECOGNISE IS KEPT, WORD FOR WORD. Translating what we
+ * know and dropping what we do not is how a real failure (`npm error EACCES`)
+ * becomes a blank panel, and nothing in this app fails in silence.
+ */
+export function readLog(log: string): { lines: string[]; url: string | null } {
+  const lines: string[] = [];
+  let url: string | null = null;
+  for (const raw of String(log ?? '').split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    const link = line.match(/https?:\/\/\S*oauth\S*/i)?.[0];
+    if (link) { url ??= link; continue; }
+    if (LOG_NOISE.some((p) => p.test(line))) continue;
+    const plain = LOG_PLAIN.find(([p]) => p.test(line))?.[1] ?? line;
+    // Pressing "Open the sign-in page again" runs the same login over the same
+    // log, so every sentence in it would otherwise be said twice.
+    if (!lines.includes(plain)) lines.push(plain);
+  }
+  return { lines, url };
 }

@@ -34,6 +34,20 @@
 export const FLUSH_DEADLINE_MS = 2000;
 
 /**
+ * How long a quit we asked for is given before the process is ended outright.
+ *  Longer than the flush above on purpose: a quit holding itself open for the
+ *  last counts is a quit that is working. */
+export const EXIT_DEADLINE_MS = 8000;
+
+/**
+ * How long the second ask gets, once the counts are out and there is nothing
+ *  left to wait for. On Linux a quit asked for with a window still open — the
+ *  menu's Quit, the tray's Quit — ignores it outright
+ *  (tests/a-quit-held-for-the-last-counts-still-ends-the-app), and by then the
+ *  window is gone and there is nothing left to show anybody. */
+export const SECOND_QUIT_DEADLINE_MS = 2000;
+
+/**
  * A STEP ON THE WAY OUT, which runs once and cannot throw.
  *
  *  `name` is in the warning rather than in a comment, because the one thing
@@ -70,9 +84,12 @@ export function quitStep(app, event, name, fn, { log = console } = {}) {
  *     somebody two seconds on the way out and not their afternoon.
  *   - It will not care whether the flush worked. There is nothing to be done
  *     about a flush that failed, and a count is never worth a quit.
- *   - It will not hold twice. `will-quit` comes round again when we call
- *     `app.quit()` ourselves, and holding that one too is a quit that never
- *     happens.
+ *   - It will not hold twice. `will-quit` comes round again when we ask again,
+ *     and holding that one too is a quit that never happens.
+ *   - It will not trust the second ask either. On Linux, a quit that began with
+ *     a window open ignores it and the process stays for ever, which is what
+ *     `quitThenExit` is for
+ *     (tests/a-quit-held-for-the-last-counts-still-ends-the-app).
  */
 export function flushBeforeQuit(app, flush, { deadlineMs = FLUSH_DEADLINE_MS, log = console } = {}) {
   let held = false;
@@ -85,7 +102,7 @@ export function flushBeforeQuit(app, flush, { deadlineMs = FLUSH_DEADLINE_MS, lo
       if (gone) return;
       gone = true;
       clearTimeout(timer);
-      app.quit();
+      quitThenExit(app, { what: 'the last counts', deadlineMs: SECOND_QUIT_DEADLINE_MS, log });
     };
     const timer = setTimeout(go, deadlineMs);
     // The deadline is armed before the flush is even called, so a `flush` that
@@ -95,4 +112,32 @@ export function flushBeforeQuit(app, flush, { deadlineMs = FLUSH_DEADLINE_MS, lo
       .catch((err) => { log?.warn?.(`zero: the last counts did not get out: ${err?.message ?? err}`); })
       .then(go, go);
   });
+}
+
+/**
+ * ASK TO QUIT, AND GO ANYWAY IF THE QUIT DOES NOT COME.
+ *
+ *  `app.quit()` only asks, and on Linux an app that has already refused one
+ *  `will-quit` ignores every ask after it: the measurement is in
+ *  tests/a-quit-held-for-the-last-counts-still-ends-the-app. It is still asked,
+ *  because that is what runs the quit steps, lets the workers go and fires
+ *  `quit` for whoever is listening, and the deadline ends the process when the
+ *  quit has not.
+ *
+ *  Both callers pass a deadline that suits what they are waiting for: a
+ *  screenshot run has a whole quit ahead of it, the flush above has nothing
+ *  left but the `quit` event. The timer is unreffed: an app with nothing left
+ *  to do must not be kept alive by the thing watching it. */
+export function quitThenExit(app, { what = 'this run', deadlineMs = EXIT_DEADLINE_MS, log = console } = {}) {
+  let over = false;
+  const timer = setTimeout(() => {
+    if (over) return;
+    over = true;
+    log?.warn?.(`zero: ${what} asked the app to quit ${deadlineMs} ms ago and it is still here, so it is ending now`);
+    app.exit(0);
+  }, deadlineMs);
+  timer.unref?.();
+  app.once?.('quit', () => { over = true; clearTimeout(timer); });
+  app.quit();
+  return timer;
 }
