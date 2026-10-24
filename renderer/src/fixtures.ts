@@ -257,8 +257,8 @@ export const fixtureSnapshot: Snapshot = {
     {
       // STOPPED: she answered, a worker took it, and that worker died without
       // finishing. Three of these were on her screen at once, which is what
-      // resuming-by-selection is for. In Progress shows them beside the live
-      // ones, and only a fixture that HAS them lets that screen be reviewed.
+      // resuming-by-selection is for. Needs you shows them, since nothing will
+      // start them again, and only a fixture that HAS them lets that be reviewed.
       id: 'w-i9', product: 'onboard', productName: 'Onboard', status: 'open', kind: 'design',
       title: 'Design the build menu: what resources make, and what unlocks it',
       answer: 'Option 1: One design pass, delivered as an HTML page you read.',

@@ -151,9 +151,12 @@ export function hiddenUntil(i: InboxItem, legacySnooze = 0): number {
 // `shipping`: the app's ship queue still owes this row a ship.
 // `waitingOn`: the threads this one waits on that can still finish
 // (`waitsThatCanEnd`).
+// `stopped`: the supervisor will not start it again on its own
+// (`supervisor.stalled`), so a person has to, and Needs you is the list they
+// read.
 export function belongsInInbox(
   i: InboxItem,
-  { deliveredThrough = 0, hiddenUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[] } = {},
+  { deliveredThrough = 0, hiddenUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[], stopped = false } = {},
 ): boolean {
   // In Later and not begun: it waits for a person, not a clock, so it is in
   // Later and nowhere else.
@@ -167,6 +170,7 @@ export function belongsInInbox(
   // answer to a question either.
   if (shipping && !stillAsksYou(i)) return false;
   if (hiddenUntil > now) return false;    // she put it away herself
+  if (stopped) return true;
   // A repeating-task run hides only when a worker explicitly marked it clean.
   // The marker is required to hide and never to show, because a run that died
   // saying nothing is news.
@@ -300,7 +304,7 @@ export function threadsOwedAnAnswer<T extends InboxItem & { id: string; parent?:
 // localStorage snooze the view still honours on read.
 export function belongsInProgress(
   i: InboxItem,
-  { deferredUntil = 0, now = Date.now(), live = false, shipping = false } = {},
+  { deferredUntil = 0, now = Date.now(), live = false, shipping = false, stopped = false } = {},
 ): boolean {
   // A thread in Later waits for the user to say go, so no worker is coming.
   if (notStarted(i)) return false;
@@ -309,6 +313,8 @@ export function belongsInProgress(
   // So does the ship queue still owing this row a ship.
   if (shipping) return true;
   if (deferredUntil > now) return false;
+  // Nothing will start it, so it is in Needs you (`belongsInInbox`).
+  if (stopped) return false;
   if (i.status === 'claimed') return true;
   // A session acted on her answer and finished, so nothing is coming and the
   // inbox shows it instead. Both lists read the same fact.
@@ -360,9 +366,9 @@ export function workMoving(
 // is in Scheduled, which has its own way back.
 export function stoppable(
   i: InboxItem,
-  { deferredUntil = 0, now = Date.now(), live = false } = {},
+  { deferredUntil = 0, now = Date.now(), live = false, stopped = false } = {},
 ): boolean {
-  return belongsInProgress(i, { deferredUntil, now, live });
+  return belongsInProgress(i, { deferredUntil, now, live, stopped });
 }
 
 // What the sidebar rail counts as active: the union of In progress, Scheduled
@@ -373,12 +379,12 @@ export function stoppable(
 // sessions beside these rows, which have no work item.
 export function belongsOnTheRail(
   i: InboxItem,
-  { deliveredThrough = 0, hiddenUntil = 0, deferredUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[] } = {},
+  { deliveredThrough = 0, hiddenUntil = 0, deferredUntil = 0, now = Date.now(), live = false, shipping = false, waitingOn = [] as readonly string[], stopped = false } = {},
 ): boolean {
-  if (belongsInProgress(i, { deferredUntil, now, live, shipping })) return true;
+  if (belongsInProgress(i, { deferredUntil, now, live, shipping, stopped })) return true;
   if (hiddenUntil > now && i.status !== 'done') return true;  // the user's own, put off: Scheduled
   if (waitsInLater(i, waitingOn)) return true; // waiting in Later, coming back by itself
-  return belongsInInbox(i, { deliveredThrough, hiddenUntil, now });
+  return belongsInInbox(i, { deliveredThrough, hiddenUntil, now, stopped });
 }
 
 // The supervisor only carries an answer while the item is open, so a reply on

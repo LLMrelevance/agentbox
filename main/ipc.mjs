@@ -1445,6 +1445,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if (isAgentRow(id)) return { ok: false };
     const out = store.answerItem(product, id, { status: 'open' });
     supervisor.liftBrakeForHer?.();
+    supervisor.forgetDeadStarts?.({ product, id });
     supervisor.wake();
     return out;
   });
@@ -1949,6 +1950,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const item = store.listItems().find((i) => i.product === product && i.id === id);
     if (!item?.answer || item.answer === '(withdrawn)') return { ok: false, error: 'no live answer to redeliver' };
     supervisor.liftBrakeForHer?.();
+    supervisor.forgetDeadStarts?.(item);
     supervisor.redeliverAnswer(item, item.answer);
     supervisor.tick?.().catch(() => {});
     return { ok: true };

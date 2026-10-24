@@ -497,3 +497,18 @@ Rooms and Messages were two places for one idea. They are one, called Groups:
   opens in the Groups tab. A direct record opens in its own view over it.
 - The Rooms page and the Messages page are no longer drawn; their components
   are still in the tree.
+
+## Thread names stay with your team until you say (2026-10-24, w-64116bb761)
+
+Someone with no team lands in General, and with `everyone` as the default
+the whole of General got their thread names, old ones included. Agreed:
+
+- A new card starts on `team`. People outside your team see your name, level
+  and agent count, and your bio where a thread name was. Cards made before
+  keep what they had.
+- A group anyone can join (`listed`) shows one line the first time it is
+  opened on a Mac: who can join and what they see, with Leave group and OK,
+  and Hide my threads while names are on.
+- In such a group your own row shows what strangers see.
+- General is called Coworking (`20261026120000_general_is_coworking.sql`),
+  picked from six names drawn in the app. Same id, so nobody moves.

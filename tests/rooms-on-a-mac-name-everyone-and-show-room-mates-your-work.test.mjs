@@ -7,7 +7,8 @@
 // two, because teammates who had not turned Rooms on had no card.
 //
 // Three people on the in-memory cloud: Maya and Theo on Northwind, Jun on no
-// team and invited into Northwind's room. Theo never turns Rooms on.
+// team and invited into Northwind's room. Theo never turns Rooms on. Since
+// 2026-10-24 (w-64116bb761) Jun's work reaches Maya only once he turns it on.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -47,7 +48,7 @@ function world({ oldCloud = false } = {}) {
   return { maya, theo, jun };
 }
 
-async function together(w) {
+async function together(w, { shows = true } = {}) {
   const team = await w.maya.backend.createTeam('Northwind');
   await w.maya.backend.invite(team.id, 'theo@northwind.test');
   await w.theo.backend.acceptInvite(team.id);
@@ -64,6 +65,7 @@ async function together(w) {
     { threadId: 'w-2', title: 'Pick a font for the receipts', project: 'Web', state: 'waiting', people: null, updatedAt: T0 - 120_000 },
   ];
   for (const p of [w.maya, w.jun]) { p.on = true; await p.rooms.tick(); }
+  if (shows) await w.jun.rooms.saveProfile({ show_working: 'everyone' });
   await w.maya.rooms.refresh();
   const mine = () => w.maya.rooms.state().rooms.find((r) => r.id === room.id);
   return { room, mine };
@@ -89,6 +91,12 @@ describe('everyone in the room', () => {
 });
 
 describe("a room-mate's work", () => {
+  it('until Jun turns it on, Maya sees his agents and no thread name or activity', async () => {
+    const w = world();
+    const { mine } = await together(w, { shows: false });
+    expect(mine().wall.find((c) => c.id === w.jun.id)).toMatchObject({ agents: 1, workingOn: null, workingPrivate: true, activity: null });
+  });
+
   it("Jun, on no team, shows Maya what he is working on and his activity", async () => {
     const w = world();
     const { mine } = await together(w);
