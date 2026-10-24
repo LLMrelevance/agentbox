@@ -22,7 +22,8 @@ export function peopleShown(room: Pick<Room, 'members' | 'wall'>): { cards: Room
   return { cards, working: all.filter((c) => c.agents).length, more: Math.max(0, room.members - cards.length) };
 }
 
-const onWords = (c: RoomCard) => c.away ? 'Not on Groups yet' : c.agents ? c.workingOn ?? 'Private thread' : c.status ?? 'Not running';
+// Where their thread is kept from you, the line they wrote about themselves.
+const onWords = (c: RoomCard) => c.away ? 'Not on Groups yet' : c.agents ? c.workingOn ?? c.bio ?? 'Private thread' : c.status ?? 'Not running';
 
 export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: string) => void }) {
   const { cards, working, more } = peopleShown(room);
@@ -40,6 +41,6 @@ export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: str
   </aside>;
 }
 
-export function GroupPage({ bar, chat, people }: { bar: ReactNode; chat: ReactNode; people: ReactNode }) {
-  return <div className="gr-page">{bar}<div className="gr-body"><div className="gr-chat">{chat}</div>{people}</div></div>;
+export function GroupPage({ bar, notice = null, chat, people }: { bar: ReactNode; notice?: ReactNode; chat: ReactNode; people: ReactNode }) {
+  return <div className="gr-page">{bar}<div className="gr-body"><div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
 }

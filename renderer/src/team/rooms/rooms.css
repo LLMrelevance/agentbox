@@ -437,6 +437,9 @@
 .gr-chat .rm-full .rm-chat-list { max-width: none; padding-left: var(--text-x, 32px); padding-right: 32px; }
 .gr-chat .rm-full .rm-compose { max-width: none; margin-left: var(--text-x, 32px); margin-right: 32px; }
 .gr-chat .rm-full .rm-chat-err { margin-left: var(--text-x, 32px); }
+.gr-notice { flex: none; margin: 16px 32px 0 var(--text-x, 32px); }
+.gr-notice .t { flex: 1; min-width: 0; }
+.gr-notice .rm-btn { margin-left: 0; }
 .rm-full.hang .rm-cm { padding-left: 44px; }
 .rm-full.hang .rm-cm .h { gap: 8px; }
 .rm-full.hang .rm-cm .h > .rm-pic:first-child { position: absolute; left: 0; top: 9px; }
