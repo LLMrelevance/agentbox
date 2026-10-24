@@ -351,6 +351,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     dialogOpen: !!dialog || !!members,
     /** The header's View button over everyone's threads, and B; on a group's chat, its options. Null anywhere else. */
     viewButton,
+    /** The groups you are in, newest first, and the way to open one: what the
+     *  command bar lists so a group can be reached by name from anywhere. */
+    groups: groupList, pickGroup,
     /** Groups' rows in the narrow sidebar; `direct` is the conversation open over the page, if one is. */
     sidebarGroups: (onGroupsPage: boolean, direct: string | null) => <SidebarGroups onGroupsPage={onGroupsPage}
       current={direct ? `direct:${direct}` : open ? `room:${open.id}` : null} groups={groupList} onGroups={openTab} onPick={pickGroup} />,
