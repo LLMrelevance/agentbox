@@ -1,6 +1,6 @@
 // Rooms in the app (alpha), drawn as Groups: the group open last, a person's
 // page, everyone's threads, Find groups and the dialogs, in one place so
-// App.tsx only places them under the page-name menu (PageMenu.tsx).
+// App.tsx only places them beside the narrow sidebar (GroupsSidebar.tsx).
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../../api';
 import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
@@ -19,8 +19,8 @@ import { InviteDialog, JoinDialog, MembersMenu, StartRoomDialog, type Preview, t
 import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, PeoplePanel } from './GroupPage';
-import { GroupBar, GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
-import { PageCrumb } from './PageMenu';
+import { GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
+import { GroupTitle, SidebarGroups } from './GroupsSidebar';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -243,9 +243,6 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   // `right` undefined keeps the bar's own buttons; null clears them.
   let heading: { title: ReactNode; right?: ReactNode } | null = null;
   let page: ReactNode = null;
-  // What follows the page-name menu on the top bar: a group's chips over its chat, or where a page under it sits.
-  let chips: ReactNode = null;
-  let crumb: ReactNode = null;
   const onChat = !!open && !!rooms && pane === 'wall' && !boardOn && !finding;
   // Everyone's threads: the board of the people here whose threads reach me. Never for a chat with people.
   const onRoom = !!open && !!rooms && open.kind !== 'group' && pane === 'wall' && boardOn && !finding;
@@ -288,12 +285,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />}
       people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />} />;
-    heading = { title: <h1 className="workspace-title">Groups</h1> };
-    chips = <div className="gt-topchips"><GroupBar groups={groupList} current={`room:${open.id}`} onPick={pickGroup} /></div>;
+    heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
-    const person = pane.startsWith('person:') ? open.wall.find((c) => c.id === pane.slice(7)) : null;
-    crumb = <PageCrumb parts={[nameOf(open), person ? cardName(person) : pane === 'ranks' ? 'Hours this week' : 'Everyone’s threads']} onBack={close} />;
     page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
       pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={null} board={board} renderBoard={renderPersonBoard}
       picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
@@ -357,7 +351,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     dialogOpen: !!dialog || !!members,
     /** The header's View button over everyone's threads, and B; on a group's chat, its options. Null anywhere else. */
     viewButton,
-    chips, crumb, groups: groupList, pickGroup,
+    /** Groups' rows in the narrow sidebar; `direct` is the conversation open over the page, if one is. */
+    sidebarGroups: (onGroupsPage: boolean, direct: string | null) => <SidebarGroups onGroupsPage={onGroupsPage}
+      current={direct ? `direct:${direct}` : open ? `room:${open.id}` : null} groups={groupList} onGroups={openTab} onPick={pickGroup} />,
     /** The group a teammate's card was opened over, for its Back. */
     roomName: open ? nameOf(open) : null,
   };
