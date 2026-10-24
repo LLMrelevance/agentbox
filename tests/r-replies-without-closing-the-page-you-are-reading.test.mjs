@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HER_LETTERS_IN_A_PAGE } from '../shared/artifact-keys.mjs';
+import { keyWhileABoxIsOpen } from '../renderer/src/keys';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
@@ -52,7 +53,9 @@ describe('R in an open thread', () => {
 
   it('does the same as clicking the reply pill', () => {
     expect(app).toContain("onReply={() => setModal('reply')}");
-    expect(rInAThread).toBe("        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }");
+    // AND PUTS THE CARET BACK IN A BOX THAT IS ALREADY OPEN (w-326fb83c0e):
+    // the dock focuses itself when it mounts, and Escape leaves it mounted.
+    expect(rInAThread).toBe("        else if (e.key === \'r\' || e.key === \'R\') { e.preventDefault(); setModal(\'reply\'); if (modal === \'reply\') focusTheReplyBox(); }");
   });
 });
 
@@ -73,7 +76,12 @@ describe('the box it opens is on the screen in full screen', () => {
 
 describe('what must not change', () => {
   it('escape with the box open folds the box and keeps the page', () => {
-    expect(beforeBranches).toContain("if (modal || inInput) {\n        if (e.key === 'Escape' && !inInput) setModal(null);\n        return;\n      }");
+    // The gate is a rule now rather than a condition (renderer/src/keys.ts,
+    // w-326fb83c0e), so the claim is made against the rule: Escape with the
+    // caret out of the box closes the box, and nothing here touches the page.
+    expect(beforeBranches).toContain("const gate = keyWhileABoxIsOpen({ modal, inInput, key: e.key });");
+    expect(beforeBranches).toContain("if (gate === 'close-the-modal') { setModal(null); return; }");
+    expect(keyWhileABoxIsOpen({ modal: 'reply', inInput: false, key: 'Escape' })).toBe('close-the-modal');
   });
 
   it('escape with the box folded still closes the page, one step back', () => {
