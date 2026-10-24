@@ -25,6 +25,12 @@ describe('when the app offers a teammate', () => {
     expect(offer.said).toBe("You've asked for this 3 times this month.");
   });
 
+  // Nine asks with the same words listed the same line five times (third power test).
+  it('lists the same words once', () => {
+    const same = [1, 2, 3, 4].map((d) => ask('Onboarding is confusing people, fix the first screen', { createdAt: NOW - DAY * d }));
+    expect(offerFrom({ items: same, now: NOW }).titles).toEqual(['Onboarding is confusing people, fix the first screen']);
+  });
+
   it('does not offer for two alike asks, or three unalike ones', () => {
     expect(offerFrom({ items: CHANGELOG.slice(0, 2), now: NOW })).toBeNull();
     expect(offerFrom({ items: [ask('Fix the login button'), ask('Write the pricing page'), ask('Book flights to Lisbon')], now: NOW })).toBeNull();

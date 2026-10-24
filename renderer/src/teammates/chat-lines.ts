@@ -66,6 +66,8 @@ export function asksYou(view: TeammatesView | null | undefined, id: string): boo
   let asked = 0;
   for (const m of view.chat) if (m.kind === 'msg' && m.from === id && m.options?.length) asked = Math.max(asked, m.ts);
   if (!asked) return false;
+  // Answered in the chat, or in one of its threads.
+  if (view.runs.some((r) => r.teammate === id && r.verb === 'answered' && r.ts > asked)) return false;
   return !view.chat.some((m) => m.kind === 'msg' && m.from === 'you' && m.ts > asked && toList(m.to).includes(id));
 }
 

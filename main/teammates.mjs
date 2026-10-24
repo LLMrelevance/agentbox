@@ -306,7 +306,7 @@ export class Teammates {
     if (!dir) return null;
     const body = [`${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`)].join('\n');
     const result = [
-      `**${offer.title}**`, '', body, '',
+      '**Make a teammate for these?**', '', body, '',
       'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It sets itself up from these and asks you if anything is unclear.',
       '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
     ].join('\n');

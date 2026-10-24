@@ -49,6 +49,9 @@ describe('the team chat', () => {
     expect(asksYou({ list: [], runs: [], chat: [ask, msg('m-a', 'you', [ADA], 'Product', 11)] }, ADA)).toBe(false);
     // Your words to someone else, or before the question, do not answer it.
     expect(asksYou({ list: [], runs: [], chat: [msg('m-0', 'you', [ADA], 'hi', 9), ask, msg('m-h', 'you', [HUGO], 'x', 12)] }, ADA)).toBe(true);
+    // An answer typed in one of its threads counts too (third power test).
+    expect(asksYou({ list: [], chat: [ask], runs: [run('w-1:answered', 'answered', 11, { text: 'Product' })] }, ADA)).toBe(false);
+    expect(asksYou({ list: [], chat: [ask], runs: [run('w-1:answered', 'answered', 9, { text: 'old' })] }, ADA)).toBe(true);
     // Plain talk with no answers to tap is not a question waiting on you.
     expect(asksYou({ list: [], runs: [], chat: [msg('m-p', ADA, [], 'Done for today.', 10)] }, ADA)).toBe(false);
   });

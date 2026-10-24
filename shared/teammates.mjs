@@ -533,7 +533,8 @@ export function offerFrom({ items = [], offered = new Set(), now = Date.now() } 
     const product = [...byProduct].sort((a, b) => b[1] - a[1])[0]?.[0] ?? lead.product;
     return {
       key, product, count: group.length,
-      titles: group.slice(0, 5).map((i) => i.label || i.title),
+      // The same words asked again are one line, not five.
+      titles: [...new Map(group.map((i) => [String(i.label || i.title).trim().toLowerCase(), String(i.label || i.title).trim()])).values()].slice(0, 5),
       title: `Want a teammate for things like “${clip(lead.label || lead.title, 60)}”?`,
       said: `You've asked for this ${group.length} times this month.`,
     };
