@@ -1453,14 +1453,17 @@ export function Onboarding({
       <Ringed
         selector={sel}
         // Beside the ring where a card underneath would cover what it is about:
-        // the tab strips, the open palette, and the reply box on the answer beat.
-        beside={(run.step === 'where' && !teamStrip) || run.step === 'tabs' || (run.step === 'command' && !!palette) || run.step === 'answer'}
+        // the old sidebar's tabs, the open palette, and the reply box on the
+        // answer beat. NOT beside the tab strip over a list: a card centred on
+        // a 54px strip is three times its height, so it spilled over the strip
+        // and onto the rows. Those two beats take `UNDER` instead.
+        beside={(run.step === 'where' && !teamStrip) || (run.step === 'command' && !!palette) || run.step === 'answer'}
         // To the right of the reply box, because above it the card covered the
         // agent's answer.
         besideRing={(run.step === 'command' && !!palette) || run.step === 'answer'}
-        // The tour's tabs are sidebar rows, so the card stands off the
-        // sidebar's right edge.
-        besideOf={run.step === 'tabs' ? '.th-bar .tm-tabs, .workspace-navigation, .tabs' : run.step === 'where' ? '.workspace-navigation, .tabs' : undefined}
+        // The old sidebar's tabs are rows, so the card stands off the sidebar's
+        // right edge.
+        besideOf={run.step === 'where' ? '.workspace-navigation, .tabs' : undefined}
         boundsSel={BOUNDS[run.step]}
         // Under the whole snooze picker, not just its options, so the card
         // covers none of them.
