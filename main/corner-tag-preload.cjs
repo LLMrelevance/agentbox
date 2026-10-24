@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld('cornerTag', {
   press: (x, y, grip, corner) => ipcRenderer.invoke('corner-tag:press', { x, y, grip: !!grip, corner }),
   release: (cancelled) => ipcRenderer.invoke('corner-tag:release', { cancelled: !!cancelled }),
   go: (id) => ipcRenderer.invoke('corner-tag:go', id),
+  // The X on a line of the list: that thread off the tray, and only the tray.
+  dismiss: (id) => ipcRenderer.invoke('corner-tag:dismiss', id),
   hide: (choice) => ipcRenderer.invoke('corner-tag:hide', choice),
   // One notch bigger or smaller, from the list's own foot, so she can see the
   // tag change while she decides.

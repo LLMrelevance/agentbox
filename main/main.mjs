@@ -1007,14 +1007,22 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou) });
+  // A banner and the tray never disagree: whatever a banner told you about
+  // while you were away is in the tray until you are back (w-93b3a1a796).
+  let cornerTag = null;
+  const notifier = installNotifier({
+    app, window, Notification, powerMonitor, ipcMain, nativeImage,
+    onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou),
+    onChange: () => cornerTag?.refresh(),
+  });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
-  createCornerTag({
+  cornerTag = createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
     glass: loadLiquidGlass(),
+    told: () => notifier.told(),
     count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {
