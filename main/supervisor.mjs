@@ -990,6 +990,7 @@ export class Supervisor {
       // Resuming a row by name is her saying run this now, which outranks a
       // rest the fleet earned on it exactly as it outranks the attempt cap.
       delete this._fruitless[`${item.product}:${item.id}`];
+      this.forgetDeadStarts(item);
 
       if (this._roomFor(this._engineFor(item), item, { asked: true })) {
         this._spawnResume(item);
@@ -1126,6 +1127,7 @@ export class Supervisor {
       for (const key of Object.keys(this._deliveryAttempts)) {
         if (key.startsWith(prefix)) delete this._deliveryAttempts[key];
       }
+      this.forgetDeadStarts(item);
     }
     if (cleared) this._saveState();
     this.tick().catch(() => {});
@@ -1519,6 +1521,7 @@ export class Supervisor {
       delete this._fruitless[`${product}:${id}`];
       this._saveState();
     }
+    this.forgetDeadStarts(item);
     this.onChange?.();
     this.wake();
     return { ok: true };
@@ -4992,6 +4995,18 @@ export class Supervisor {
       return false;
     }
     return true;
+  }
+
+  // Resume, Restart, Send Back and Run now are a person's word on the row, as
+  // a reply is. `_heldFromStarting` cannot see them: none writes a field
+  // `lastFounderWrite` counts, because a reopen is filed as the app's
+  // (`authorityOf` in shared/work-items.mjs).
+  forgetDeadStarts(item) {
+    const key = `${item?.product}:${item?.id}`;
+    if (!this._heldStarts?.[key] && !this._deadStarts?.[key]) return;
+    delete this._heldStarts?.[key];
+    delete this._deadStarts?.[key];
+    this._saveState();
   }
 
   // NO ROOM IN THE CLOUD for this person (main/cloud/run.mjs CLOUD_NO_ROOM):
