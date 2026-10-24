@@ -202,6 +202,10 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
       compactionStatus: async () => null,
       remoteControl: async () => null,
       repeats: async () => [],
+      olderItems: async () => ({ items: [], more: false }),
+      // The one document the fixtures link to, which the build carries under /fixtures.
+      openArtifact: async (p) => (String(p?.src ?? '').endsWith('the-first-row.html')
+        ? { ok: true, opened: p.src, url: '/fixtures/onboard/designs/w-n13/the-first-row.html' } : { ok: false }),
       dashboard: async () => ({ ok: false }),
       engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     };

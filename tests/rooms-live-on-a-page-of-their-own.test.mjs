@@ -83,8 +83,8 @@ describe('the Rooms page', () => {
   });
 });
 
-// The pinned tabs and the tab per open room stay gone; Groups is in the
-// page-name menu (tests/with-groups-the-page-name-is-a-menu-and-there-is-no-sidebar).
+// The pinned tabs and the tab per open room stay gone; Groups is a row in the
+// narrow sidebar (tests/with-groups-the-sidebar-stays-narrow-and-widens-when-pointed-at).
 describe('no pinned room tabs', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const hook = fs.readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');

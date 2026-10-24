@@ -141,6 +141,11 @@ export function createCornerTag({
   const alive = (part) => !!wins[part] && !wins[part].isDestroyed();
   const rounded = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
   const send = (part, channel, payload) => { if (alive(part) && loaded[part]) wins[part].webContents.send(channel, payload); };
+  // Back to 100%, then measure: a zoomed page drew the tag smaller than the
+  // size it reported, and the glass stood out past it (w-93b3a1a796). Its own
+  // zoom only; the app's window keeps whatever zoom it has.
+  const atFull = (part) => { try { if (alive(part)) wins[part].webContents.setZoomFactor?.(1); } catch { /* measured in points anyway */ } };
+  const remeasure = (part) => { atFull(part); send(part, 'corner-tag:measure'); };
   // How big the tag draws, from the width of the screen it is resting on. The
   // page multiplies everything by it, reports the size it came out, and this
   // file places that. A tag dragged to another screen is measured again there.
@@ -236,7 +241,7 @@ export function createCornerTag({
       readTone();
       if (now() - measuredAt >= MEASURE_EVERY_MS) {
         measuredAt = now();
-        send('tag', 'corner-tag:measure');
+        remeasure('tag');
       }
       toneTimer = setTimer(tick, TONE_EVERY_MS);
     };
@@ -280,6 +285,7 @@ export function createCornerTag({
     win.setAlwaysOnTop(true, 'floating');
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true }); } catch {}
     win.on('closed', () => { wins[part] = null; loaded[part] = false; });
+    win.webContents.on('did-finish-load', () => atFull(part));
     // A reload starts the handshake again: the window goes, anything half
     // done with it is let go, and until the page says it is ready nothing is
     // sent to it and it is not shown. The first load is not a reload.
@@ -310,6 +316,7 @@ export function createCornerTag({
   const showCard = () => {
     if (open && tagUp() && loaded.card && cardSize && alive('card') && !wins.card.isVisible()) {
       wins.card.showInactive();
+      remeasure('card');
       readTone();
     }
   };
@@ -505,7 +512,7 @@ export function createCornerTag({
       wins.tag.showInactive();
       // A page that redrew while hidden may never have said its new size, and
       // the glass only moves when it does.
-      send('tag', 'corner-tag:measure');
+      remeasure('tag');
       readTone();
       watchTones();
     }

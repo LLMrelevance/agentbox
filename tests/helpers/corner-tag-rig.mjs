@@ -12,7 +12,11 @@ export function cornerTagRig({ config = {}, focused = false, at = 1_000_000_000,
     constructor(opts) {
       this.opts = opts; this.bounds = null; this.visible = false; this.destroyed = false; this.sent = [];
       this.heard = {};
-      this.webContents = { send: (ch, p) => this.sent.push([ch, p]), on: (ev, fn) => { this.heard[ev] = fn; } };
+      this.webContents = {
+        send: (ch, p) => this.sent.push([ch, p]),
+        on: (ev, fn) => { this.heard[ev] = fn; },
+        setZoomFactor: (z) => { (this.zoomed ??= []).push(z); },
+      };
       windows.push(this);
     }
     setAlwaysOnTop() {}
