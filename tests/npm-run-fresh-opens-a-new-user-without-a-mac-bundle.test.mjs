@@ -50,8 +50,13 @@ function built() {
 }
 
 beforeEach(() => {
-  repo = fs.mkdtempSync(path.join(os.tmpdir(), 'fresh-target-repo-'));
-  home = fs.mkdtempSync(path.join(os.tmpdir(), 'fresh-target-home-'));
+  // THE REAL PATH, because a Mac's temp dir is reached through a symlink
+  // (`/var/folders/...`, where `/var` is `/private/var`) and `electronCliIn`
+  // resolves the cli through `createRequire`, which hands back the resolved
+  // path. Comparing that with a path built from the symlinked name fails on a
+  // Mac and passes everywhere else.
+  repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fresh-target-repo-')));
+  home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'fresh-target-home-')));
 });
 
 afterEach(() => {
