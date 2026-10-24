@@ -140,15 +140,15 @@ function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; v
     const r = e as TeamRunLine;
     const open = () => onOpenThread(r.product, r.item);
     if (r.verb === 'sent') {
-      return <div className="tq-act">{ICON.inbox}<span><span className="v">{who}{only ? 'Sent you' : 'sent you'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}
+      return <div className="tq-act">{ICON.inbox}<span><span className="v">{who}{only ? 'Sent you' : 'sent you'}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}
         {r.waiting ? <span className="tq-st need">Waiting on you</span> : r.answered ? <span className="tq-st">Answered</span> : null}</div>;
     }
     if (r.verb === 'answered') {
-      return <div className="tq-act">{ICON.reply}<span><span className="v">{only ? 'You answered' : `You answered ${nameOf(r.teammate, team)}`}</span> <button type="button" className="tq-link" onClick={open}>“{r.text ?? r.title}”</button></span>{time}</div>;
+      return <div className="tq-act">{ICON.reply}<span><span className="v">{only ? 'You answered' : `You answered ${nameOf(r.teammate, team)}`}</span> <Inline onClick={open}>“{clipLine(r.text ?? r.title, 90)}”</Inline></span>{time}</div>;
     }
-    if (r.verb === 'queued') return <div className="tq-act tq-next">{ICON.dots}<span><span className="v">{only ? 'Next' : `Next for ${nameOf(r.teammate, team)}`}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
-    if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">{who}{only ? 'Finished' : 'finished'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
-    return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Picked up' : 'picked up'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
+    if (r.verb === 'queued') return <div className="tq-act tq-next">{ICON.dots}<span><span className="v">{only ? 'Next' : `Next for ${nameOf(r.teammate, team)}`}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
+    if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">{who}{only ? 'Finished' : 'finished'}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
+    return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Picked up' : 'picked up'}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
   }
   const c = e as TeamChatLine;
   if (c.kind === 'pass') {
@@ -380,6 +380,19 @@ function Roster({ team, products, engines, call, error, onOpen }: { team: Teamma
     {error && <p className="tq-error" role="alert">{error}</p>}
     <div className="tq-roster-foot">{others.length ? null : where.picker}<Describe call={call} onOpen={onOpen} fields={where.fields} /></div>
   </div>;
+}
+
+// A link inside an activity line. Inline text rather than a button, so a
+// long title is cut with an ellipsis instead of vanishing whole.
+function Inline({ onClick, children }: { onClick: () => void; children: ReactNode }) {
+  return <span role="button" tabIndex={0} className="tq-link" onClick={onClick}
+    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }}>{children}</span>;
+}
+
+// One line in the chat; the whole answer is in its thread.
+function clipLine(text: string, max: number): string {
+  const one = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return one.length > max ? `${one.slice(0, max - 1).trimEnd()}…` : one;
 }
 
 function initials(name: string): string {
