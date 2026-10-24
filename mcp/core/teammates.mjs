@@ -94,7 +94,7 @@ export function teamRemember({ text } = {}, ctx = {}) {
 
 const EVERY = ['day', 'weekday', 'week', 'never'];
 
-export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, ready } = {}, ctx = {}) {
+export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, runsOn, ready } = {}, ctx = {}) {
   const { dir, me, team } = teammateContext(ctx);
   const now = ctx.now ?? Date.now();
   const patch = {};
@@ -115,11 +115,15 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
       patch.served = periodKey(works, now) ?? '';
     }
   }
+  if (runsOn !== undefined) {
+    if (runsOn !== 'claude' && runsOn !== 'codex') throw new Error('runsOn is claude or codex');
+    patch.engine = runsOn;
+  }
   if (ready === true) patch.status = 'active';
   writeTeammate(dir, me.id, patch, now);
   if (ready === true && me.status === 'draft') writeChat(dir, { kind: 'act', from: me.id, verb: 'started' }, now);
   const after = readTeammates(dir, now).find((t) => t.id === me.id);
-  return { teammate: { name: after.name, role: after.role, job: after.job, goal: after.goal, counted: after.counted, asksFirst: after.asksFirst, works: after.works, status: after.status } };
+  return { teammate: { name: after.name, role: after.role, job: after.job, goal: after.goal, counted: after.counted, asksFirst: after.asksFirst, works: after.works, runsOn: after.engine ?? 'your default', status: after.status } };
 }
 
 export function teamRoster(ctx = {}) {

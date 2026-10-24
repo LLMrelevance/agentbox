@@ -277,7 +277,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
     {
       name: 'team_setup',
-      description: 'Set or change who you are as a teammate: your first name, role, job, goal, how the goal is counted, what you ask the person first, and when you work on your own (every: day, weekday, week or never; at: HH:MM; on: 0-6 for a weekly round). A new teammate calls it to set itself up, and with ready true when it is set.',
+      description: 'Set or change who you are as a teammate: your first name, role, job, goal, how the goal is counted, what you ask the person first, when you work on your own (every: day, weekday, week or never; at: HH:MM; on: 0-6 for a weekly round), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
       schema: {
         name: z.string().optional(),
         role: z.string().optional(),
@@ -288,6 +288,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
         every: z.enum(['day', 'weekday', 'week', 'never']).optional(),
         at: z.string().optional(),
         on: z.number().int().optional(),
+        runsOn: z.enum(['claude', 'codex']).optional(),
         ready: z.boolean().optional(),
       },
       run: (args) => json(teamSetup(args)),

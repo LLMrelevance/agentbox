@@ -137,6 +137,10 @@ describe('teammates through the store', () => {
     const after = team.get(teammate.id);
     expect(after).toMatchObject({ name: 'Dana', role: 'Docs writer', letter: 'D', status: 'active', works: { every: 'weekday', at: '10:00' } });
     expect(() => core.teamSetup({ every: 'sometimes' })).toThrow(/every is one of/);
+    // "runs on codex" in the description was lost (second power test).
+    expect(core.teamSetup({ runsOn: 'codex' }).teammate.runsOn).toBe('codex');
+    expect(team.get(teammate.id).engine).toBe('codex');
+    expect(() => core.teamSetup({ runsOn: 'gemini' })).toThrow(/claude or codex/);
   });
 
   // Labels replace the whole list when an agent writes them, and a run that
