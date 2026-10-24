@@ -288,7 +288,7 @@ export class Teammates {
       if (!tap) continue;
       const dir = this.store.productDir(row.product);
       if (tap.kind === 'make') {
-        const asks = String(row.body ?? '').split('\n').filter((l) => l.startsWith('- ')).join('\n');
+        const asks = String(row.result ?? '').split('\n').filter((l) => l.startsWith('- ')).join('\n');
         const text = tap.words ? `${tap.words}\n\nLike these asks of mine:\n${asks}` : `Someone to take on asks like these, which I keep making:\n${asks}`;
         this.describe({ text, product: row.product }, now);
       }
@@ -304,16 +304,19 @@ export class Teammates {
     if (!offer) return null;
     const dir = this.store.productDir(offer.product);
     if (!dir) return null;
-    const body = [`${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`)].join('\n');
+    const body = offer.said;
     const result = [
-      '**Make a teammate for these?**', '', body, '',
+      '**Make a teammate for these?**', '', `${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`), '',
       'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It sets itself up from these and asks you if anything is unclear.',
       '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
     ].join('\n');
     // Recorded first, so a crash after it can never offer the same job twice.
     writeChat(this.dir(), { kind: 'act', from: YOU, verb: 'offered', ref: offer.key, text: offer.title }, now);
     await lock.withProjectLock(dir, async () => {
-      const made = workItemsDisk.createWorkItem(dir, { title: offer.title, body, problem: `${offer.said} A teammate could take this kind of work on.`, kind: 'question', priority: 5, labels: [OFFER_LABEL] }, { source: 'system', now });
+      const made = workItemsDisk.createWorkItem(dir, {
+        title: offer.title, body, kind: 'question', priority: 5, labels: [OFFER_LABEL],
+        problem: 'A teammate could do this kind of work on its own.', progress: `Found ${offer.count} asks like these this month`,
+      }, { source: 'system', now });
       workItemsDisk.updateWorkItem(dir, made.id, { result }, { source: 'agent', now });
     });
     return offer;

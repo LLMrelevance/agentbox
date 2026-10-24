@@ -99,6 +99,10 @@ describe('the offer in the store', () => {
     const offers = store.listItems().filter((i) => (i.labels ?? []).includes(OFFER_LABEL));
     expect(offers).toHaveLength(1);
     expect(offers[0].result).toContain(OFFER_MAKE);
+    // The asks are listed once, in the answer; the opening only says how many.
+    expect(offers[0].body).not.toMatch(/^- /m);
+    expect(offers[0].result.match(/^- /gm)).toHaveLength(3);
+    expect(offers[0].progress).toMatch(/^Found 3 asks/);
     // Answered, it is still not work for an agent.
     w.updateWorkItem(root, offers[0].id, { answer: OFFER_MAKE }, { source: 'founder', now });
     const sup = new Supervisor({ storeRoot: root, maxConcurrentSessions: 1 }, store, '/tmp');
