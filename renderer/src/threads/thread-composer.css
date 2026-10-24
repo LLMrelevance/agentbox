@@ -88,6 +88,16 @@
 .tc-text::placeholder { color: var(--text-faint); }
 .tc-card .attach-row { padding: 0 18px 10px; }
 .tc-note { padding: 0 18px 10px; font-size: 13px; line-height: 19px; color: var(--text-dim); }
+/* THE NOTE'S OWN ACTION IS A WORD IN ITS SENTENCE, NOT A CONTROL ON THE BAR.
+   Unstyled, a <button> in here draws as the browser's white slab, which in a
+   dark window reads as a broken app. Both notes that offer something use this
+   (the conversation to open, and a pasted list to split). */
+.tc-note button {
+  background: none; border: 0; padding: 0; margin: 0; border-radius: 0;
+  color: var(--text); font: inherit; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-strong);
+}
+.tc-note button:hover, .tc-note button:focus-visible { text-decoration-color: currentColor; outline: none; }
 
 /* -------------------------------- the bar -------------------------------- */
 .tc-bar { display: flex; align-items: center; gap: 8px; padding: 12px 14px 12px 18px; border-top: 1px solid var(--tc-hair); position: relative; }

@@ -115,6 +115,15 @@ describe('the last card asks one thing and the celebration is in her own project
     expect(fin).toMatch(/setLanding\(\{ agents: \(filed \?\? chosen\.length\) > 0 \}\)/);
   });
 
+  it('draws its words over the falling pieces, never under them', () => {
+    // Reported from the QA box, 2026-10-23: "the end-of-tutorial text overlaps
+    // the confetti". `.fr-burst` carries a z-index and is drawn first; these
+    // words carried none, so inside `.fr-landed`'s own stacking context forty
+    // pieces were painted across a 34px headline.
+    const depth = (sel) => Number((css.slice(css.indexOf(sel), css.indexOf('}', css.indexOf(sel))).match(/z-index: (\d+)/) ?? [])[1]);
+    expect(depth('.fr-landed-say {')).toBeGreaterThan(depth('.fr-burst {'));
+  });
+
   it('does not stand in the way of the first thing she does in it', () => {
     // No veil, no panel, no button, and the layer takes no clicks: the first
     // row of her own inbox is clickable through this while the confetti is

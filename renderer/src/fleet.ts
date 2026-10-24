@@ -23,6 +23,9 @@ export interface Fleet {
   atLimit?: Record<string, { tool: string; until: number }>;
   /** `supervisor.shipping`: the app still owes these a ship. */
   shipping?: string[];
+  /** `snapshot.approvals`: an agent on each of these is stopped on a permission
+   *  request, so the row says Asking rather than Working. */
+  asking?: string[];
   /** `supervisor.stalled`: a worker died on these. */
   stalled?: string[];
   /** `supervisor.silent`: the last run here ended and wrote nothing down. */

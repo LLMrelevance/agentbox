@@ -22,7 +22,8 @@ import { phoneView, approvalCommand, phoneSlug } from '../renderer/src/cloud-bri
 const NOW = Date.parse('2026-10-19T12:00:00Z');
 const DEV = 'a1b2c3d4e5f6';
 const KEY = 'sk-ant-oat01-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'; // a made-up key, to prove it is hidden. public-check: allow
-const request = (id, extra = {}) => ({ id, at: NOW - 1000, product: 'alpha', item: 'w-1', tool: 'Bash', input: { command: `curl -H "x-api-key: ${KEY}" https://example.com` }, ...extra });
+const request = (id, extra = {}) => ({ id, at: NOW - 1000, product: 'alpha', item: 'w-1', tool: 'Bash', input: { command: 'echo hello' }, ...extra });
+const withSecret = (id, extra = {}) => request(id, { input: { command: `curl -H "x-api-key: ${KEY}" https://example.com` }, ...extra });
 
 describe('her Mac', () => {
   it('puts a thread\'s waiting cards in its copy, secrets hidden, with each card\'s fingerprint', async () => {
@@ -30,7 +31,7 @@ describe('her Mac', () => {
     cloud.now = () => NOW;
     const me = signUpMemory(cloud, { email: `o-${Math.random()}@example.com` });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phone-asks-'));
-    let asks = [{ ...request('a-1'), card: 'digest-1' }, { ...request('a-2', { item: 'w-2' }), card: 'digest-2' }];
+    let asks = [{ ...request('a-1'), card: 'digest-1' }, { ...withSecret('a-1s'), card: 'digest-secret' }, { ...request('a-2', { item: 'w-2' }), card: 'digest-2' }];
     const inbox = createPhoneInbox({
       backend: memoryBackend(cloud, me), projects: () => [{ slug: 'alpha', name: 'Alpha' }],
       listItems: () => [{ id: 'w-1', title: 'T', status: 'open', updatedAt: NOW - 5000 }], historyOf: (s, id) => [{ id, ts: NOW - 5000, source: 'founder', patch: { body: 'b' } }],
@@ -38,8 +39,12 @@ describe('her Mac', () => {
     });
     await inbox.syncOnce();
     const copy = (await memoryBackend(cloud, me).phoneThreads())[0].snapshot;
-    expect(copy.approvals).toHaveLength(1);
-    expect(copy.approvals[0]).toMatchObject({ id: 'a-1', tool: 'Bash', card: 'digest-1' });
+    expect(copy.approvals).toHaveLength(2);
+    // A card the phone drew whole carries its fingerprint, so her Allow binds to it.
+    expect(copy.approvals.find((a) => a.id === 'a-1')).toMatchObject({ id: 'a-1', tool: 'Bash', card: 'digest-1' });
+    // A card whose secret the phone had to hide is answered on the computer, where
+    // she can read the whole of it; it carries no fingerprint, so the phone cannot Allow it.
+    expect(copy.approvals.find((a) => a.id === 'a-1s')).toMatchObject({ card: null, answerOnComputer: true });
     expect(JSON.stringify(copy.approvals)).not.toContain(KEY);
     // Answered on the Mac: the next copy has no card.
     asks = [];

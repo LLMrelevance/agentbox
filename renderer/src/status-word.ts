@@ -44,6 +44,13 @@ export interface StatusFacts extends LiveFacts {
   /** The thread's state, where the surface drawing it already knows (the
    *  board's column). Worked out from the thread itself otherwise. */
   state?: ThreadStateWord;
+  /**
+   * WHETHER THIS ROW IS IN THE TUTORIAL'S PRACTICE PROJECT. The supervisor
+   *  refuses to spawn there at all, so the fleet's silence about one of its
+   *  rows says nothing about that row: the same rule as `fleetUnread` below.
+   *  Three In progress cards read NOTHING RUNNING under a tutorial card
+   *  saying In progress is what agents are doing. */
+  practice?: boolean;
 }
 
 // Waiting its turn resolves itself; held does not. That is the whole of why
@@ -73,6 +80,10 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   if (state === 'scheduled') return plain(stateWordOf(item, state), 'sched');
 
   const live = liveLine(item, { ...facts, stalled: false });
+  // `asking` HAS NO BRANCH OF ITS OWN. It had one, giving it the solid `need`
+  // dot, which this column draws for no other word; the fall-through at the
+  // foot gives it the accent ring every other held agent wears, which is the
+  // mark that already means nothing starts until something changes.
   const away = facts.whyNotCloud ?? null;
   const why = away ? whyWords(away) : undefined;
   const titled = (line: string) => (why ? `${why.head}. ${why.body}` : line);
@@ -95,7 +106,7 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
   // the confident wrong sentence this vocabulary exists to prevent. Nothing
   // running over our own session, open between Remote Control turns, is wrong
   // the same way.
-  const fleetUnread = !Array.isArray(facts.queued);
+  const fleetUnread = !Array.isArray(facts.queued) || !!facts.practice;
   if ((live?.state === 'idle' && (fleetUnread || facts.remoteHeld)) || (live?.state === 'elsewhere' && fleetUnread)) {
     return plain(stateWordOf(item, state), 'queued');
   }
@@ -132,6 +143,7 @@ export function factsFor(fleet: Fleet, id: string): LiveFacts {
     signInNeeded: fleet.signInNeeded,
     atLimit: fleet.atLimit,
     shipping: !!fleet.shipping?.includes(id),
+    asking: !!fleet.asking?.includes(id),
     stalled: !!fleet.stalled?.includes(id),
     silent: fleet.silent?.[id] ?? null,
     paused: !!fleet.paused,
