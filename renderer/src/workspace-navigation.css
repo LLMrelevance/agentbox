@@ -197,7 +197,11 @@
 }
 .settings-embedded .set-pane { flex: 1; min-height: 0; background: transparent; border-radius: var(--radius); }
 .workspace-utilities button[aria-current="page"] { background: var(--wash); color: var(--text); }
-.workspace-navigation .usage-pill { display: flex; align-items: center; justify-content: space-between; min-height: 28px; padding: 4px 10px; border: 0; gap: 8px; color: var(--text-faint); }
+/* The reading's word lines up with Feedback and Settings above it, which is
+   their text inset and not the button's: 10 of padding, an 18 icon and 11 of
+   gap. It was 10 while the slot was never filled (w-326fb83c0e), so the one
+   row in the foot with no icon started 29 points left of the other two. */
+.workspace-navigation .usage-pill { display: flex; align-items: center; justify-content: space-between; min-height: 28px; padding: 4px 10px 4px 39px; border: 0; gap: 8px; color: var(--text-faint); }
 .workspace-usage { padding: 8px 0; }
 .usage-sidebar-percent { margin-left: auto; opacity: .65; }
 .workspace-collapsed .workspace-usage { display: none; }

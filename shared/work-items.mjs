@@ -595,6 +595,13 @@ export function finishItem(raw, now = Date.now()) {
   return item;
 }
 
+/** A line that writes the row's short name and nothing else (see the fold's foot). */
+function onlyTheName(line) {
+  if (line.claim || line.release || line.heartbeat) return false;
+  const fields = Object.keys(line.patch ?? {});
+  return fields.length === 1 && fields[0] === 'label';
+}
+
 /** Lines folded onto `items` in place, unfinished: `finishItem` makes each one readable. */
 export function foldRawInto(items, lines, touched = null) {
   for (const raw of Array.isArray(lines) ? lines : []) {
@@ -700,7 +707,13 @@ export function foldRawInto(items, lines, touched = null) {
       if (line.by) item.wrote[field].by = line.by;
     }
 
-    item.updatedAt = Math.max(item.updatedAt, line.ts);
+    // THE APP WRITING A ROW'S NAME IS NOT NEWS ABOUT THE ROW. Lists break ties
+    // on `updatedAt`, so every unnamed thread the namer reached climbed to the
+    // top reading "updated just now". Read here rather than at the write, as
+    // the heartbeat rule above is, because the lines that did it are in the
+    // ledger already. Only the name ALONE: a line that carries it with anything
+    // else carries that too.
+    if (!onlyTheName(line)) item.updatedAt = Math.max(item.updatedAt, line.ts);
     if (line.ts < item.createdAt) item.createdAt = line.ts;
   }
 

@@ -83,7 +83,8 @@ import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
 import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
-import { opensATextField, takesTheListBack } from './keys';
+import { focusTheReplyBox } from './focus-at-end';
+import { keyWhileABoxIsOpen, opensATextField, takesTheListBack } from './keys';
 import { modelCommands } from './thread-model-commands';
 import { MOVE_KEYWORDS, whyItCannotMove } from '../../shared/move-thread.mjs';
 import { sidebarFits, useRoomyToggle, useWindowWidth } from './room';
@@ -5191,8 +5192,11 @@ export default function App() {
       // underneath one.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (modal || inInput) {
-        if (e.key === 'Escape' && !inInput) setModal(null);
-        return;
+        // Typing owns the keyboard and a modal owns its screen, except for the
+        // reply box with the caret out of it (renderer/src/keys.ts).
+        const gate = keyWhileABoxIsOpen({ modal, inInput, key: e.key });
+        if (gate === 'close-the-modal') { setModal(null); return; }
+        if (gate === 'swallow') return;
       }
       // Everything above has returned for modals and for typing, so a shortcut
       // that opens a text field swallows its own keystroke HERE, once, ahead of
@@ -5330,7 +5334,9 @@ export default function App() {
         // E archives, unconditionally. It must never approve on her behalf.
         else if (e.key === 'e' || e.key === 'E') { e.preventDefault(); markDone(focused); }
         // The page stays open: full screen draws the box under it.
-        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); }
+        // An open box focuses itself only when it opens, so R on one already
+        // there has to put the caret back (focus-at-end.ts).
+        else if (e.key === 'r' || e.key === 'R') { e.preventDefault(); setModal('reply'); if (modal === 'reply') focusTheReplyBox(); }
         // N MEANS THE SAME THING ON BOTH SCREENS. The + in the top bar is on
         // this screen too and its tooltip says "New task (N)", so the key is
         // already advertised here.
@@ -6032,6 +6038,18 @@ export default function App() {
            offering the move. Null on every copy that can. */
         move={announcesMove(snap?.update, { walking, closed: '' }) ? { place: snap?.update?.place ?? null, error: snap?.update?.moveError ?? null } : null}
         onMove={() => { void api.updateMove(); }}
+        /* WHAT IS LEFT OF YOUR LIMIT, in the slot the foot has held for it
+           since 2026-10-01 and nothing ever filled. Drawn unconditionally:
+           UsagePill is nothing at all until a reading lands. */
+        usage={<UsagePill
+          usage={snap.usage ?? null}
+          now={now}
+          sidebar
+          engineWord={engineWordFor({
+            engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
+            engine: snap.usage?.engine ?? null,
+          })}
+        />}
         page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
@@ -6235,26 +6253,10 @@ export default function App() {
               one change made on top of it. Do not put them back the other way
               round.
            */}
-          {/* WHAT IS LEFT OF HER LIMIT, FIRST IN THE CORNER GROUP (w-86ee9da2c9).
-              It is a reading rather than a control, so it sits before the three
-              things that do something. Absent entirely until a figure has been
-              read, which on a fresh launch is a few seconds: the corner is
-              unchanged until then rather than holding a space for a number
-              nobody has.
-
-             IT NO LONGER OPENS SETTINGS (w-1b725b0e2a, 2026-09-01).
-           */}
-          {/* AND IT SAYS WHOSE LIMIT IT IS, WHERE THERE ARE TWO TO TELL APART (2026-09-05).
-             Nothing new is drawn there.
-           */}
-          {!workspaceNavigation && <UsagePill
-            usage={snap.usage ?? null}
-            now={now}
-            engineWord={engineWordFor({
-              engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
-              engine: snap.usage?.engine ?? null,
-            })}
-          />}
+          {/* WHAT IS LEFT OF YOUR LIMIT IS NOT IN THIS CORNER ANY MORE: it is in
+              the sidebar's own slot, where it was approved (w-326fb83c0e). With
+              Groups on there is no sidebar and no reading, because a bare bar
+              between the search icon and New thread reads as a stray line. */}
           {/* AND THE SOCKET A THREAD'S OWN CONTROLS ARE TELEPORTED INTO: the
               thread's menu, which holds the code, the terminal and Done
               (w-e731ca9376, 2026-10-01). They are drawn by
@@ -7293,6 +7295,11 @@ export default function App() {
         onNewThread={() => setModal('compose')}
         onStanding={() => setModal('standing')}
         onSettings={() => { setModal(null); setSettingsPane(null); setSettingsOpen(true); }}
+        onUsage={() => { setModal(null); setTeamOpen(false); setSettingsPane('claude'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
+        roomsOn={roomsUi.live}
+        groups={roomsUi.groups}
+        onGroups={() => { setModal(null); roomsUi.openTab(); }}
+        onPickGroup={(key) => { setModal(null); roomsUi.pickGroup(key); }}
         onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
         onOpenProjects={() => { setModal(null); setTeamOpen(false); setSettingsPane('projects'); setSettingsOpen(true); }}
         onClose={() => setModal(null)}
