@@ -6,9 +6,9 @@
 // selected", with every group, and every chat, one click away from it.
 // Measured on the drawn tab before: the room's name and its headcount, a
 // picker of rooms only, and No room tab. Groups now opens the group open last,
-// and any group, from anywhere, opens as the Groups page. Since the same day
-// Groups is a row in the page-name menu rather than a tab
-// (tests/with-groups-the-page-name-is-a-menu-and-there-is-no-sidebar).
+// and any group, from anywhere, opens as the Groups page. Since 2026-10-24
+// Groups is a row in the narrow sidebar rather than a tab
+// (tests/with-groups-the-sidebar-stays-narrow-and-widens-when-pointed-at).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { groupInTab } from '../renderer/src/team/rooms/room-rules.ts';

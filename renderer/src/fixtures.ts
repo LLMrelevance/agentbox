@@ -257,8 +257,8 @@ export const fixtureSnapshot: Snapshot = {
     {
       // STOPPED: she answered, a worker took it, and that worker died without
       // finishing. Three of these were on her screen at once, which is what
-      // resuming-by-selection is for. In Progress shows them beside the live
-      // ones, and only a fixture that HAS them lets that screen be reviewed.
+      // resuming-by-selection is for. Needs you shows them, since nothing will
+      // start them again, and only a fixture that HAS them lets that be reviewed.
       id: 'w-i9', product: 'onboard', productName: 'Onboard', status: 'open', kind: 'design',
       title: 'Design the build menu: what resources make, and what unlocks it',
       answer: 'Option 1: One design pass, delivered as an HTML page you read.',
@@ -1108,10 +1108,10 @@ export function fixtureEngineSettings(world: FixtureEngineWorld | null): Partial
    * thing standing between them and a choice they cannot undo.
    */
   /*
-   * THE MACHINE THE PLAN QUESTION EXISTS TO NOT ASK (w-ce8c1a9275): Codex is on
-   * the disk and signed out. `needsPlan` is true, so the walk opens this step --
-   * and `afterCheck` knows which plan they have, so the step must not ask. It
-   * had no fixture world, so that branch could not be driven in a browser.
+   * THE MACHINE THAT MUST NOT BE SIGNED IN FOR: Codex is on the disk and signed
+   * out. `afterCheck` answers `found`, so the step draws what it found -- Sign
+   * in beside ChatGPT, Set up beside Claude -- and opens no browser until a row
+   * is pressed. This is the only world where that can be driven in a browser.
    */
   if (world === 'signedout') {
     return {

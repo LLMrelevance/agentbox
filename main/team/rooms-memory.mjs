@@ -14,7 +14,7 @@ const ATTACHMENT = /\]\(attachments\/([A-Za-z0-9][A-Za-z0-9_.-]{0,159})\)/g;
 // an emoji is one character, not the two halves JavaScript's length sees.
 const fitsAMessage = (text) => { const n = [...String(text).trim()].length; return n >= 1 && n <= 4000; };
 
-const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'everyone', show_agents: true, show_level: true, show_status: true, show_activity: true, invisible_until: null, status_text: null, status_until: null };
+const PROFILE_DEFAULTS = { display_name: '', avatar_url: null, headline: null, bio: null, show_working: 'team', show_agents: true, show_level: true, show_status: true, show_activity: true, invisible_until: null, status_text: null, status_until: null };
 const PRESENCE_DEFAULTS = { gone: false, agents_running: 0, working_on: null, working_private: false, working_at: null, hours_total: 0, hours_week: 0, week_start: null, hours_today: 0, day: null, streak_days: 0, active_days: [], hours_by_month: [], activity: [] };
 
 function state(cloud) {
@@ -29,7 +29,7 @@ function state(cloud) {
   cloud.roomReactions ??= new Map(); // `${messageId}:${personId}:${emoji}` -> reactionOut row
   cloud.roomFiles ??= new Map(); // `${roomId}:${name}` -> { roomId, name, byPerson, data, createdAt }
   cloud.roomActs ??= []; // { personId, kind, at }: edits and reactions, for their limits
-  if (!cloud.rooms.has(GENERAL_ROOM)) cloud.rooms.set(GENERAL_ROOM, { id: GENERAL_ROOM, name: 'General', kind: 'room', teamId: null, listed: true, createdBy: null, createdAt: 0 });
+  if (!cloud.rooms.has(GENERAL_ROOM)) cloud.rooms.set(GENERAL_ROOM, { id: GENERAL_ROOM, name: 'Coworking', kind: 'room', teamId: null, listed: true, createdBy: null, createdAt: 0 });
   // Every team has its room, named after it (the team_room_kept trigger).
   for (const t of cloud.teams.values()) {
     const room = [...cloud.rooms.values()].find((r) => r.teamId === t.id);

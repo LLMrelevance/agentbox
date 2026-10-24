@@ -101,9 +101,9 @@ describe('a team has its room', () => {
     expect(await rows(JUN, `select id from public.my_rooms()`)).toEqual([]);
     expect(await rows(JUN, `select id from public.rooms where id = $1`, [northwindRoom])).toEqual([]);
   });
-  it('General exists, listed, and anyone signed in can see it in Find rooms', async () => {
+  it('the open group everyone joins exists, listed, and anyone signed in can see it in Find rooms', async () => {
     const listed = await rows(JUN, `select id, name, joined from public.listed_rooms()`);
-    expect(listed).toContainEqual({ id: GENERAL, name: 'General', joined: false });
+    expect(listed).toContainEqual({ id: GENERAL, name: 'Coworking', joined: false });
     // Find rooms' New tab sorts on it.
     expect((await rows(JUN, `select created_at from public.listed_rooms() where id = $1`, [GENERAL]))[0].created_at).toBeTruthy();
   });

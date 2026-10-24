@@ -488,14 +488,14 @@ export const api = {
     return window.zero!.snapshot();
   },
 
-  async refreshUsage(): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
+  async refreshUsage(engine: 'claude' | 'codex' = 'claude'): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
     if (useFixtures) {
       if (params.get('account') === 'unreadable') return { ok: false, error: USAGE_UNREADABLE };
-      const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === 'claude') ?? (fixtureSnapshot.usage?.engine === 'claude' ? fixtureSnapshot.usage : null);
+      const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === engine) ?? (fixtureSnapshot.usage?.engine === engine ? fixtureSnapshot.usage : null);
       return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
     }
     if (!window.zero?.refreshUsage) return { ok: false, error: RESTART_NOTE };
-    try { return await window.zero.refreshUsage(); }
+    try { return await window.zero.refreshUsage({ engine }); }
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 
@@ -733,7 +733,7 @@ export const api = {
   // once instead of after it (main/claude-input.mjs `interrupt`).
   // `inReplyTo` is the uid of the message a reply in a thread answers
   // (w-920461cbe6); main keeps it only in a conversation between people.
-  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string }): Promise<WorkItem | null> {
+  async answer(p: { product: string; id: string; answer?: string; status?: string; priority?: number; permissionMode?: AnswerMode | null; engine?: string | null; model?: string | null; effort?: string | null; now?: boolean; inReplyTo?: string; closeUnshipped?: boolean }): Promise<WorkItem | null> {
     if (useFixtures) return null;
     return window.zero!.answer(p);
   },
@@ -1189,8 +1189,8 @@ export const api = {
       const mine = engine === 'claude';
       return { engine, phase: mine ? 'ready' : 'idle', error: null, log: '', found: mine, signedIn: mine };
     }
-    // AND THE MACHINE THE QUESTION MUST NOT ASK: Codex on the disk, signed out.
-    // `afterCheck` reads this as "we already know which plan they have".
+    // AND THE MACHINE THAT MUST NOT BE SIGNED IN FOR: Codex on the disk, signed
+    // out. `afterCheck` reads this as `found`, which draws and starts nothing.
     if (useFixtures && engineFixtures === 'signedout') {
       return { engine, phase: 'idle', error: null, log: '', found: engine === 'codex', signedIn: false };
     }
@@ -1199,7 +1199,11 @@ export const api = {
     try {
       const r = await zero.engineSetup({ action, engine });
       if (!r?.ok) return { ...assumeReady, phase: 'failed', found: false, signedIn: false, error: r?.error ?? 'Setup could not start.' };
-      return { engine, phase: r.phase ?? 'idle', error: r.error ?? null, log: r.log ?? '', found: !!r.found, signedIn: !!r.signedIn };
+      return {
+        engine, phase: r.phase ?? 'idle', error: r.error ?? null, log: r.log ?? '',
+        found: !!r.found, signedIn: !!r.signedIn,
+        bin: r.bin ?? null, already: !!r.already,
+      };
     } catch (e) {
       return { ...assumeReady, phase: 'failed', found: false, signedIn: false, error: String((e as Error)?.message ?? e) };
     }

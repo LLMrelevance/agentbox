@@ -56,6 +56,11 @@ const PRESS_GIVES_UP_MS = 60_000;
 // tray is on screen and only then. Drag the tray from a white page onto a dark
 // one and the ink follows within this.
 export const TONE_EVERY_MS = 500;
+// How often the page is asked to measure again while the tray is on screen.
+// The glass is placed from what the page last said, and once (w-93b3a1a796)
+// it was left at an old size by something that was never reproduced; this is
+// the longest that can now last.
+export const MEASURE_EVERY_MS = 2000;
 
 const HIDE_LABELS = { '5m': 'Hide for 5 minutes', '30m': 'Hide for 30 minutes', today: 'Hide for the rest of today' };
 const CHANNELS = [
@@ -136,6 +141,11 @@ export function createCornerTag({
   const alive = (part) => !!wins[part] && !wins[part].isDestroyed();
   const rounded = (r) => ({ x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) });
   const send = (part, channel, payload) => { if (alive(part) && loaded[part]) wins[part].webContents.send(channel, payload); };
+  // Back to 100%, then measure: a zoomed page drew the tag smaller than the
+  // size it reported, and the glass stood out past it (w-93b3a1a796). Its own
+  // zoom only; the app's window keeps whatever zoom it has.
+  const atFull = (part) => { try { if (alive(part)) wins[part].webContents.setZoomFactor?.(1); } catch { /* measured in points anyway */ } };
+  const remeasure = (part) => { atFull(part); send(part, 'corner-tag:measure'); };
   // How big the tag draws, from the width of the screen it is resting on. The
   // page multiplies everything by it, reports the size it came out, and this
   // file places that. A tag dragged to another screen is measured again there.
@@ -224,10 +234,15 @@ export function createCornerTag({
   const stopTones = () => { if (toneTimer) { clearTimer(toneTimer); toneTimer = null; } };
   const watchTones = () => {
     if (!glass || toneTimer || gone) return;
+    let measuredAt = now();
     const tick = () => {
       toneTimer = null;
       if (gone || !alive('tag') || !wins.tag.isVisible()) return;
       readTone();
+      if (now() - measuredAt >= MEASURE_EVERY_MS) {
+        measuredAt = now();
+        remeasure('tag');
+      }
       toneTimer = setTimer(tick, TONE_EVERY_MS);
     };
     toneTimer = setTimer(tick, TONE_EVERY_MS);
@@ -270,6 +285,7 @@ export function createCornerTag({
     win.setAlwaysOnTop(true, 'floating');
     try { win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true, skipTransformProcessType: true }); } catch {}
     win.on('closed', () => { wins[part] = null; loaded[part] = false; });
+    win.webContents.on('did-finish-load', () => atFull(part));
     // A reload starts the handshake again: the window goes, anything half
     // done with it is let go, and until the page says it is ready nothing is
     // sent to it and it is not shown. The first load is not a reload.
@@ -300,6 +316,7 @@ export function createCornerTag({
   const showCard = () => {
     if (open && tagUp() && loaded.card && cardSize && alive('card') && !wins.card.isVisible()) {
       wins.card.showInactive();
+      remeasure('card');
       readTone();
     }
   };
@@ -493,6 +510,9 @@ export function createCornerTag({
     sendState();
     if (loaded.tag && !wins.tag.isVisible()) {
       wins.tag.showInactive();
+      // A page that redrew while hidden may never have said its new size, and
+      // the glass only moves when it does.
+      remeasure('tag');
       readTone();
       watchTones();
     }
@@ -567,14 +587,17 @@ export function createCornerTag({
       if (open) { placeCard(); showCard(); }
       return null;
     }
-    if (partOf(p) === 'tag' && p.glass && Number.isFinite(p.glass.x) && p.glass.width > 0) {
+    if (p.glass && Number.isFinite(p.glass.x) && p.glass.width > 0) {
       inset = {
         x: Math.max(0, Math.round(p.glass.x)), y: Math.max(0, Math.round(p.glass.y)),
         width: Math.round(p.glass.width), height: Math.round(p.glass.height),
       };
       frame = inset.x;
+    } else {
+      // Never the last rectangle: it belongs to a size the tag no longer is.
+      inset = null;
     }
-    const rect = inset ?? { x: 0, y: 0, ...size };
+    const rect = inset ?? glassOf({ x: 0, y: 0, ...size });
     shape.tag = { rect, radius: radius(rect) };
     dress('tag');
     // Mid-resize the page's own measurement is the truth: it places the tag
