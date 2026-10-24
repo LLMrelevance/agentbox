@@ -77,7 +77,10 @@ export function OptionsOffer({
         onMouseEnter={(e) => onAskEnter(e.currentTarget)}
         onMouseLeave={() => setAskPeek(false)}
       >
-        <span>{ask || 'Their options · pick or write your own'}</span>
+        {/* The heading is drawn in capitals, where the old fallback's "THEIR"
+            named nobody on the screen and its middot joined a noun to an
+            instruction. */}
+        <span>{ask || 'Pick one, or write your own answer'}</span>
       </div>
       {/* The card, drawn FIRST so it is the strip's first child: appended
           last it stole the last row's 4px of bottom padding and the

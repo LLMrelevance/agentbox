@@ -60,8 +60,8 @@ describe('the command bar', () => {
     expect(app).toMatch(/readMoves\(sel, seenAt, unreadSince\)/);
     expect(app).not.toMatch(/seen\.has\(target\.id\)/);
   });
-  it('offers Mark Unread on a selection', () => {
-    expect(app).toMatch(/label: `Mark Unread \(\$\{n\} selected\)`/);
+  it('offers Mark unread on a selection', () => {
+    expect(app).toMatch(/label: `Mark unread \(\$\{n\} selected\)`/);
   });
   it('writes the time the dot reads when it marks a selection read or unread', () => {
     expect(app).toMatch(/sel\.forEach\(markSeen\)/);
