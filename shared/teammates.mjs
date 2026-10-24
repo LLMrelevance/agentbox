@@ -233,7 +233,20 @@ export function runTitle(trigger, teammate) {
   // Inbox rows lead with the teammate's name, so a title never repeats it.
   if (trigger.opening === 'setup') return 'Set up its job';
   if (trigger.opening === 'start') return 'Introduce itself and begin';
-  return clip(trigger.text || 'A message', 120);
+  return clip(partFor(trigger.text, teammate.name) || firstLine(trigger.text) || 'A message', 120);
+}
+
+const firstLine = (text) => String(text ?? '').trim().split('\n')[0].trim();
+
+// What a message says to one teammate it names: from its @Name to the end of
+// that sentence, when there is anything there.
+function partFor(text, name) {
+  const words = String(text ?? '');
+  const at = name ? words.search(new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`, 'i')) : -1;
+  if (at < 0) return null;
+  const rest = words.slice(at + name.length + 1).replace(/^[\s,:;–—-]+/, '');
+  const part = rest.split(/(?<=[.!?])\s|\n|\s@\w/)[0].replace(/[\s.,;:]+$/, '').trim();
+  return part ? part[0].toUpperCase() + part.slice(1) : null;
 }
 
 // What the tick should do now, decided without touching anything, so it can be

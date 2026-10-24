@@ -29,6 +29,15 @@ describe('teammates in the command bar', () => {
     expect(html).toContain('Felix');
   });
 
+  // The power tester typed "pause" and found only "Pause agents", which says
+  // nothing about one teammate.
+  it('pauses or resumes one teammate by name', () => {
+    const html = draw({ teammates: [ADA, { ...FELIX, paused: true }], onTeammates() {}, onPauseTeammate() {} });
+    expect(html).toContain('Pause Ada');
+    expect(html).toContain('Resume Felix');
+    expect(html).not.toContain('Pause Felix');
+  });
+
   it('still offers the team chat and a new one with nobody started yet', () => {
     const html = draw({ teammates: [], onTeammates() {} });
     expect(html).toContain('New teammate');

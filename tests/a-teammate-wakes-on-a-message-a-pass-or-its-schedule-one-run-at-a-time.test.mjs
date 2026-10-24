@@ -38,6 +38,15 @@ describe('what wakes a teammate', () => {
     const round = (t) => planWakes({ teammates: [t], chat: chat([]), items: [], now: NOW }).find((a) => a.type === 'run').title;
     expect(round({ ...ada, served: '2026-10-23' })).toBe("Today's round");
     expect(round({ ...ada, served: '2026-10-19', works: { every: 'week', on: 1, at: '09:00' } })).toBe("This week's round");
+    // One message to two teammates: each run is titled with its own part.
+    // The power test's first message gave Hugo a run called "Onboarding first
+    // screen", which was Ada's ask, and his Done today said he had done it.
+    const both = { id: 'm-b', kind: 'msg', from: 'you', to: [ada.id, felix.id], ts: NOW,
+      text: 'morning team, two customers got lost after signing up, so @Ada can you poke at the onboarding screen and file what is confusing. @Felix nothing urgent, just get set up' };
+    const titles = planWakes({ teammates: [{ ...ada, served: '2026-10-26' }, felix], chat: chat([both]), items: [], now: NOW }).filter((a) => a.type === 'run').map((a) => [a.teammate, a.title]);
+    expect(Object.fromEntries(titles)).toEqual({ [ada.id]: 'Can you poke at the onboarding screen and file what is confusing', [felix.id]: 'Nothing urgent, just get set up' });
+    // A name at the very end leaves nothing of its own, so the first line stands.
+    expect(title({ id: 'm-e', kind: 'msg', from: 'you', to: [felix.id], text: 'Ship the fix today, thanks @Felix', ts: NOW })).toBe('Ship the fix today, thanks @Felix');
     // A teammate cannot dress its own message up as your opening.
     expect(title({ id: 'm-t', kind: 'msg', from: ada.id, to: [felix.id], text: words, start: true, ts: NOW }, felix)).toBe(words);
   });

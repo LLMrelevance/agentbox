@@ -27,6 +27,13 @@ describe('the team chat', () => {
     expect(chatEntries(view).map((e) => e.id)).toEqual(['w-2:start']);
   });
 
+  // "Chat got busy though: 6 picked-up/finished lines for one small ask."
+  it('the team chat leaves out picked up for a run that finished, and a teammate\'s page keeps it', () => {
+    const view = { list: [], chat: [], runs: [run('w-1:start', 'picked', 1, { item: 'w-1' }), run('w-1:done', 'finished', 2, { item: 'w-1' }), run('w-2:start', 'picked', 3, { item: 'w-2' })] };
+    expect(chatEntries(view).map((e) => e.id)).toEqual(['w-1:done', 'w-2:start']);
+    expect(chatEntries(view, ADA).map((e) => e.id)).toEqual(['w-1:start', 'w-1:done', 'w-2:start']);
+  });
+
   it('a teammate\'s page holds what it said, did, and what was said to it, and nothing else', () => {
     expect(involves(msg('m', 'you', [ADA, HUGO], 'x', 1), ADA)).toBe(true);
     expect(involves(msg('m', HUGO, [], 'x', 1), ADA)).toBe(false);

@@ -7460,6 +7460,7 @@ export default function App() {
         onPickGroup={(key) => { setModal(null); roomsUi.pickGroup(key); }}
         teammates={teammatesUi.live ? snap?.teammates?.list ?? [] : null}
         onTeammates={(which) => { setModal(null); teammatesUi.go(which); }}
+        onPauseTeammate={(id, paused) => { setModal(null); void api.teammates('update', { id, patch: { paused } }).then(() => refresh()); }}
         onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
         onOpenProjects={() => { setModal(null); setTeamOpen(false); setSettingsPane('projects'); setSettingsOpen(true); }}
         onClose={() => setModal(null)}
