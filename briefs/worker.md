@@ -243,8 +243,8 @@ whatever it says. On a run with nothing in it, say that in one line and stop.
 One line costs them a second to read and tells them the job is still alive.
 <!-- no-store-tools:end -->
 <!-- repeat-rules:end -->
-
 <!-- teammate-rules:start -->
+
 ## If this item is one run of a teammate
 
 Its labels carry `teammate:<id>`, and the system prompt tells you which
