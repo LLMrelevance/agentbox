@@ -68,3 +68,16 @@ describe('the team chat', () => {
     expect(page).not.toMatch(/filter\(\(x\) => x !== only\?\.id\)/);
   });
 });
+
+describe('the line under a teammate in the sidebar', async () => {
+  const { nowLine } = await import('../renderer/src/teammates/TeammatesRail.tsx');
+  const base = { status: 'active', paused: false, running: null, waiting: [], now: null };
+  it('says Paused even while something waits on you, and what it is on when it works anyway', () => {
+    expect(nowLine({ ...base, paused: true, waiting: [{ id: 'w', product: 'p', title: 't' }], now: 'Waiting on you' })).toBe('Paused, waiting on you');
+    expect(nowLine({ ...base, paused: true })).toBe('Paused');
+    expect(nowLine({ ...base, paused: true, running: { id: 'w', product: 'p' }, now: 'Draft the intro emails' })).toBe('Draft the intro emails');
+    expect(nowLine({ ...base, question: true })).toBe('Has a question for you');
+    expect(nowLine({ ...base, status: 'draft' })).toBe('Setting up');
+    expect(nowLine(base)).toBe('Free');
+  });
+});
