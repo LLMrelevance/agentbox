@@ -62,7 +62,7 @@ import os from 'node:os';
 import { isUrgent, itemPriority, normalizeOrder, orderFromTiers, placedScore, productRankScore } from '../shared/rank.mjs';
 import { keysForAgents } from '../shared/shortcuts.mjs';
 import { isCleanRun, ruleIdOf } from '../shared/repeats.mjs';
-import { teammateIdOf, mentionsIn, OFFER_LABEL } from '../shared/teammates.mjs';
+import { teammateIdOf, mentionsIn, teammatesOn, OFFER_LABEL } from '../shared/teammates.mjs';
 import { mayRunHere } from '../shared/team-rules.mjs';
 
 // WHO IS SIGNED IN, handed to the store server a worker talks through. An MCP
@@ -7042,6 +7042,7 @@ export class Supervisor {
   // Your words to a teammate that is already on a run go into that run, the
   // way a reply typed in its thread does, live if a session is up.
   async serveTeammates(now = Date.now()) {
+    if (!teammatesOn(this.config)) return;
     const TEAMMATE_REPLY_DEADLINE_MS = this.config.teammateReplyDeadlineMs ?? 30_000;
     const teammates = this.store.teammates;
     if (!teammates) return;
@@ -9883,7 +9884,7 @@ export class Supervisor {
   // handed over with team_pass rather than done here. Not on a teammate's own
   // run: your message there already woke whoever it named.
   teammateNamedBlock(item, texts) {
-    if (teammateIdOf(item)) return '';
+    if (!teammatesOn(this.config) || teammateIdOf(item)) return '';
     let team = [];
     try { team = (this.store.teammates?.list?.() ?? []).filter((t) => t.status === 'active' && !t.endedAt); } catch { return ''; }
     const named = [...new Set(texts.flatMap((t) => mentionsIn(String(t ?? ''), team)))].map((id) => team.find((t) => t.id === id)?.name).filter(Boolean);

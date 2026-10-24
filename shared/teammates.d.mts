@@ -12,3 +12,4 @@ export const OFFER_LABEL: 'teammate-offer';
 export const OFFER_MAKE: string;
 export const OFFER_NOT_NOW: string;
 export const MAX_HOPS: number;
+export function teammatesOn(config: { alphaTeammates?: unknown } | null | undefined): boolean;

@@ -10,7 +10,7 @@ import path from 'node:path';
 import { Supervisor } from '../main/supervisor.mjs';
 
 const make = (teammates) => new Supervisor(
-  { storeRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-hang-')), maxConcurrentSessions: 2, teammateReplyDeadlineMs: 50 },
+  { storeRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-hang-')), maxConcurrentSessions: 2, teammateReplyDeadlineMs: 50, alphaTeammates: true },
   { listItems: () => [], listProducts: () => [], isDue: () => true, teammates },
   '/tmp',
 );

@@ -17,6 +17,11 @@ export const CHAT_TAIL = 30;
 // Teammates waking each other with no person or schedule in between stop after
 // this many hops, so two of them cannot keep each other running.
 export const MAX_HOPS = 8;
+
+// Teammates are an alpha feature (Settings, Alpha features): off unless switched on.
+export function teammatesOn(config) {
+  return config?.alphaTeammates === true;
+}
 export const HOP_LABEL_PREFIX = 'hop:';
 
 export function hopOf(item) {

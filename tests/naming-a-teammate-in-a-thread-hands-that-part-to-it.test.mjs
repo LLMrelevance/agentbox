@@ -14,7 +14,7 @@ import { Supervisor } from '../main/supervisor.mjs';
 const FELIX = { id: 't-felix00001', name: 'Felix', status: 'active' };
 const DRAFT = { id: 't-draft00001', name: 'Iris', status: 'draft' };
 const make = () => new Supervisor(
-  { storeRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'zero-named-mate-')), maxConcurrentSessions: 1 },
+  { storeRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'zero-named-mate-')), maxConcurrentSessions: 1, alphaTeammates: true },
   { listItems: () => [], listProducts: () => [], isDue: () => true, readItem: () => null, teammates: { list: () => [FELIX, DRAFT] } },
   '/tmp',
 );

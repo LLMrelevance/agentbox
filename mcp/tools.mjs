@@ -19,6 +19,8 @@ import { listSkills, fetchSkill, fetchReference } from './core/skills.mjs';
 import { listWorkItems, updateItem, createClaimRegistry } from './core/work.mjs';
 import { readStandingInstruction, setStandingInstruction } from './core/repeats.mjs';
 import { teamPost, teamPass, teamRemember, teamSetup, teamRoster } from './core/teammates.mjs';
+import { readTeammates, teamDir } from '../main/store/teammates-files.mjs';
+import { legacyRoot } from '../main/store/project.mjs';
 import { listProductChats, readProductChat } from './core/chat.mjs';
 import { lookAtPage } from './core/page.mjs';
 import { WORK_ITEM_STATUSES } from '../shared/work-items.mjs';
@@ -58,6 +60,8 @@ const guard = (fn) => async (args) => {
 export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } = {}) {
   const account = resolveAccount();
   const claims = createClaimRegistry({ holder: holder ?? `mcp-${process.pid}` });
+  const hasTeam = teammatesExist(String(process.env.STORE_ACCOUNT_ID ?? '').trim() || account.accountId);
+  const capabilities = hasTeam ? CAPABILITIES : CAPABILITIES.filter((c) => !c.includes('teammate'));
 
   const tools = [
     /* ------------------------------- products ------------------------------ */
@@ -143,7 +147,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
       name: 'fetch_skill',
       description: 'One skill in full, with a short header explaining which of its tools exist here and which are your own job. These were written for the agent inside the app, so the method applies exactly and some tool names do not.',
       schema: { name: z.string() },
-      run: ({ name }) => json(fetchSkill(name, { capabilities: CAPABILITIES, missing: MISSING })),
+      run: ({ name }) => json(fetchSkill(name, { capabilities, missing: MISSING })),
     },
     {
       name: 'fetch_reference',
@@ -339,9 +343,15 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
   ];
 
+  // Teammates are an alpha feature: their tools are offered once there is a
+  // teammate to talk to, which is never while the feature is off.
   return {
     account,
     claims,
-    tools: tools.map((t) => ({ ...t, run: guard(t.run) })),
+    tools: tools.filter((t) => hasTeam || !t.name.startsWith('team_')).map((t) => ({ ...t, run: guard(t.run) })),
   };
+}
+
+function teammatesExist(accountId) {
+  try { return readTeammates(teamDir(legacyRoot(), accountId)).length > 0; } catch { return false; }
 }

@@ -484,7 +484,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // Which alpha features are on (Settings, Alpha features).
       alpha,
       // TEAMMATES: who they are, what each is on, and the one team chat.
-      teammates: (() => { try { return store.teammatesView(items, now); } catch (err) { return { list: [], chat: [], runs: [], error: err.message }; } })(),
+      teammates: alpha.teammates ? (() => { try { return store.teammatesView(items, now); } catch (err) { return { list: [], chat: [], runs: [], error: err.message }; } })() : null,
       agents: liveAgents(),
       approvals: approvals.listPending(config.storeRoot),
       supervisor: running,
@@ -857,6 +857,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const mates = store.teammates;
     if (!mates) return { ok: false, error: 'Teammates need a store.' };
     if (!TEAMMATE_OPS.has(op)) return { ok: false, error: `no teammates call named ${op}` };
+    if (!alphaFeatures(config).teammates) return { ok: false, error: 'Teammates are an alpha feature. Turn them on in Settings, Alpha features.' };
     try {
       const a = args && typeof args === 'object' ? args : {};
       let value;
