@@ -1,0 +1,217 @@
+// Teammates (w-4bd7b5548b): a teammate is a standing job whose every wake-up is
+// an ordinary work item. These pin what wakes it and how its runs queue, on
+// plain data: your message, a teammate passing it work, its schedule, one run
+// at a time, and the weekly cap that stops a teammate running away with your
+// plan. The cases that must NOT wake anyone are here too: a message it wrote
+// itself, one it has already seen, one to a paused teammate from another
+// teammate, and a schedule already served today.
+import { describe, it, expect } from 'vitest';
+import {
+  planWakes, foldTeammates, foldChat, mentionsIn, letterFor, runIdFor, waitingOnYou,
+  isActiveRun, statusOf, runLines, teammateLabel, seenKey, DEFAULT_LIMIT, MAX_HOPS,
+} from '../shared/teammates.mjs';
+
+const NOW = new Date(2026, 9, 26, 9, 30).getTime(); // a Monday, after 9am
+const ada = { id: 't-aaaaaa', name: 'Ada', letter: 'A', status: 'active', paused: false, served: '2026-10-26', limit: DEFAULT_LIMIT, works: { every: 'weekday', at: '09:00' }, product: 'kestrel', memory: [] };
+const felix = { id: 't-ffffff', name: 'Felix', letter: 'F', status: 'active', paused: false, served: '', limit: DEFAULT_LIMIT, works: null, product: 'kestrel', memory: [] };
+const chat = (messages, seen = []) => ({ messages, seen: new Set(seen) });
+const run = (t, over = {}) => ({ id: over.id ?? 'w-111111', product: 'kestrel', title: 'x', status: 'open', labels: ['founder', teammateLabel(t.id)], createdAt: NOW - 1000, wrote: {}, ...over });
+
+describe('what wakes a teammate', () => {
+  it('your message to a teammate with nothing on becomes a run that starts now, and is marked seen', () => {
+    const m = { id: 'm-1', kind: 'msg', from: 'you', to: [felix.id], text: 'Can you look at the double charge?', ts: NOW - 10 };
+    const acts = planWakes({ teammates: [felix], chat: chat([m]), items: [], now: NOW });
+    const r = acts.find((a) => a.type === 'run');
+    expect(r).toMatchObject({ teammate: felix.id, start: 'now', id: runIdFor(`m-1>${felix.id}`) });
+    expect(r.trigger).toMatchObject({ kind: 'message', from: 'you', text: m.text });
+    expect(acts).toContainEqual({ type: 'seen', msg: 'm-1', teammate: felix.id, run: r.id });
+  });
+
+  it('your message goes into the run already waiting on you rather than starting a second', () => {
+    const waiting = run(felix, { id: 'w-222222', result: 'Ship it?', wrote: { result: { ts: NOW - 500, source: 'agent' } } });
+    expect(waitingOnYou(waiting)).toBe(true);
+    const m = { id: 'm-2', kind: 'msg', from: 'you', to: [felix.id], text: 'Yes, ship it', ts: NOW };
+    const acts = planWakes({ teammates: [felix], chat: chat([m]), items: [waiting], now: NOW });
+    expect(acts.find((a) => a.type === 'run')).toBeUndefined();
+    expect(acts).toContainEqual(expect.objectContaining({ type: 'answer', item: 'w-222222', text: 'Yes, ship it' }));
+  });
+
+  it('a teammate passing work wakes the one it passed to, with the title and details', () => {
+    const p = { id: 'm-3', kind: 'pass', from: ada.id, to: felix.id, title: 'Buy twice charges twice', details: 'Steps: ...', ts: NOW };
+    const acts = planWakes({ teammates: [ada, felix], chat: chat([p]), items: [], now: NOW });
+    const r = acts.find((a) => a.type === 'run' && a.teammate === felix.id);
+    expect(r.trigger).toMatchObject({ kind: 'pass', from: ada.id, title: 'Buy twice charges twice' });
+    expect(r.title).toBe('Buy twice charges twice');
+  });
+
+  it('an owed schedule becomes one run and is served', () => {
+    const acts = planWakes({ teammates: [{ ...ada, served: '2026-10-23' }], chat: chat([]), items: [], now: NOW });
+    expect(acts.filter((a) => a.type === 'run')).toHaveLength(1);
+    expect(acts).toContainEqual({ type: 'served', teammate: ada.id, key: '2026-10-26' });
+  });
+
+  it('wakes nobody for: its own message, a message already seen, a schedule served today, or a teammate with no schedule', () => {
+    const own = { id: 'm-4', kind: 'msg', from: felix.id, to: [felix.id], text: 'note to self', ts: NOW };
+    const seenAlready = { id: 'm-5', kind: 'msg', from: 'you', to: [felix.id], text: 'hi', ts: NOW };
+    const served = { ...ada, served: '2026-10-26' };
+    const acts = planWakes({ teammates: [served, felix], chat: chat([own, seenAlready], [seenKey('m-5', felix.id)]), items: [], now: NOW });
+    expect(acts.filter((a) => a.type === 'run')).toHaveLength(0);
+  });
+
+  it('before 9am on a weekday the round is not owed yet, and on Saturday a weekday round is not owed at all', () => {
+    const early = new Date(2026, 9, 26, 8, 59).getTime();
+    expect(planWakes({ teammates: [{ ...ada, served: '2026-10-23' }], chat: chat([]), items: [], now: early }).filter((a) => a.type === 'run')).toHaveLength(0);
+    const saturday = new Date(2026, 9, 24, 12, 0).getTime();
+    expect(planWakes({ teammates: [{ ...ada, served: '2026-10-23' }], chat: chat([]), items: [], now: saturday }).filter((a) => a.type === 'run')).toHaveLength(0);
+  });
+
+  it('a paused teammate wakes for your words but not for a teammate or its schedule', () => {
+    const paused = { ...felix, paused: true, works: { every: 'day', at: '09:00' } };
+    const fromAda = { id: 'm-6', kind: 'pass', from: ada.id, to: paused.id, title: 'fix', ts: NOW };
+    const fromYou = { id: 'm-7', kind: 'msg', from: 'you', to: [paused.id], text: 'hello', ts: NOW };
+    const acts = planWakes({ teammates: [ada, paused], chat: chat([fromAda, fromYou]), items: [], now: NOW });
+    const runs = acts.filter((a) => a.type === 'run' && a.teammate === paused.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].trigger.msg).toBe('m-7');
+  });
+});
+
+describe('two teammates cannot keep each other running', () => {
+  it('a teammate-to-teammate chain wakes up to the hop limit and stops there, saying so', () => {
+    const at = (hop) => ({ id: `m-h${hop}`, kind: 'msg', from: ada.id, to: [felix.id], text: '@Felix again', hop, ts: NOW });
+    const ok = planWakes({ teammates: [ada, felix], chat: chat([at(MAX_HOPS - 1)]), items: [], now: NOW });
+    expect(ok.find((a) => a.type === 'run').trigger.hop).toBe(MAX_HOPS);
+    const stop = planWakes({ teammates: [ada, felix], chat: chat([at(MAX_HOPS)]), items: [], now: NOW });
+    expect(stop.find((a) => a.type === 'run')).toBeUndefined();
+    expect(stop).toContainEqual({ type: 'hops', teammate: felix.id, msg: `m-h${MAX_HOPS}`, from: ada.id });
+    expect(stop).toContainEqual({ type: 'seen', msg: `m-h${MAX_HOPS}`, teammate: felix.id });
+  });
+
+  it('your words always start a fresh count', () => {
+    const y = { id: 'm-y', kind: 'msg', from: 'you', to: [felix.id], text: 'go', hop: 99, ts: NOW };
+    expect(planWakes({ teammates: [felix], chat: chat([y]), items: [], now: NOW }).find((a) => a.type === 'run').trigger.hop).toBe(0);
+  });
+});
+
+describe('one run at a time', () => {
+  it('a new run behind an active one is queued, and nothing is released while it runs', () => {
+    const running = run(felix, { id: 'w-333333', status: 'claimed' });
+    const p = { id: 'm-8', kind: 'pass', from: ada.id, to: felix.id, title: 'another', ts: NOW };
+    const acts = planWakes({ teammates: [ada, felix], chat: chat([p]), items: [running], now: NOW });
+    expect(acts.find((a) => a.type === 'run' && a.teammate === felix.id).start).toBe('later');
+    expect(acts.find((a) => a.type === 'release' && a.teammate === felix.id)).toBeUndefined();
+  });
+
+  it('two wakes in one tick: the first starts now and the second waits', () => {
+    const a = { id: 'm-9', kind: 'pass', from: ada.id, to: felix.id, title: 'one', ts: NOW };
+    const b = { id: 'm-10', kind: 'pass', from: ada.id, to: felix.id, title: 'two', ts: NOW + 1 };
+    const acts = planWakes({ teammates: [ada, felix], chat: chat([a, b]), items: [], now: NOW });
+    expect(acts.filter((x) => x.type === 'run').map((x) => x.start)).toEqual(['now', 'later']);
+  });
+
+  it('once nothing is active, the oldest queued run is released', () => {
+    const q1 = run(felix, { id: 'w-444444', start: 'later', createdAt: NOW - 50 });
+    const q2 = run(felix, { id: 'w-555555', start: 'later', createdAt: NOW - 100 });
+    const acts = planWakes({ teammates: [felix], chat: chat([]), items: [q1, q2], now: NOW });
+    expect(acts).toContainEqual({ type: 'release', teammate: felix.id, item: 'w-555555', product: 'kestrel' });
+  });
+
+  it('a run waiting on you does not hold the queue', () => {
+    const waiting = run(felix, { id: 'w-666666', status: 'blocked' });
+    const q = run(felix, { id: 'w-777777', start: 'later' });
+    expect(isActiveRun(waiting)).toBe(false);
+    const acts = planWakes({ teammates: [felix], chat: chat([]), items: [waiting, q], now: NOW });
+    expect(acts).toContainEqual(expect.objectContaining({ type: 'release', item: 'w-777777' }));
+  });
+});
+
+describe('the weekly cap', () => {
+  it('at its limit a teammate takes no pass or schedule, says so once, and still takes your words', () => {
+    const capped = { ...felix, limit: 2, works: { every: 'day', at: '09:00' } };
+    const done = [run(capped, { id: 'w-aaaaa1', status: 'done' }), run(capped, { id: 'w-aaaaa2', status: 'done' })];
+    const p = { id: 'm-11', kind: 'pass', from: ada.id, to: capped.id, title: 'more', ts: NOW };
+    const y = { id: 'm-12', kind: 'msg', from: 'you', to: [capped.id], text: 'one more', ts: NOW };
+    const acts = planWakes({ teammates: [ada, capped], chat: chat([p, y]), items: done, now: NOW });
+    const runs = acts.filter((a) => a.type === 'run' && a.teammate === capped.id);
+    expect(runs.map((r) => r.trigger.msg)).toEqual(['m-12']);
+    expect(acts.filter((a) => a.type === 'limit' && a.teammate === capped.id)).toHaveLength(1);
+    expect(acts.find((a) => a.type === 'seen' && a.msg === 'm-11')).toBeUndefined();
+  });
+
+  it('runs older than a week do not count', () => {
+    const capped = { ...felix, limit: 1 };
+    const old = run(capped, { id: 'w-bbbbb1', status: 'done', createdAt: NOW - 8 * 24 * 3600e3 });
+    const p = { id: 'm-13', kind: 'pass', from: ada.id, to: capped.id, title: 'x', ts: NOW };
+    expect(planWakes({ teammates: [ada, capped], chat: chat([p]), items: [old], now: NOW }).filter((a) => a.type === 'run')).toHaveLength(1);
+  });
+});
+
+describe('the files', () => {
+  it('folds teammates newest-wins, keeps memory as a list, and drops ended ones and bad ids', () => {
+    const lines = [
+      { id: 't-abc123', ts: 1, patch: { name: 'Ada', role: 'Quality lead', letter: 'a', works: { every: 'weekday', at: '09:00' } } },
+      { id: 't-abc123', ts: 2, patch: { role: 'Tester', remember: { id: 'k1', text: 'Check dark theme first', from: 'your reply', at: 2 } } },
+      { id: 't-abc123', ts: 3, patch: { remember: { id: 'k2', text: 'A 4px gap is a bug', at: 3 } } },
+      { id: 't-abc123', ts: 4, patch: { forget: 'k1', works: { every: 'nope' } } },
+      { id: 't-def456', ts: 5, patch: { name: 'Gone', endedAt: 6 } },
+      { id: 'bad', ts: 5, patch: { name: 'X' } },
+    ];
+    const [t, ...rest] = foldTeammates(lines, NOW);
+    expect(rest).toHaveLength(0);
+    expect(t).toMatchObject({ name: 'Ada', role: 'Tester', letter: 'A', works: { every: 'weekday', at: '09:00' } });
+    expect(t.memory.map((m) => m.text)).toEqual(['A 4px gap is a bug']);
+  });
+
+  it('a served date in the future is refused', () => {
+    const [t] = foldTeammates([{ id: 't-abc123', ts: 1, patch: { name: 'Ada', served: '2099-01-01' } }], NOW);
+    expect(t.served).toBe('');
+  });
+
+  it('folds the chat in time order, drops repeats of one id, and keeps seen markers apart', () => {
+    const { messages, seen } = foldChat([
+      { id: 'm-b', kind: 'msg', from: 'you', ts: 2, text: 'b' },
+      { id: 'm-a', kind: 'msg', from: 'you', ts: 1, text: 'a' },
+      { id: 'm-a', kind: 'msg', from: 'you', ts: 3, text: 'dup' },
+      { kind: 'seen', ref: 'm-a', for: 't-1', ts: 4 },
+      { kind: 'weird', ts: 5 },
+    ]);
+    expect(messages.map((m) => m.text)).toEqual(['a', 'b']);
+    expect(seen.has(seenKey('m-a', 't-1'))).toBe(true);
+  });
+});
+
+describe('names and letters', () => {
+  it('@Name addresses a teammate, but not inside a word or an email', () => {
+    expect(mentionsIn('@Ada can you check', [ada, felix])).toEqual([ada.id]);
+    expect(mentionsIn('thanks @felix!', [ada, felix])).toEqual([felix.id]);
+    expect(mentionsIn('mail ada@example.com or @Adam', [ada, felix])).toEqual([]);
+  });
+
+  it('a letter is the first free one of the name', () => {
+    expect(letterFor('Vera', [ada, felix])).toBe('V');
+    expect(letterFor('Abe', [ada, felix])).toBe('B');
+  });
+});
+
+describe('what you see', () => {
+  it('a run shows as picked up, then sent you while it waits, then finished', () => {
+    const r = run(ada, { id: 'w-cccccc', title: 'Try sign up on a phone', status: 'done', createdAt: 10, result: 'Two bugs', wrote: { result: { ts: 20, source: 'agent' }, status: { ts: 30, source: 'agent' } } });
+    expect(runLines([r], [ada]).map((l) => l.verb)).toEqual(['picked', 'sent', 'finished']);
+  });
+
+  it('a clean run shows no sent line, and a queued one shows nothing', () => {
+    const clean = run(ada, { id: 'w-dddddd', status: 'done', createdAt: 10, labels: ['founder', teammateLabel(ada.id), 'clean'], result: 'nothing', wrote: { result: { ts: 20, source: 'agent' }, status: { ts: 21, source: 'agent' } } });
+    const q = run(ada, { id: 'w-eeeeee', start: 'later' });
+    expect(runLines([clean, q], [ada]).map((l) => l.verb)).toEqual(['picked', 'finished']);
+  });
+
+  it('the panel says what is waiting on you, what it is on now, and what it finished today', () => {
+    const waiting = run(ada, { id: 'w-f1f1f1', title: 'Review the fix', status: 'blocked' });
+    const running = run(ada, { id: 'w-f2f2f2', title: 'Try sign up on a phone', status: 'claimed' });
+    const finished = run(ada, { id: 'w-f3f3f3', title: 'Tried Safari', status: 'done', wrote: { status: { ts: NOW - 1000, source: 'agent' } } });
+    const s = statusOf(ada, [waiting, running, finished], NOW);
+    expect(s.waiting.map((w) => w.title)).toEqual(['Review the fix']);
+    expect(s.now).toBe('Try sign up on a phone');
+    expect(s.done.map((d) => d.title)).toEqual(['Tried Safari']);
+  });
+});
