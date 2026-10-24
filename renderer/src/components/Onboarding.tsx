@@ -12,7 +12,7 @@ import {
   anyAgents, clearOf, finishCard, forgetAgentsWhileLookingAgain, gateRows,
   forgetFoldersWhileLookingAgain, keepSecondRead, keyName, keyToken, padFor,
   practising, pressAtWrongRow, pressCounts, readAgentsAgain, roomFor, strayClick,
-  swallowPress, wrongPress,
+  swallowPress, walkProjects, wrongPress,
   coach, nextStep, nextTab, recentFolders, ring, runOf, shortPath, stepBack,
   type AgentFile, type Coach, type FirstRun, type Rect, type RecentFolder, type Step,
 } from '../onboarding';
@@ -30,17 +30,6 @@ import { chord, sayKeys } from '../this-keyboard';
 
 /** What the walk knows about each coding agent on this computer. */
 type Readings = Array<Pick<EngineSetupState, 'engine' | 'found' | 'signedIn'>>;
-
-/**
- * The one project the last card may file into: the one the walk made. The
- * practice project is archived a moment later by `finishRun`, so it is never
- * offered. The app's product list is a poll behind when the card first draws,
- * so the project is built from the walk until the list has it. */
-function walkProject(products: Project[], run: FirstRun): Project[] {
-  const mine = products.filter((p) => p.slug === run.product);
-  if (mine.length || !run.product) return mine;
-  return [{ slug: run.product, name: run.name, repoPath: run.folder }];
-}
 
 /** The same folder glyph the setup card draws. */
 function FolderGlyph() {
@@ -714,14 +703,14 @@ function Finished({
    * only once the whole search has come back sure, so any sign of Claude Code
    * gets the ending. */
   claude: { missing: boolean; url: string };
-  /** Only the walk's own project (see `walkProject`), never the practice one. */
+  /** The walk's own project first, then the others, never the practice one (`walkProjects`). */
   products: { slug: string; name: string; repoPath: string | null }[];
   project: string | null;
   /** The way out with nothing brought in, and the end of the walk. */
   onDone: (chosen: string[]) => void;
   /** The import card has already filed the agents, so this only ends the walk
    * and reports what landed, for the confetti. */
-  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string }) => void;
+  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string; done?: number }) => void;
   /** A project was made on the card. The app redraws its sidebar. */
   onProjectMade?: (slug: string) => void;
   /** Look for Claude Code again from scratch. Resolves to whether it is still
@@ -1120,8 +1109,7 @@ export function Onboarding({
   /** The quiet "Skip this step" on every coaching card. */
   onSkipStep?: () => void;
   run: FirstRun;
-  /** Every project the app has. The last card takes only the one this walk
-   * made (see `walkProject`). */
+  /** Every project the app has; the last card files into them (`walkProjects`). */
   products: Project[];
   /** Whether a task is open in the reading pane, for beats with a second half
    * in the pane. */
@@ -1172,7 +1160,7 @@ export function Onboarding({
   onDone: (chosen: string[]) => void;
   /** End the walk after the import card has filed the agents itself. Reports
    * what landed, for the confetti. */
-  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string }) => void;
+  onFiled: (p: { added: number; already: number; inboxes: number; made: string[]; noun?: string; done?: number }) => void;
   /** A project was made on the last card. The app redraws its sidebar. */
   onProjectMade?: (slug: string) => void;
   /** Look for Claude Code again from scratch. Resolves to whether it is still
@@ -1490,7 +1478,7 @@ export function Onboarding({
         found={found}
         folders={folders}
         claude={claude}
-        products={walkProject(products, run)}
+        products={walkProjects(products, run)}
         project={run.product}
         onDone={onDone}
         onFiled={onFiled}

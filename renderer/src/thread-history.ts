@@ -140,6 +140,12 @@ export function snoozeWords(runAt: number, from: number): string {
 // to say more is still a message of hers, so the match is the whole answer.
 const PICK = /^Option (\d+): ([^\n]+)$/;
 
+/** A pick's line in the thread, or null when the answer is a typed reply. */
+export function pickedLine(answer: string): { said: string; words: string } | null {
+  const picked = PICK.exec(answer);
+  return picked ? { said: `You picked option ${picked[1]}`, words: picked[2].replace(/\s*\(recommended\)\s*$/i, '').trim() } : null;
+}
+
 // HOW LONG AFTER YOUR REPLY A LIFTED SNOOZE STILL BELONGS TO IT. The app
 // writes the two one after the other, milliseconds apart; a minute leaves room
 // for a slow disk and is still far shorter than anyone bringing a thread back
@@ -296,9 +302,12 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       if (words(patch!.body)) opened = true;
       // Their words with no title: the ask branch below opens the thread.
       if (theirs && words(next!.patch?.body)) continue;
+      // A chat the import brought in from Claude Code was yours, not an agent's,
+      // and its row is dated when the chat started there.
+      const broughtIn = Array.isArray(patch!.labels) && patch!.labels.includes('thread-import');
       events.push({
         at, who,
-        said: mine ? 'You opened this' : 'An agent opened this',
+        said: mine ? 'You opened this' : broughtIn ? 'Started in Claude Code' : 'An agent opened this',
         ...(words(patch!.body) ? { words: words(patch!.body)!, message: true as const, field: 'body' as const } : {}),
       });
       continue;
@@ -317,9 +326,10 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       && patch.labels.some((l) => typeof l === 'string' && l.startsWith('codex:')) && yourBody) {
       const i = events.findIndex((e) => e.field === 'body');
       if (i >= 0 && events[i].who === 'agent') events[i] = { ...events[i], who: 'you', said: 'You opened this', words: yourBody };
-      // And the wordless birth line above it says where the row came from.
+      // And the wordless birth line above it says where the row came from,
+      // dated when the chat started there (store.importCodexThreads).
       const birth = events.findIndex((e) => e.said === 'An agent opened this' && !e.field);
-      if (birth >= 0) events[birth] = { ...events[birth], said: 'Brought in from Codex' };
+      if (birth >= 0) events[birth] = { ...events[birth], said: 'Started in Codex' };
     }
 
     // The ask, on whichever line it arrived. See `opened` above: on her own
@@ -370,13 +380,9 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       // be drawn as her message reading "Option 1: …". It is a quiet line of
       // hers now, the option's own words beside it, and `answers` tells the
       // conversation it still answered the agent (item-thread.ts).
-      const picked = said ? PICK.exec(said) : null;
+      const picked = said ? pickedLine(said) : null;
       if (picked) {
-        events.push({
-          at, who: 'you', said: `You picked option ${picked[1]}`,
-          words: picked[2].replace(/\s*\(recommended\)\s*$/i, '').trim(),
-          field: 'answer', answers: true,
-        });
+        events.push({ at, who: 'you', ...picked, field: 'answer', answers: true });
         continue;
       }
       events.push(said

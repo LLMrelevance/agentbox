@@ -1038,7 +1038,7 @@ const AGENT_OPTIONS: Array<{ value: AgentMode; label: string }> = [
 const AGENT_SENTENCE: Record<AgentMode, string> = {
   all: 'Each one is a row in your inbox. Closing it only takes it out of the inbox.',
   waiting: 'Only the ones waiting for you to type. The rest run without interrupting you.',
-  off: 'None reach your inbox. Each is still in its project’s sidebar.',
+  off: 'Each is still in its project’s sidebar.',
 };
 
 /* --------------------- IS CLAUDE CODE CONNECTED OR NOT -------------------- */
@@ -2368,10 +2368,17 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 them get there. */}
             <Group id="outside" label="Agents you started yourself">
               <Row
-                label="Show in your inbox"
+                label="Show while they run"
                 desc={`Claude Code started in a terminal, not from here. ${AGENT_SENTENCE[w.outsideAgents]}`}
               >
                 <Picker bare label="Agents you started yourself" value={w.outsideAgents} options={AGENT_OPTIONS} onChange={(v) => setWorkspace('outsideAgents', v)} />
+              </Row>
+              {/* The moment after the row above: a chat that has stopped. */}
+              <Row
+                label="Bring in new chats"
+                desc="A new Claude Code or Codex chat in one of your projects comes in after ten quiet minutes. Waiting ones go to Needs you, finished ones to Done."
+              >
+                <Switch label="Bring in new chats" on={w.importNew === true} onChange={(v) => setWorkspace('importNew', v)} />
               </Row>
             </Group>
           </Page>

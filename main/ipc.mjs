@@ -56,6 +56,7 @@ import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-file
 import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
 import { readImportableThreads, readSearchableThreads } from './importable-threads.mjs';
+import { readChatEnds } from './agent-sessions.mjs';
 import { markImported } from '../shared/agent-import.mjs';
 import { codexIdOf, importChoice, isCodexImportRow, isNotImportedRow } from '../shared/codex-import.mjs';
 import { checkProjectFolder } from '../shared/project-folder-check.mjs';
@@ -1333,8 +1334,11 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
    *  year. The card prints it, because "no chat with that name" over a read
    *  that stopped in August would be a lie nobody could see.
    *
-   *  The results join `lastThreads` as well, because importing resolves an id
-   *  against that list and a chat found by name has to be importable.
+   *  What it searches is the card's latest ten-day list joined with that kept
+   *  read, so a chat newer than the first search is found too, and the join is
+   *  `lastThreads`, because importing resolves an id against it. A chat the
+   *  list holds keeps the list's copy: the search reads no title, answer or
+   *  ending, and its copy would bring the chat in without them.
    */
   let searchable = null;
   ipcMain.handle('zero:search-agent-threads', async (_e, { again = false } = {}) => {
@@ -1343,13 +1347,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       let got = { threads: [], reached: 0 };
       try { got = await readSearchableThreads({ config, supervisor, readCodex: readCodexThreadsOffThread }); } catch { got = { threads: [], reached: 0 }; }
       searchable = got;
-      const byId = new Map(lastThreads.map((t) => [String(t?.id ?? ''), t]));
-      for (const t of got.threads) byId.set(String(t?.id ?? ''), t);
-      lastThreads = [...byId.values()];
     }
+    const byId = new Map(lastThreads.map((t) => [String(t?.id ?? ''), t]));
+    for (const t of searchable.threads) if (!byId.has(String(t?.id ?? ''))) byId.set(String(t?.id ?? ''), t);
+    lastThreads = [...byId.values()];
     let items = [];
     try { items = store.listItems(); } catch { items = []; }
-    return { threads: markImported(searchable.threads, items), reached: searchable.reached };
+    return { threads: markImported(lastThreads, items), reached: searchable.reached };
   });
 
   // So this is `zero:import-agents` with the agent taken out of it. No ticks are
@@ -1357,7 +1361,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // is a row, and a row is what stops it being imported twice
   // (`threadsNeedingRows`). The row's first reply resumes the conversation as a
   // copy (`Supervisor#importedThreadFor`, GitHub #44).
-  ipcMain.handle('zero:import-threads', async (_e, { product, threads } = {}) => {
+  ipcMain.handle('zero:import-threads', async (_e, { product, threads, land } = {}) => {
     if (!product) return { ok: false, added: 0, already: 0, ids: [] };
     const want = new Set(
       (Array.isArray(threads) ? threads : [])
@@ -1369,13 +1373,15 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // the case a test or a fresh window can reach and a person cannot.
     if (!lastThreads.length) lastThreads = await readAllThreads();
     // Two kinds, two rows.
-    const chosen = lastThreads.filter((t) => want.has(String(t?.id ?? '')));
-    let out = { ids: [], added: 0, already: 0 };
+    const chosen = readChatEnds(lastThreads.filter((t) => want.has(String(t?.id ?? ''))));
+    let out = { ids: [], added: 0, already: 0, done: 0 };
     try {
       // Each store method takes its own kind off the list and leaves the other.
-      const claude = store.importThreadRows(product, chosen);
-      const codex = store.importCodexThreads(product, chosen);
-      out = { ids: [...claude.ids, ...codex.ids], added: claude.added + codex.added, already: claude.already + codex.already };
+      // Setup's last screen sorts what it brings in: finished chats go to Done.
+      const how = { land: land === 'sorted' ? 'sorted' : 'inbox' };
+      const claude = store.importThreadRows(product, chosen, how);
+      const codex = store.importCodexThreads(product, chosen, how);
+      out = { ids: [...claude.ids, ...codex.ids], added: claude.added + codex.added, already: claude.already + codex.already, done: claude.done + codex.done };
     } catch (err) {
       push();
       return { ok: false, error: String(err.message), added: 0, already: 0, ids: [] };

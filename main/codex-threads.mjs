@@ -30,6 +30,7 @@ import path from 'node:path';
 import { RECENT_DAYS, isScratchFolder, shortFolder, threadTitle } from './agent-sessions.mjs';
 import { codexDataDirs } from './agent-homes.mjs';
 import { WAS_SLUGS, nameSlug } from '../shared/product-name.mjs';
+import { howTheChatEnded } from '../shared/agent-import.mjs';
 
 export const CODEX_RECENT_DAYS = RECENT_DAYS;
 /** The originator Codex records for a run this app started (CLIENT_INFO.name), now and before. */
@@ -198,6 +199,8 @@ function readRolloutAfresh(file) {
   let meta = null;
   let prompt = '';
   let last = '';
+  // Whether the person wrote after Codex's last answer, so it is not waiting.
+  let herTurnLast = false;
   let turns = 0;
   let images = 0;
   let lastActive = 0;
@@ -232,11 +235,12 @@ function readRolloutAfresh(file) {
       if (p.type === 'user_message') {
         const said = cleanPrompt(p.message);
         if (!prompt && said && !isInjected(said)) prompt = said;
+        if (said && !isInjected(said)) herTurnLast = true;
         turns += 1;
         sawEventTurns = true;
       } else if (p.type === 'agent_message') {
         const said = cleanAnswer(p.message);
-        if (said) last = said;
+        if (said) { last = said; herTurnLast = false; }
       }
       continue;
     }
@@ -250,16 +254,17 @@ function readRolloutAfresh(file) {
         .filter(Boolean);
       if (!hers.length) continue; // a turn made of nothing but Codex's own preamble
       if (!prompt) prompt = hers.join('\n\n').trim();
+      herTurnLast = true;
       if (!sawEventTurns) turns += 1;
     } else if (p.role === 'assistant') {
       const said = cleanAnswer(partsOf(p).filter((c) => c.type === 'output_text').map((c) => c.text ?? '').join('\n'));
-      if (said) last = said;
+      if (said) { last = said; herTurnLast = false; }
     }
   }
   if (!meta || !meta.id) return null;
   let mtime = 0;
   try { mtime = fs.statSync(file).mtimeMs; } catch { mtime = 0; }
-  return { ...meta, prompt, last, turns, images, lastActive, path: file, mtime };
+  return { ...meta, prompt, last, herTurnLast, turns, images, lastActive, path: file, mtime };
 }
 
 /**
@@ -338,6 +343,9 @@ function readOneCodexHome(codexDir, { home, days, now, cutoff, index, byId, skip
       prompt: r.prompt,
       last: r.last,
       live: isLive(r.mtime, now),
+      ...(r.herTurnLast ? { waiting: false, ask: '' } : howTheChatEnded(r.last)),
+      lastSaid: r.last,
+      firstSaid: r.prompt,
     });
   }
 }

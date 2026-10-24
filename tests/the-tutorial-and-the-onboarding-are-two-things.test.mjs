@@ -133,8 +133,10 @@ describe('1. the tutorial offers itself when somebody makes a new project', () =
     // somebody who skipped has seen none of the practice, and the next project
     // they make is exactly the moment they might want it after all.
     expect(app).toContain('if (practised) rememberOffered(localStorage);');
-    expect(app).toContain('onDone={(chosen) => finishRun(chosen, { practised: true })}');
-    expect(app).toContain('finishRun([], { filed: added, practised: true });');
+    // Skipping the tutorial reaches the import card too since w-62228098e6, so
+    // the card asks whether the practice round was made.
+    expect(app).toContain('onDone={(chosen) => { const practised = !!runRef.current?.practice; finishRun(chosen, { practised, celebrate: practised }); }}');
+    expect(app).toContain('finishRun([], { filed: added, practised, celebrate: practised });');
     expect(app).toContain("onLeave={() => finishRun([], { celebrate: false })}");
     const out = app.slice(app.indexOf('<WayOut'), app.indexOf('<WayOut') + 400);
     expect(out).not.toContain('practised');
