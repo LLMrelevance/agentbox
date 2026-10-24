@@ -107,6 +107,7 @@ const NO_UPDATER = {
   move: () => ({ moved: false, error: null }),
 };
 
+const TEAMMATE_OPS = new Set(['create', 'describe', 'start', 'update', 'remove', 'post', 'remember', 'forget']);
 const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markUnread', 'react', 'edit', 'deleteMessage', 'putFile', 'file', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
@@ -480,6 +481,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // title-free activity of their private work. Null on a build with no
       // team cloud, which is the single-person app.
       team: team ? teamForWindow(team.state(), alpha.multiplayer) : null,
+      // TEAMMATES: who they are, what each is on, and the one team chat.
+      teammates: (() => { try { return store.teammatesView(items, now); } catch (err) { return { list: [], chat: [], runs: [], error: err.message }; } })(),
       // Which alpha features are on (Settings, Alpha features).
       alpha,
       agents: liveAgents(),
@@ -850,6 +853,30 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // tasks). main/team/index.mjs keeps it between the two of them.
   ipcMain.handle('zero:team-message', teamCall(({ to, body, priority, files }) => team.message(to, body, priority, files)));
   // ROOMS (alpha): one door, and only these calls through it (main/team/rooms.mjs).
+  ipcMain.handle('zero:teammates', async (_e, { op, args = {} } = {}) => {
+    const mates = store.teammates;
+    if (!mates) return { ok: false, error: 'Teammates need a store.' };
+    if (!TEAMMATE_OPS.has(op)) return { ok: false, error: `no teammates call named ${op}` };
+    try {
+      const a = args && typeof args === 'object' ? args : {};
+      let value;
+      if (op === 'create') {
+        value = mates.create({ ...a, engine: supervisor.engineOffered(a.engine) ?? null });
+        if (a.start !== false) value = mates.start(value.id);
+      } else if (op === 'describe') value = mates.describe({ ...a, engine: supervisor.engineOffered(a.engine) ?? null });
+      else if (op === 'start') value = mates.start(a.id);
+      else if (op === 'update') value = mates.update(a.id, { ...a.patch, ...(a.patch && 'engine' in a.patch ? { engine: supervisor.engineOffered(a.patch.engine) ?? null } : {}) });
+      else if (op === 'remove') value = mates.remove(a.id);
+      else if (op === 'post') value = mates.post({ text: a.text, to: a.to });
+      else if (op === 'remember') value = mates.remember(a.id, a.text, { from: 'you' });
+      else if (op === 'forget') value = mates.forget(a.id, a.memory);
+      supervisor.wake?.();
+      push();
+      return { ok: true, value: value ?? null };
+    } catch (err) {
+      return { ok: false, error: String(err?.message ?? err) };
+    }
+  });
   ipcMain.handle('zero:rooms', async (_e, { op, args = [] } = {}) => {
     const rooms = team?.rooms;
     if (!rooms) return { ok: false, error: 'This build has no team cloud set up.' };

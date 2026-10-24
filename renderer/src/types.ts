@@ -358,7 +358,31 @@ export interface RoomsState {
   error: string | null;
 }
 
-export type RoomsResult<T = unknown> = { ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
+// TEAMMATES (main/teammates.mjs): agents with a standing job, and the one team
+// chat they and you write to.
+export interface TeammateMemory { id: string; text: string; from: string | null; at: number; by?: string | null }
+export interface TeammateWorks { every: 'day' | 'weekday' | 'week'; at: string; on?: number }
+export interface TeammateRef { id: string; product: string; title: string }
+export interface Teammate {
+  id: string; name: string; letter: string; role: string | null; job: string | null; goal: string | null;
+  counted: string | null; asksFirst: string | null; works: TeammateWorks | null; worksLabel: string | null;
+  product: string; engine: string | null; model: string | null; effort: string | null; limit: number;
+  paused: boolean; status: 'draft' | 'active'; memory: TeammateMemory[]; createdAt: number;
+  waiting: TeammateRef[]; now: string | null; running: { id: string; product: string } | null;
+  queued: number; done: TeammateRef[]; runsThisWeek: number;
+}
+export interface TeamChatLine {
+  id: string; kind: 'msg' | 'pass' | 'act'; from: string; to?: string[] | string; text?: string;
+  title?: string; details?: string; verb?: string; ref?: string; options?: string[]; ts: number;
+}
+export interface TeamRunLine {
+  id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;
+  verb: 'picked' | 'passed' | 'sent' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean; ts: number;
+}
+export interface TeammatesView { list: Teammate[]; chat: TeamChatLine[]; runs: TeamRunLine[]; error?: string }
+export type TeammatesResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
+
+export type RoomsResult<T = unknown> ={ ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
 
 /** Why a thread is not in the cloud: running locally, or waiting for the cloud or for this computer.
  *  `why` is one of main/supervisor.mjs `_whyLocal`'s or `_whyWaitingForCloud`'s answers. */
@@ -841,6 +865,7 @@ export interface Snapshot {
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
+  teammates?: TeammatesView | null;
   /** Which alpha features are switched on (Settings, Alpha features). */
   alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
   agents?: AgentSession[];
@@ -1332,6 +1357,7 @@ declare global {
       micAccess?(): Promise<'granted' | 'settings'>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
+      teammates?(p: { op: string; args?: unknown }): Promise<TeammatesResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
       /** Move a thread to another project (shared/move-thread.mjs). Answers
        *  with the row it became there, or with the reason in words. */

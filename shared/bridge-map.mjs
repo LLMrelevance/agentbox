@@ -60,6 +60,8 @@ export const REQUEST_CHANNELS = {
   micAccess: 'zero:mic-access',
   teamMessage: 'zero:team-message',
   rooms: 'zero:rooms',
+  // Teammates: make, describe, start, edit, write to, and what they remember.
+  teammates: 'zero:teammates',
   takeJoin: 'zero:take-join',
   threadEdit: 'zero:thread-edit',
   // Move a thread to another project (shared/move-thread.mjs).

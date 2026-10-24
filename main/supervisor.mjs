@@ -9,7 +9,7 @@ import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-q
 import { MainTests } from './main-went-red.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
-import { queuedReplyText } from './live-replies.mjs';
+import { queuedReplyText, submitReply } from './live-replies.mjs';
 import { taskCommand } from './task-commands.mjs';
 import { providerCommand, reviewTarget, nativeCommandNames } from '../shared/provider-commands.mjs';
 import {agentInstructionsUnified, readSystemTemplate, writeInstruction} from './instruction-settings.mjs';
@@ -6696,6 +6696,9 @@ export class Supervisor {
     // Repeating tasks first, so a run created on this tick is already in the
     // list the fresh-work pass below reads, rather than waiting for the next.
     await this.serveRepeats(now);
+    // Teammates next, for the same reason: a run a message or a schedule made
+    // on this tick is picked up by the pass below.
+    await this.serveTeammates(now);
     // And the folders of rows she has finished, put away. On a timer of its own
     // rather than every pass, because it is a walk of the disk and a tick is
     // fifteen seconds: she closes rows while nothing at all is running, which
@@ -7030,6 +7033,31 @@ export class Supervisor {
   // to Monday finds ONE period unserved, because four were never representable.
   // And nothing books the next run, so a run that dies costs one day rather
   // than costing the task.
+  // Your words to a teammate that is already on a run go into that run, the
+  // way a reply typed in its thread does, live if a session is up.
+  async serveTeammates(now = Date.now()) {
+    const teammates = this.store.teammates;
+    if (!teammates) return;
+    let items;
+    try {
+      items = this.store.listItems(now);
+    } catch (err) {
+      console.warn(`teammates: could not read the inbox: ${err.message}`);
+      return;
+    }
+    const deliver = async (product, id, answer) => {
+      const out = await submitReply(this, { product, id, answer }, () => this.store.answerItem(product, id, { answer }));
+      this.wake?.();
+      return out;
+    };
+    try {
+      const done = await teammates.tick({ items, now, deliver });
+      if (done.length) this.onChange?.();
+    } catch (err) {
+      console.warn(`teammates: tick failed: ${err.message}`);
+    }
+  }
+
   async serveRepeats(now = Date.now()) {
     if (!this.store.repeats) return;
     for (const product of this.store.listProducts()) {
@@ -7441,7 +7469,11 @@ export class Supervisor {
     // {{name}} and {{Name}} become the app's name here too, on the same rule as
     // buildBrief: these blocks are markdown files that cannot import it, and
     // her own copies keep the tokens so a rename reaches her edits as well.
-    const system = fillName([standing, project, messages, adhd].filter(Boolean).join('\n\n'));
+    // A teammate's standing brief, read fresh each spawn so its memory and the
+    // team chat are current on a reply too.
+    let teammate = null;
+    try { teammate = this.store.teammates?.briefFor(item) ?? null; } catch { teammate = null; }
+    const system = fillName([standing, project, teammate, messages, adhd].filter(Boolean).join('\n\n'));
     // `fork` IS THE FLAG THAT MAKES IT A FORK RATHER THAN A CONTINUATION: the
     // resumed conversation is written on under a NEW id, so the row it came
     // from keeps its own thread untouched (MP-08). The builder drops it when

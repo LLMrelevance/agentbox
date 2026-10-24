@@ -211,7 +211,7 @@ const plainly = (s) => String(s ?? '')
 
 export function herRow(item) {
   const labels = item?.labels ?? [];
-  return labels.includes('founder') && !labels.some((l) => String(l).startsWith('repeat:'));
+  return labels.includes('founder') && !labels.some((l) => String(l).startsWith('repeat:') || String(l).startsWith('teammate:'));
 }
 
 export function saidToClose(item, words) {
