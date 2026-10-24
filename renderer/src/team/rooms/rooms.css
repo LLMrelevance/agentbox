@@ -492,21 +492,103 @@
 .workspace-layout.gt-inset[data-artifact-layout="beside"] .focus-dock { padding-left: 44px; }
 .workspace-layout.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }
 
-/* WITH GROUPS ON THE SIDEBAR STAYS NARROW (GroupsSidebar.tsx), and while
-   pointed at it widens over the page rather than pushing it; the groups under
-   Groups show only while it is wide. */
+/* WITH GROUPS ON THE SIDEBAR STAYS NARROW (GroupsSidebar.tsx). Pointed at, it
+   slides out over the page on the window's own ground, so it reads as the
+   narrow strip grown wider, and its words fade in where they will sit. */
 /* Settings keeps its own wide list of panes, so it keeps its own edge. */
 .app.workspace-layout.gt-rail:not(.workspace-settings) { --workspace-left: calc(44px + 38px); }
-.gt-rail-open .workspace-navigation.gt-rail-nav { z-index: 40; }
-.gt-rail-open .workspace-navigation.gt-rail-nav::before { content: ''; position: absolute; z-index: -1; inset: -12px -10px -10px -10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--pop); box-shadow: var(--shadow-card); }
-.workspace-collapsed .gt-rail-nav .th-team-name { display: none; }
+.gt-rail .workspace-navigation.gt-rail-nav { transition: width .16s cubic-bezier(.4, 0, .6, 1); }
+.gt-rail-open .workspace-navigation.gt-rail-nav { z-index: 40; transition-duration: .22s; transition-timing-function: cubic-bezier(.2, .8, .2, 1); }
+.gt-rail-nav::before { content: ''; position: absolute; z-index: -1; top: -80px; bottom: -40px; left: -40px; right: -22px; pointer-events: none;
+  background: var(--bg); box-shadow: 1px 0 0 var(--line), 16px 0 40px rgba(0, 0, 0, .32); opacity: 0; transition: opacity 0s .16s; }
+:root[data-theme="light"] .gt-rail-nav::before { box-shadow: 1px 0 0 var(--line), 16px 0 40px rgba(17, 25, 48, .08); }
+/* The skin's own layers, fixed to the window as the body's are, so its dots run on unbroken. */
+:root[data-skin] .gt-rail-nav::before { background-image: var(--skin-veil), var(--skin-tint), var(--skin-image); background-repeat: no-repeat; background-position: center; background-size: cover; background-blend-mode: normal, multiply, normal; background-attachment: fixed; }
+/* Solid from the first frame open to the last frame closed, so the page never shows through it;
+   only while narrow is it clear, where the page's own shadow falls on the ground. */
+.gt-rail-open .gt-rail-nav::before { opacity: 1; transition: none; }
+.gt-rail-nav button, .gt-rail-nav .th-team { overflow: hidden; }
+.gt-rail-nav button > span:not(.tm-av), .gt-rail-nav .th-team-name, .gt-rail-nav.workspace-navigation .workspace-running { display: block; white-space: nowrap; opacity: 1; transition: opacity .14s .08s; }
+.workspace-collapsed .gt-rail-nav.workspace-navigation button > span:not(.tm-av), .workspace-collapsed .gt-rail-nav .th-team-name, .workspace-collapsed .gt-rail-nav.workspace-navigation .workspace-running { display: block; opacity: 0; transition: opacity .06s; }
+.gt-rail-nav .workspace-tab.has-count { position: relative; }
+.gt-rail-nav.workspace-navigation .workspace-tab.has-count::after { content: ''; position: absolute; top: 8px; left: 25px; right: auto; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); opacity: 0; transition: opacity .1s; }
+.workspace-collapsed .gt-rail-nav.workspace-navigation .workspace-tab.has-count::after { opacity: 1; }
+/* Your face keeps one size and one place, narrow or wide. */
+.gt-rail-nav.workspace-navigation .th-me { padding-left: 4px; gap: 7px; }
+.gt-rail-nav.workspace-navigation .th-me .th-me-btn { width: calc(100% + 4px); margin-left: -4px; padding: 0 8px; gap: 9px; }
+.gt-rail-nav.workspace-navigation .th-me .tm-av { width: 22px; height: 22px; line-height: 20px; font-size: 9px; }
+@media (prefers-reduced-motion: reduce) {
+  .gt-rail .workspace-navigation.gt-rail-nav, .gt-rail-nav::before, .gt-rail-nav button > span:not(.tm-av), .gt-rail-nav .th-team-name, .gt-rail-nav .workspace-running, .gt-rail-nav .workspace-tab.has-count::after { transition: none !important; }
+}
 .gt-rail-groups { margin-top: 3px; }
-.gt-rail-list { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
-.workspace-navigation .gt-rail-row { position: relative; height: 32px; }
-.gt-rail-ic { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; font-style: normal; color: var(--text-faint); }
-.gt-rail-ic svg { width: 14px; height: 14px; }
-.gt-rail-row.unread { color: var(--text); }
-.gt-rail-dot { margin-left: auto; width: 5px; height: 5px; flex: none; background: var(--accent); }
-.workspace-collapsed .gt-rail-quiet .gt-rail-list { display: none; }
 .gt-gtitle { display: inline-flex; align-items: center; gap: 10px; }
 .gt-hh { display: inline-flex; color: var(--text-faint); }
+
+/* ROUND 21'S TRIAL (GroupSwitch.tsx): five ways to switch groups. */
+.gs-trail { flex: 1; min-width: 0; }
+/* Its arrow where a thread's trail draws it, so the stroke starts on the 44-point edge. */
+.gs-trail .thread-crumb { margin-left: -8px; }
+/* A, the list page: the Inbox's own rows. */
+.gs-table { flex: 1; min-height: 0; overflow-y: auto; }
+.th-grid.gs-grid { grid-template-columns: minmax(200px, 300px) minmax(0, 1fr) 110px 96px; }
+.gs-nm { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gs-nm > .subject { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gs-last { min-width: 0; font-size: 13.5px; line-height: 20px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.th-table .row.gs-find .gs-nm { font-size: 13.5px; color: var(--text-faint); }
+.th-table .row.gs-find .gs-nm svg { width: 18px; flex: none; }
+.th-table .row.gs-find:hover .gs-nm { color: var(--text); }
+/* B, the lobby: a card a group, saying who in it is working on what. */
+.gs-lobby { flex: 1; min-height: 0; overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); gap: 16px; align-content: start; padding: 14px 28px 28px var(--text-x, 32px); }
+.gs-card { display: flex; flex-direction: column; gap: 14px; min-width: 0; padding: 18px 20px; border: 1px solid var(--line); background: none; font: inherit; color: inherit; text-align: left; cursor: default; }
+.gs-card:hover { background: var(--wash); }
+.gs-card-hd { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.gs-card-nm { flex: 1; min-width: 0; font-size: 15px; line-height: 20px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+:root .gs-card.unread .gs-card-nm { font-weight: 530; }
+.gs-card-when { flex: none; display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text-faint); }
+.gs-card.unread .gs-card-when::before { content: ''; width: 6px; height: 6px; background: var(--accent); }
+.gs-card-busy { display: flex; flex-direction: column; gap: 8px; min-height: 68px; }
+.gs-busy { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; line-height: 18px; color: var(--text-faint); white-space: nowrap; }
+.gs-busy b { flex: none; font-weight: 400; color: var(--text-dim); }
+.gs-busy > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.gs-busy .live-mark { width: 11px; height: 11px; gap: 1px; flex: none; color: var(--text); }
+.gs-card-last { font-size: 13px; line-height: 18px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* C, the list beside the chat. */
+.gs-beside { width: 300px; flex: none; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--rm-line); }
+.gs-search { display: flex; align-items: center; gap: 9px; height: 32px; margin: 14px 16px 8px var(--text-x, 32px); padding: 0 10px; border: 1px solid var(--line-strong); background: var(--control-face); }
+.gs-search svg { flex: none; color: var(--text-faint); }
+.gs-search input { flex: 1; min-width: 0; border: 0; background: none; outline: none; color: var(--text); font: inherit; font-size: 13px; }
+.gs-beside-list { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+.gs-brow { position: relative; display: grid; grid-template-columns: 20px minmax(0, 1fr); column-gap: 12px; align-items: center; width: 100%; box-sizing: border-box; padding: 9px 16px 9px var(--text-x, 32px); border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: default; }
+.gs-brow:hover { background: var(--wash); }
+.gs-brow.on { background: var(--wash-strong); }
+.gs-brow.unread::before { content: ''; position: absolute; left: 25px; top: 50%; width: 6px; height: 6px; margin-top: -3px; background: var(--accent); }
+.gs-bw { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.gs-b1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; font-size: 14px; line-height: 19px; color: var(--text); }
+.gs-b1 > .rm-one { flex: 1; min-width: 0; }
+:root .gs-brow.unread .gs-b1 > .rm-one { font-weight: 530; }
+.gs-bt { flex: none; font-size: 12px; color: var(--text-faint); }
+.gs-b2 { font-size: 13px; line-height: 17px; color: var(--text-faint); }
+/* D, the menu on the group's name. */
+.gs-namewrap { position: relative; display: inline-flex; min-width: 0; -webkit-app-region: no-drag; }
+.gs-name { display: inline-flex; align-items: center; gap: 10px; height: 34px; margin-left: -8px; padding: 0 8px; border: 0; background: none; font: inherit; color: inherit; cursor: default; }
+.gs-name:hover, .gs-name.open { background: var(--wash); }
+.gs-chev { display: inline-flex; color: var(--text-faint); }
+.gs-namemenu { position: absolute; left: -8px; top: calc(100% + 6px); z-index: 60; min-width: 260px; max-height: 60vh; overflow-y: auto; padding: 4px; display: flex; flex-direction: column; gap: 1px; }
+.gs-namemenu .row { display: flex; align-items: center; gap: 10px; width: 100%; box-sizing: border-box; height: 32px; padding: 0 9px; border: 0; background: none; font: inherit; font-size: 13px; text-align: left; color: var(--text-dim); white-space: nowrap; cursor: default; }
+.gs-namemenu .row:hover { background: var(--wash-strong); color: var(--text); }
+.gs-namemenu .row.on { background: var(--wash); color: var(--text); }
+.gs-ic { display: inline-flex; align-items: center; justify-content: center; width: 18px; flex: none; color: var(--text-faint); }
+.gs-dot { margin-left: auto; width: 6px; height: 6px; flex: none; background: var(--accent); }
+/* E, the finder: the command bar's own frame and rows. */
+.gs-findbtn { display: inline-flex; align-items: center; gap: 6px; height: 26px; margin-left: 4px; padding: 0 8px; border: 1px solid var(--line); background: none; font: inherit; font-size: 12px; color: var(--text-faint); cursor: default; -webkit-app-region: no-drag; }
+.gs-findbtn kbd { font: 11px var(--mono); }
+.gs-findbtn:hover { background: var(--wash); color: var(--text); }
+.modal.palette.gs-finder { width: 600px; max-width: calc(100vw - 80px); }
+/* Nine whole rows before it scrolls, so none is cut through its words. */
+.gs-flist.palette-list { max-height: calc(9 * 60px + 12px); }
+.palette-item.gs-frow { justify-content: flex-start; align-items: center; gap: 12px; height: 60px; box-sizing: border-box; padding: 0 18px; }
+.gs-fw { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.gs-f1 { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 14px; line-height: 19px; color: var(--text); }
+.gs-f1 .gs-dot { margin-left: 0; }
+.gs-f2 { font-size: 12.5px; line-height: 17px; color: var(--text-faint); }
+.gs-fm { flex: none; font-size: 12px; color: var(--text-faint); }

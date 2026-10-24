@@ -9,11 +9,13 @@
 // the two ways drawn to pick a group, the one picked lists every group in the
 // sidebar while it is wide. Measured on the stage at 1710 by 1063: thread
 // titles now start 126 points in, and every page's top bar holds its words.
+// The same day the groups left the sidebar, which keeps one Groups row
+// (tests/the-narrow-sidebar-slides-out-on-the-windows-own-ground).
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { SidebarGroups, groupsInOrder } from '../renderer/src/team/rooms/GroupsSidebar.tsx';
+import { groupsInOrder } from '../renderer/src/team/rooms/GroupsSidebar.tsx';
 import { WorkspaceNavigation } from '../renderer/src/components/WorkspaceNavigation.tsx';
 globalThis.React = React;
 
@@ -25,31 +27,10 @@ const css = read('../renderer/src/team/rooms/rooms.css');
 const named = (name, o = {}) => ({ key: `room:${name}`, name, faces: [], at: 0, unread: false, pinned: false, last: '', ...o });
 const chat = (name, at, o = {}) => ({ key: `room:${name}`, name, faces: [{ id: name, name, avatarUrl: null }], at, unread: false, pinned: false, last: '', ...o });
 const groups = (n) => [named('Northwind', { pinned: true }), named('General'), ...Array.from({ length: n - 2 }, (_, i) => chat(`P${i}`, 100 - i))];
-const side = (props) => renderToStaticMarkup(createElement(SidebarGroups, { onGroupsPage: false, current: null, groups: groups(4), onGroups() {}, onPick() {}, ...props }));
-const names = (html) => [...html.matchAll(/<span(?: class="rm-one")?>([^<]+)<\/span>/g)].map((m) => m[1]);
 
-describe('Groups in the sidebar', () => {
-  it('is a row under Inbox, then every group: named ones first, your pinned one leading, then chats newest first', () => {
-    expect(names(side({}))).toEqual(['Groups', 'Northwind', 'General', 'P0', 'P1']);
+describe('the order groups are listed in', () => {
+  it('is named ones first, your pinned one leading, then chats newest first', () => {
     expect(groupsInOrder(groups(4)).map((g) => g.name)).toEqual(['Northwind', 'General', 'P0', 'P1']);
-  });
-  it('lists every group however many, with no count and no All groups', () => {
-    const html = side({ groups: groups(30) });
-    expect(names(html)).toHaveLength(31);
-    expect(html).not.toContain('All groups');
-  });
-  it('shows the groups only while the sidebar is wide', () => {
-    expect(side({})).toContain('gt-rail-quiet');
-    expect(css).toContain('.workspace-collapsed .gt-rail-quiet .gt-rail-list { display: none; }');
-  });
-  it('lights Groups on a group’s page, and the group that is open, and nothing on the Inbox', () => {
-    const on = side({ onGroupsPage: true, current: 'room:General' });
-    expect(on).toMatch(/class="workspace-tab active"[^>]*aria-label="Groups"/);
-    expect(on).toMatch(/class="workspace-tab gt-rail-row active"[^>]*aria-label="General"/);
-    expect(side({})).not.toContain('active');
-  });
-  it('marks a group with something unread, and only that one', () => {
-    expect(side({ groups: [named('Northwind', { unread: true }), named('General')] }).match(/class="gt-rail-dot"/g)).toHaveLength(1);
   });
 });
 
@@ -92,9 +73,8 @@ describe('in the app', () => {
     expect(app).toMatch(/rail=\{narrowSidebar\} onHover=\{setRailOpen\}/);
     expect(css).toContain('.app.workspace-layout.gt-rail:not(.workspace-settings) { --workspace-left: calc(44px + 38px); }');
   });
-  it('the Inbox is titled over its tabs, and a group by its own name with no row of chips', () => {
+  it('the Inbox is titled over its tabs, and a group has no row of chips', () => {
     expect(app).toContain('narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1>');
-    expect(hook).toContain('heading = { title: <GroupTitle g={groupList.find((g) => g.key === `room:${open.id}`)} /> };');
     expect(hook).not.toContain('GroupBar');
   });
   it('a direct message lights Groups, and its trail says it came from there when opened over a group', () => {

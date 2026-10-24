@@ -1,27 +1,20 @@
-// With Groups on, the sidebar stays narrow and widens over the page while
-// pointed at (w-dcaa2c122e). Under Inbox it holds Groups and, while wide,
-// every group by name.
+// With Groups on, the sidebar stays narrow and slides out over the page while
+// pointed at (w-dcaa2c122e). It holds the Groups row and no groups: a group
+// is picked on the Groups page.
 import type { GroupChoice } from './GroupList';
 import { GroupMark } from './GroupList';
 import { I } from './icons';
 
 /** Named groups first, your pinned one leading, then chats as they come. */
-export function groupsInOrder(groups: readonly GroupChoice[]): GroupChoice[] {
+export function groupsInOrder<T extends GroupChoice>(groups: readonly T[]): T[] {
   const named = groups.filter((g) => !g.faces.length).sort((a, b) => Number(b.pinned) - Number(a.pinned) || a.name.localeCompare(b.name));
   return [...named, ...groups.filter((g) => g.faces.length)];
 }
 
-/** The sidebar's Groups row, and every group under it, shown while the sidebar is wide. */
-export function SidebarGroups({ onGroupsPage, current, groups, onGroups, onPick }: {
-  onGroupsPage: boolean; current: string | null; groups: readonly GroupChoice[]; onGroups: () => void; onPick: (key: string) => void;
-}) {
-  return <nav className="workspace-tabs gt-rail-groups gt-rail-quiet" aria-label="Groups">
-    <button type="button" className={`workspace-tab${onGroupsPage ? ' active' : ''}`} aria-label="Groups" onClick={onGroups}>{I.groupNav()}<span>Groups</span></button>
-    <div className="gt-rail-list">{groupsInOrder(groups).map((g) => {
-      const on = onGroupsPage && g.key === current;
-      return <button type="button" key={g.key} className={`workspace-tab gt-rail-row${on ? ' active' : ''}${g.unread && !on ? ' unread' : ''}`} aria-label={g.name} title={g.name} onClick={() => onPick(g.key)}>
-        <i className="gt-rail-ic">{g.faces.length ? <GroupMark g={g} size={18} /> : I.hash(14)}</i><span className="rm-one">{g.name}</span>{g.unread && !on && <i className="gt-rail-dot" aria-label="Unread" />}</button>;
-    })}</div>
+/** The sidebar's Groups row, lit while a group or the Groups page is up. */
+export function SidebarGroups({ onGroupsPage, onGroups }: { onGroupsPage: boolean; onGroups: () => void }) {
+  return <nav className="workspace-tabs gt-rail-groups" aria-label="Groups">
+    <button type="button" className={`workspace-tab${onGroupsPage ? ' active' : ''}`} aria-label="Groups" title="Groups" onClick={onGroups}>{I.groupNav()}<span>Groups</span></button>
   </nav>;
 }
 

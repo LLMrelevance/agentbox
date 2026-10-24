@@ -41,7 +41,7 @@ export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: str
   </aside>;
 }
 
-/** The chat and who is in it. The row of groups sits in the top bar, after the page's name. */
-export function GroupPage({ notice = null, chat, people }: { notice?: ReactNode; chat: ReactNode; people: ReactNode }) {
-  return <div className="gr-page"><div className="gr-body"><div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
+/** The chat and who is in it, and on its left, where a trial draws it, every group. */
+export function GroupPage({ notice = null, chat, people, list = null }: { notice?: ReactNode; chat: ReactNode; people: ReactNode; list?: ReactNode }) {
+  return <div className="gr-page"><div className="gr-body">{list}<div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
 }
