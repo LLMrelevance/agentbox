@@ -282,6 +282,14 @@ describe('what you see', () => {
     expect(statusOf(hugo, [], NOW).now).toBe('Paused');
   });
 
+  // "Felix says '2 more queued' ... and I can't see which two."
+  it('the panel names what is queued, oldest first', () => {
+    const on = run(felix, { id: 'w-on', status: 'claimed' });
+    const q1 = run(felix, { id: 'w-q1', title: 'Every booking is lost', start: 'later', createdAt: NOW - 100 });
+    const q2 = run(felix, { id: 'w-q2', title: 'Load more drops rows', start: 'later', createdAt: NOW - 200 });
+    expect(statusOf(felix, [on, q1, q2], NOW).next.map((n) => n.title)).toEqual(['Load more drops rows', 'Every booking is lost']);
+  });
+
   it('the panel says what is waiting on you, what it is on now, and what it finished today', () => {
     const waiting = run(ada, { id: 'w-f1f1f1', title: 'Review the fix', status: 'blocked' });
     const running = run(ada, { id: 'w-f2f2f2', title: 'Try sign up on a phone', status: 'claimed' });

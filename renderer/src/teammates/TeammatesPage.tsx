@@ -209,7 +209,7 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
       {t.waiting.map((w) => <button key={w.id} type="button" className="tq-li need" onClick={() => onOpenThread(w.product, w.id)}>{w.title}</button>)}</div>}
     <div className="tq-sec"><div className="tq-sh">Now{t.paused && <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: false } }); }}>Resume</button>}</div>
       <div className={`tq-li${t.running ? ' now' : ''}`}>{t.running && ICON.dots}{t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : t.paused ? 'Paused. It works only when you write to it.' : t.worksLabel ? `Free until its next round, ${t.worksLabel}` : 'Free until someone writes to it'}</div>
-      {t.queued > 0 && <div className="tq-li dim">{t.queued} more queued</div>}</div>
+      {(t.next ?? []).map((n) => <button key={n.id} type="button" className="tq-li dim" onClick={() => onOpenThread(n.product, n.id)}>Next: {n.title}</button>)}</div>
     {t.done.length > 0 && <div className="tq-sec"><div className="tq-sh">Done today<b>{t.done.length}</b></div>
       {t.done.map((d) => <button key={d.id} type="button" className="tq-li" onClick={() => onOpenThread(d.product, d.id)}>{ICON.check}{d.title}</button>)}</div>}
   </aside>;

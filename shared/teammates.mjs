@@ -397,7 +397,8 @@ export function statusOf(teammate, items, now = Date.now()) {
   const runs = runsOf(teammate.id, items);
   const waiting = runs.filter(waitingOnYou).map((i) => ({ id: i.id, product: i.product, title: i.label || i.title }));
   const running = runs.find((i) => isActiveRun(i));
-  const queued = runs.filter(isQueued).length;
+  const next = runs.filter(isQueued).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).map((i) => ({ id: i.id, product: i.product, title: i.label || i.title }));
+  const queued = next.length;
   const today = startOfDay(now);
   const done = runs
     .filter((i) => i.status === 'done' && (i.wrote?.status?.ts ?? i.updatedAt ?? 0) >= today)
@@ -406,7 +407,7 @@ export function statusOf(teammate, items, now = Date.now()) {
   if (running) now_ = running.label || running.title;
   else if (waiting.length) now_ = 'Waiting on you';
   else if (teammate.paused) now_ = 'Paused';
-  return { waiting, now: now_, running: running ? { id: running.id, product: running.product } : null, queued, done, runsThisWeek: runsThisWeek(teammate.id, items, now) };
+  return { waiting, now: now_, running: running ? { id: running.id, product: running.product } : null, queued, next, done, runsThisWeek: runsThisWeek(teammate.id, items, now) };
 }
 
 // ---------------------------------------------------------------- starters

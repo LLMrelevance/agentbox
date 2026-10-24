@@ -375,7 +375,7 @@ export interface Teammate {
   /** Work for it was held after too many hand-offs without you (chat-lines `heldFor`). */
   held?: boolean;
   waiting: TeammateRef[]; now: string | null; running: { id: string; product: string } | null;
-  queued: number; done: TeammateRef[]; runsThisWeek: number;
+  queued: number; next?: TeammateRef[]; done: TeammateRef[]; runsThisWeek: number;
 }
 export interface TeamChatLine {
   id: string; kind: 'msg' | 'pass' | 'act'; from: string; to?: string[] | string; text?: string;
