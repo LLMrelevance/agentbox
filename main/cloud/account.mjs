@@ -75,22 +75,36 @@ export function cloudAccountSession({ config, openExternal, log = () => {}, crea
   };
 }
 
-/** One press on the sign-in page, to a cloud key on the current terms. */
-export async function cloudSignIn({ config, session, method, email, password, name, env = process.env, home = os.homedir() }) {
+/**
+ * One press on the sign-in page, to a cloud key. It agrees to the current
+ * terms only when the page showed them (`acceptTerms`, and every new account);
+ * otherwise a person who never agreed gets `needsTerms`, and `agree` finishes
+ * that same sign-in once they do.
+ */
+export async function cloudSignIn({ config, session, method, email, password, name, acceptTerms = false, env = process.env, home = os.homedir() }) {
   let token;
+  let agreeing = acceptTerms;
   try {
     if (method === 'google') token = await session.google();
     else if (method === 'email') token = await session.email(email, password);
     else if (method === 'sign-up') {
+      agreeing = true;
       token = await session.signUp({ name, email, password });
       if (!token) return { ok: true, confirm: true };
+    } else if (method === 'agree') {
+      token = session.held;
+      agreeing = true;
+      if (!token) return { ok: false, error: 'Sign in again to finish.' };
     } else return { ok: false, error: 'No such way to sign in.' };
   } catch (err) {
     return { ok: false, error: err?.message || String(err), ...(err?.cancelled ? { cancelled: true } : {}) };
   }
-  const acceptedTerms = await currentCloudTerms(config);
+  session.held = token;
+  const acceptedTerms = agreeing ? await currentCloudTerms(config) : undefined;
   const out = await signInToCloud({ config, acceptedTerms, googleSignIn: async () => token, env, home });
-  return out.ok ? out : { ok: false, error: out.message || out.error };
+  if (out.ok) { session.held = null; return out; }
+  if (out.error === 'terms' && !agreeing) return { ok: false, needsTerms: true, terms: out.terms ?? null };
+  return { ok: false, error: out.message || out.error };
 }
 
 // `googleSignIn` gives the access token of whichever sign-in the page made.

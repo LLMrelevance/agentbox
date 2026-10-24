@@ -1,5 +1,5 @@
-// A group under the Groups tab: the row of every group over it, its chat
-// filling the page, and down the right who is in it and what they are working on.
+// A group as the Groups page: its chat filling the page, and down the right
+// who is in it and what they are working on.
 import type { ReactNode } from 'react';
 import type { Room, RoomCard } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
@@ -40,6 +40,7 @@ export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: str
   </aside>;
 }
 
-export function GroupPage({ bar, chat, people }: { bar: ReactNode; chat: ReactNode; people: ReactNode }) {
-  return <div className="gr-page">{bar}<div className="gr-body"><div className="gr-chat">{chat}</div>{people}</div></div>;
+/** The chat and who is in it. The row of groups sits in the top bar, after the page's name. */
+export function GroupPage({ chat, people }: { chat: ReactNode; people: ReactNode }) {
+  return <div className="gr-page"><div className="gr-body"><div className="gr-chat">{chat}</div>{people}</div></div>;
 }

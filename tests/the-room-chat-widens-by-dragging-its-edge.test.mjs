@@ -16,25 +16,19 @@
 // closer to this." That picture was 1440 wide, where 480 is 41% of the room,
 // so the chat starts at 41% of the room on any screen (a fixed 480 left a 1728
 // screen's board twice the chat's width), and a double-click goes back there.
+//
+// The room tab, and the faces over the board, went on 2026-10-23
+// (w-dcaa2c122e): with Groups on, the page's name is a menu.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { chatWidth, readChatWidth, writeChatWidth, CHAT_SHARE, BOARD_LEAST, tilesAcross, tilesPerRow } from '../renderer/src/team/rooms/room-rules.ts';
+import { chatWidth, readChatWidth, writeChatWidth, CHAT_SHARE, BOARD_LEAST } from '../renderer/src/team/rooms/room-rules.ts';
 import { RoomChat } from '../renderer/src/team/rooms/RoomChat.tsx';
 globalThis.React = React;
 
 const css = fs.readFileSync(new URL('../renderer/src/team/rooms/rooms.css', import.meta.url), 'utf8');
 const memory = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) }; };
-
-describe('the room tab’s line', () => {
-  it('is not drawn under the whole tab, arrow and all', () => {
-    expect(css).toMatch(/\.tm-tab\.rm-tab\.on \{[^}]*border-bottom-color: transparent/);
-  });
-  it('is drawn under the name and count', () => {
-    expect(css).toMatch(/\.rm-tab\.on \.rm-tabname::after \{[^}]*background: var\(--accent\)/);
-  });
-});
 
 describe('how wide the chat may be', () => {
   it('41% of the room until it is dragged, which is the 480 that was liked at 1440', () => {
@@ -82,31 +76,6 @@ describe('how wide the chat may be', () => {
   });
   it('a window made smaller narrows a chat left wide, and 41% of a big screen stops at 720', () => {
     expect(css).toMatch(/\.rm-chat \{[^}]*min-width: 300px; max-width: min\(720px, calc\(100% - 620px\)\);/);
-  });
-});
-
-// Drawn with the chat dragged to its widest at 1440, the faces' eight tiles
-// were 73px, and "3 working" ran into the next tile's. A tile needs 94px for
-// "Not running" and its line, which the default chat at 1440 leaves exactly;
-// fewer fit to a row now, in even rows.
-describe('the faces over the board, beside a wider chat', () => {
-  it('eight to a row while eight tiles of 94 fit', () => {
-    expect(tilesAcross(1400)).toBe(8);
-    expect(tilesAcross(8 * 94)).toBe(8);
-    expect(tilesAcross(8 * 94 - 1)).toBe(7);
-  });
-  it('fewer as the board narrows, never none', () => {
-    expect(tilesAcross(564)).toBe(6);
-    expect(tilesAcross(40)).toBe(1);
-    expect(tilesAcross(0)).toBe(1);
-  });
-  it('eight people go four and four rather than six and two', () => {
-    expect(tilesPerRow(8, tilesAcross(564))).toBe(4);
-  });
-  it('the faces measure their width and keep measuring', () => {
-    const view = fs.readFileSync(new URL('../renderer/src/team/rooms/RoomView.tsx', import.meta.url), 'utf8');
-    expect(view).toMatch(/new ResizeObserver\(fit\)/);
-    expect(view).toMatch(/'--per-row': tilesPerRow\(people\.length, across\)/);
   });
 });
 

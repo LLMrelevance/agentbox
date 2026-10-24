@@ -8,18 +8,12 @@
 // three drawings, the picked one is a room tab after Done with a small arrow
 // to pick the room in it.
 //
-// Since Groups (w-dcaa2c122e, 2026-10-23) that slot is the Groups tab: it
-// holds the group open last, and until one has been opened, the room picked
-// here (tests/the-groups-tab-holds-the-group-open-last). What still holds is
-// below: which room comes first, that the choice is remembered, and where the
-// tab sits.
+// Since Groups (w-dcaa2c122e, 2026-10-23) there is no slot: Groups, in the
+// page-name menu, opens the group open last, and until one has been opened,
+// the room picked here (tests/groups-opens-the-group-open-last). What still
+// holds is below: which room comes first, and that the choice is remembered.
 import { describe, it, expect } from 'vitest';
-import fs from 'node:fs';
-import React, { createElement } from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { readRoomTab, writeRoomTab, tabRoom } from '../renderer/src/team/rooms/room-rules.ts';
-import { StateTabs } from '../renderer/src/threads/Pages.tsx';
-globalThis.React = React;
 
 const room = (id, o = {}) => ({ id, name: id, kind: 'room', teamId: 't', listed: false, inviteOnly: false, role: 'member', members: 4, createdAt: 0, pinned: false, muted: false, unread: 0, lastAt: 0, agents: 0, wall: [], ...o });
 const general = room('general', { name: 'General', members: 23 });
@@ -51,16 +45,5 @@ describe('which room comes first', () => {
     expect(readRoomTab(store)).toBeNull();
     writeRoomTab('crit', store);
     expect(readRoomTab(store)).toBe('crit');
-  });
-});
-
-describe('the tab', () => {
-  it('sits after Done in the tab bar', () => {
-    const bar = renderToStaticMarkup(createElement(StateTabs, { view: 'inbox', counts: {}, onView: () => {}, after: createElement('span', { id: 'the-room-tab' }) }));
-    expect(bar.indexOf('the-room-tab')).toBeGreaterThan(bar.lastIndexOf('Done'));
-  });
-  it('is handed to the tab bar', () => {
-    const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
-    expect(app).toMatch(/<StateTabs[\s\S]{0,900}after=\{roomsUi\.roomTab\}/);
   });
 });

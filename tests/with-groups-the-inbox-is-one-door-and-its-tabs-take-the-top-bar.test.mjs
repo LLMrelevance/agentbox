@@ -7,6 +7,9 @@
 // groups"), and the rule before Groups kept. Measured by drawing the sidebar
 // with Rooms on: three rows, Threads, Messages and Rooms. Now there is one,
 // Inbox, and with Groups off it still says Threads.
+//
+// Later the same day the sidebar went altogether with Groups on, and the tabs
+// sit after the page's name (tests/with-groups-the-page-name-is-a-menu-and-there-is-no-sidebar).
 import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'node:fs';
 import { createElement } from 'react';
@@ -47,11 +50,11 @@ describe('the sidebar', () => {
 });
 
 describe('the tabs in the top bar', () => {
-  it('go up while Groups is on, on the page, a group in the tab, or the Groups tab with none', () => {
-    expect(app).toMatch(/const tabsInTop = roomsUi\.live && workspaceNavigation && !focused && !settingsOpen && !teamShown && search === null && \(!roomShown \|\| roomsUi\.inTab\);/);
+  it('go up while Groups is on, on the Inbox, and not over a group', () => {
+    expect(app).toContain('const tabsInTop = pageMenu && !focused && !settingsOpen && !teamShown && search === null && !roomShown;');
   });
-  it('take the place of the title', () => {
-    expect(app).toContain('tabsInTop ? <div className="tabs-top" ref={setTopTabs} /> : roomShown && roomsUi.heading');
+  it('follow the page’s name', () => {
+    expect(app).toContain('tabsInTop ? <div className="tabs-top" ref={setTopTabs} /> : null');
     expect(app).toContain('into={tabsInTop ? topTabs : null}');
   });
   it('keep the rule before Groups', () => {

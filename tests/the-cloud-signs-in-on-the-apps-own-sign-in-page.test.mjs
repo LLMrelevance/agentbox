@@ -100,9 +100,11 @@ describe('whether the cloud is offered on this Mac', () => {
 describe('signing in for the cloud', () => {
   const config = () => ({ gateway, supabaseUrl: 'https://db.example', anonKey: 'public-key' });
 
+  // From a page showing the terms; a sign-in that never showed them is
+  // tests/signing-in-never-agrees-to-the-terms-for-you.
   it('with an email and a password, gets this Mac its cloud key on the current terms', async () => {
     const session = cloudAccountSession({ config: config(), createClient: fakeClient() });
-    const out = await cloudSignIn({ config: config(), session, method: 'email', email: 'me@example.com', password: 'right', env: {}, home: tmp });
+    const out = await cloudSignIn({ config: config(), session, method: 'email', email: 'me@example.com', password: 'right', acceptTerms: true, env: {}, home: tmp });
     expect(out).toMatchObject({ ok: true });
     expect(readCloudKey({}, tmp)).toMatch(/^abk_/);
     expect(readCloudConfig({}, tmp)).toEqual({ gateway });
@@ -124,7 +126,7 @@ describe('signing in for the cloud', () => {
 
   it('with Google, the same', async () => {
     const session = { google: async () => 'google-session' };
-    const out = await cloudSignIn({ config: config(), session, method: 'google', env: {}, home: tmp });
+    const out = await cloudSignIn({ config: config(), session, method: 'google', acceptTerms: true, env: {}, home: tmp });
     expect(out).toMatchObject({ ok: true });
     expect(readCloudKey({}, tmp)).toMatch(/^abk_/);
   });
@@ -142,18 +144,18 @@ describe('the page and the wiring', () => {
     const page = read('renderer/src/team/SignInPage.tsx');
     expect(page).toContain("purpose === 'cloud'");
     expect(page).toContain('api.cloudAccountSignIn');
-    expect(page).toContain('Continuing accepts the');
+    expect(page).toContain('By creating an account or continuing with Google, you agree to');
     expect(page).toMatch(/onClose/);
     const app = read('renderer/src/App.tsx');
     expect(app).toContain('<SignInPage purpose="cloud"');
   });
 
-  // The owner, on the drawn page: "don't need name". The team's sign-up keeps
-  // it, because teammates see it beside your threads.
-  it('creating an account for the cloud asks no name, and the team\'s still does', () => {
+  // The owner first said the cloud's sign-up needed no name (2026-10-20), then
+  // that a third field is what tells sign-up from sign-in (2026-10-23).
+  it('creating an account asks a name, for the cloud as for the team', () => {
     const page = read('renderer/src/team/SignInPage.tsx');
-    expect(page).toContain("{mode === 'sign-up' && !cloud && (");
-    expect(page).toContain("(mode !== 'sign-up' || cloud || !!name.trim())");
+    expect(page).toContain("{mode === 'sign-up' && (");
+    expect(page).toContain("(mode !== 'sign-up' || !!name.trim())");
   });
 
   it('the cloud button is drawn on any Mac the cloud is offered to', () => {

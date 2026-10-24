@@ -45,7 +45,7 @@ import { handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
-import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin } from './cloud/logins.mjs';
+import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin, cloudLoginInUse, cloudAccountsFrom, CLOUD_ACCOUNT_ENV } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
 import { holdUntilHome } from './cloud/codex-cloud.mjs';
 import { hostSocketPath, perlRunsTheShim, HOST_ALREADY_THERE } from './cloud/host.mjs';
@@ -89,7 +89,7 @@ function whoHasIt(made) {
 }
 import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
-import { accountIdentity, nameForOrganization, profileForCloudLogin, toolingLine } from './account-tooling.mjs';
+import { accountIdentity, nameForOrganization, profileForCloudLogin, isCloudLoginOf, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { referencedFiles, isImagePath } from '../shared/referenced-files.mjs';
 import { namedThreadsBlock } from '../shared/named-threads.mjs';
@@ -786,6 +786,8 @@ export class Supervisor {
    * capped, its first run dies in seconds and benches it to its reset again.
    */
   accountChosen(engine, profile) {
+    // The cloud follows the pick (`_cloudAccountOfThisMac`), so its check is asked afresh.
+    this._cloudConfigAt = 0;
     if (!profile) return false;
     const key = this._accountKey(engine, profile);
     if (this._profileTrouble?.[key]?.cause === 'at-limit') this._clearProfileTrouble(key);
@@ -4413,12 +4415,45 @@ export class Supervisor {
     return this._cloudLoginRunnable(engineOf(engine));
   }
 
-  // Whether any cloud account of this engine may run now. Which one a run
-  // takes is decided when it starts (main/cloud/logins.mjs pickCloudLogin);
-  // it need not be the account the thread uses on this Mac.
+  // Whether the cloud account a run would take may run now, asked exactly as
+  // the run asks it (main/cloud/logins.mjs pickCloudLogin). Asking whether ANY
+  // account could run sends up threads the run then turns back.
   _cloudLoginRunnable(engine) {
     const now = Date.now();
-    return listCloudLogins(engineOf(engine), { home: this.config.home }).some((r) => mayRunOn(cloudLoginState(r, { now })));
+    const inUse = cloudLoginInUse(engineOf(engine), this._cloudAccountAsk(engine, now));
+    return !!inUse && mayRunOn(cloudLoginState(inUse, { now }));
+  }
+
+  _cloudAccountAsk(engine, now = Date.now()) {
+    return { home: this.config.home, now, only: cloudAccountsFrom(process.env), prefer: this._cloudAccountOfThisMac(engine) };
+  }
+
+  // THE CLOUD ACCOUNT THAT IS THIS MAC'S ONE ACCOUNT (`_theOneAccount`),
+  // matched by who it is rather than by folder, since one person can be signed
+  // in to two folders. Null when that account is not signed in to the cloud.
+  _cloudAccountOfThisMac(engine = DEFAULT_ENGINE) {
+    const which = engineOf(engine);
+    const profile = this._profilesFor(which)[0];
+    if (!profile) return null;
+    const logins = listCloudLogins(which, { home: this.config.home }).filter((r) => !r.duplicateOf);
+    if (which === 'codex') {
+      const email = codexAccount(this._codexProfileHome(profile))?.email?.toLowerCase();
+      return (email && logins.find((r) => r.email?.toLowerCase() === email)?.key) || null;
+    }
+    const home = this.config.home || os.homedir();
+    const here = this._profiles().map((p) => ({ ...accountIdentity(p === 'default' ? null : p, { home }), profile: p }));
+    const me = here.find((id) => id.profile === profile);
+    return logins.find((r) => isCloudLoginOf(r, me, here))?.key ?? null;
+  }
+
+  // What a cloud run is handed so it takes that account (main/cloud/run-cli.mjs).
+  _cloudAccountEnv() {
+    const out = {};
+    for (const engine of [DEFAULT_ENGINE, 'codex']) {
+      const key = this._cloudAccountOfThisMac(engine);
+      if (key) out[CLOUD_ACCOUNT_ENV[engine]] = key;
+    }
+    return out;
   }
 
   // WHAT THE CLOUD BUTTON SHOWS (renderer/src/cloud-menu.ts): whether this
@@ -4461,6 +4496,7 @@ export class Supervisor {
     const out = [];
     let here = null;
     for (const engine of [DEFAULT_ENGINE, 'codex']) {
+      const inUse = cloudLoginInUse(engine, this._cloudAccountAsk(engine, now))?.key ?? null;
       listCloudLogins(engine, { home: this.config.home }).forEach((r) => {
         const state = cloudLoginState(r, { now });
         // A Claude login in the cloud can say its organization, not its email
@@ -4477,7 +4513,7 @@ export class Supervisor {
         out.push({
           engine, key: r.key, name: name || null, plan: plans.size === 1 ? [...plans][0] : null, ready: mayRunOn(state), state, savedAt: r.savedAt ?? null,
           limitedUntil: r.limitedUntil ?? null, limits: cloudLimits(r.limits), readAt: r.readAt ?? null, duplicateOf: r.duplicateOf ?? null,
-          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null,
+          profile, readError: failed ? r.lookError || 'The cloud did not answer.' : null, inUse: r.key === inUse,
         });
       });
     }
@@ -5055,7 +5091,9 @@ export class Supervisor {
   // IN A PROCESS GROUP OF ITS OWN: a terminal's Control-C goes to the app's
   // whole group, and a relay takes SIGINT as Stop, so the run was cancelled
   // before the app's quit could leave it going. It hears only the app.
-  _spawnCloudRelay(args, { cwd, env, stdio = ['pipe', 'pipe', 'pipe'] }) {
+  _spawnCloudRelay(args, { cwd, env: given, stdio = ['pipe', 'pipe', 'pipe'] }) {
+    const { [CLOUD_ACCOUNT_ENV.claude]: _claude, [CLOUD_ACCOUNT_ENV.codex]: _codex, ...rest } = given;
+    const env = { ...rest, ...this._cloudAccountEnv() };
     const shim = unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl'));
     const sock = this._cloudHostAvailable() ? this._cloudHost() : null;
     if (sock) {
