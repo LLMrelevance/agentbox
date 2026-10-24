@@ -368,6 +368,8 @@ export interface Teammate {
   counted: string | null; asksFirst: string | null; works: TeammateWorks | null; worksLabel: string | null;
   product: string; engine: string | null; model: string | null; effort: string | null; limit: number;
   paused: boolean; status: 'draft' | 'active'; memory: TeammateMemory[]; createdAt: number; starter?: string | null;
+  /** Its run is waiting for you to allow or deny a command (drawn from `approvals`, not the store). */
+  asking?: boolean;
   waiting: TeammateRef[]; now: string | null; running: { id: string; product: string } | null;
   queued: number; done: TeammateRef[]; runsThisWeek: number;
 }

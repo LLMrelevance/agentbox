@@ -109,6 +109,7 @@ import { ComposeIcon } from './components/ComposeIcon';
 import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
 import { useTeammates } from './teammates/useTeammates';
+import { TeammatesContext } from './teammates/row-lead';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
@@ -3582,7 +3583,7 @@ export default function App() {
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
   const teammatesUi = useTeammates({
-    view: snap?.teammates, products: snap?.products ?? [], engines: snap?.engines?.choices ?? [],
+    view: snap?.teammates, asking: (snap?.approvals ?? []).map((a) => a.item), products: snap?.products ?? [], engines: snap?.engines?.choices ?? [],
     me: team?.byId.get(team.me ?? '')?.name ?? '',
     onEnter: () => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setFocusedRepeat(null); },
     onOpenThread: (product, id) => {
@@ -3593,6 +3594,7 @@ export default function App() {
   });
   // A group opened from anywhere takes the page from a teammate.
   useEffect(() => { if (roomsUi.openId) teammatesUi.leave(); }, [roomsUi.openId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const teammatesById = useMemo(() => new Map((snap?.teammates?.list ?? []).map((t) => [t.id, t])), [snap?.teammates?.list]);
   const teammatesShown = !!teammatesUi.open && !roomShown && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
@@ -6140,6 +6142,7 @@ export default function App() {
     <CloudContext.Provider value={cloudIds}>
     <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
+    <TeammatesContext.Provider value={teammatesById}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}`}>
@@ -8089,6 +8092,7 @@ export default function App() {
     </div>
     </CloudOfferContext.Provider>
     </FreeAgentContext.Provider>
+    </TeammatesContext.Provider>
     </WaitingContext.Provider>
     </FleetContext.Provider>
     </CloudContext.Provider>

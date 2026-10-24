@@ -28,7 +28,7 @@ export function TeammatesRail({ team, open, onOpen }: {
     </button>
     {team.map((t) => (
       <button key={t.id} type="button" className={`workspace-tab tq-row${open === t.id ? ' active' : ''}`} aria-label={t.name} title={t.name} onClick={() => onOpen(t.id)}>
-        <TeammateMark t={t} waiting={t.waiting.length > 0} />
+        <TeammateMark t={t} waiting={t.waiting.length > 0 || !!t.asking} />
         <span className="tq-two"><b>{t.name}</b><small>{nowLine(t)}</small></span>
       </button>
     ))}

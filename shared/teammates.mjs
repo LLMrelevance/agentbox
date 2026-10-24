@@ -228,10 +228,11 @@ function clip(text, max) {
 }
 
 export function runTitle(trigger, teammate) {
-  if (trigger.kind === 'schedule') return clip(`${teammate.name}'s ${trigger.label ?? 'round'}`, 120);
+  if (trigger.kind === 'schedule') return trigger.label === 'week' ? "This week's round" : "Today's round";
   if (trigger.kind === 'pass') return clip(trigger.title || 'Work passed on', 120);
-  if (trigger.opening === 'setup') return teammate.status === 'draft' && teammate.name === 'New teammate' ? 'Setting up a new teammate' : clip(`Setting up ${teammate.name}`, 120);
-  if (trigger.opening === 'start') return clip(`${teammate.name} gets started`, 120);
+  // Inbox rows lead with the teammate's name, so a title never repeats it.
+  if (trigger.opening === 'setup') return 'Set up its job';
+  if (trigger.opening === 'start') return 'Introduce itself and begin';
   return clip(trigger.text || 'A message', 120);
 }
 

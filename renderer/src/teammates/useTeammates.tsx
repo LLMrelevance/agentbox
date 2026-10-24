@@ -1,7 +1,7 @@
 // Which teammates page is up, and the pieces App draws for it: the sidebar
 // rows, the title, the right end of the top bar and the page. Kept apart from
 // useRooms, whose every field App reads is pinned by its own tests.
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import type { Product, TeammatesView } from '../types';
 import { TeammatesPage, TeammatesTitle } from './TeammatesPage';
 import { TeammatesRail } from './TeammatesRail';
@@ -9,8 +9,10 @@ import { TeammatesRail } from './TeammatesRail';
 /** 'team' is the team chat, 'roster' the Teammates tab, anything else a teammate's id. */
 export type TeammatesOpen = string | null;
 
-export function useTeammates({ view, products, engines, me, onEnter, onOpenThread, onChanged }: {
+export function useTeammates({ view: stored, asking = [], products, engines, me, onEnter, onOpenThread, onChanged }: {
   view: TeammatesView | null | undefined;
+  /** Threads waiting for you to allow or deny a command. */
+  asking?: (string | null)[];
   products: Product[];
   engines: { id: string; label: string }[];
   me: string;
@@ -20,6 +22,12 @@ export function useTeammates({ view, products, engines, me, onEnter, onOpenThrea
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<TeammatesOpen>(null);
+  const askingKey = asking.filter(Boolean).sort().join(' ');
+  const view = useMemo(() => {
+    if (!stored || !askingKey) return stored;
+    const ids = new Set(askingKey.split(' '));
+    return { ...stored, list: stored.list.map((t) => (t.running && ids.has(t.running.id) ? { ...t, asking: true, now: 'Asking you to allow a command' } : t)) };
+  }, [stored, askingKey]);
   const live = !!view;
   const go = (which: string) => { onEnter(); setOpen(which); };
   const leave = () => setOpen(null);

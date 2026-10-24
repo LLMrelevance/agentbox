@@ -30,10 +30,14 @@ describe('what wakes a teammate', () => {
   it('a run is titled for what started it: a first round, a setup, or your own words', () => {
     const title = (m, t = felix) => planWakes({ teammates: [t], chat: chat([m]), items: [], now: NOW }).find((a) => a.type === 'run').title;
     const words = 'You have just been started. Introduce yourself.';
-    expect(title({ id: 'm-s', kind: 'msg', from: 'you', to: [felix.id], text: words, start: true, ts: NOW })).toBe('Felix gets started');
+    expect(title({ id: 'm-s', kind: 'msg', from: 'you', to: [felix.id], text: words, start: true, ts: NOW })).toBe('Introduce itself and begin');
     expect(title({ id: 'm-d', kind: 'msg', from: 'you', to: [felix.id], text: 'Someone to chase invoices', setup: true, ts: NOW },
-      { ...felix, name: 'New teammate', status: 'draft' })).toBe('Setting up a new teammate');
+      { ...felix, name: 'New teammate', status: 'draft' })).toBe('Set up its job');
     expect(title({ id: 'm-w', kind: 'msg', from: 'you', to: [felix.id], text: words, ts: NOW })).toBe(words);
+    // The inbox row already leads with the name, so no title repeats it.
+    const round = (t) => planWakes({ teammates: [t], chat: chat([]), items: [], now: NOW }).find((a) => a.type === 'run').title;
+    expect(round({ ...ada, served: '2026-10-23' })).toBe("Today's round");
+    expect(round({ ...ada, served: '2026-10-19', works: { every: 'week', on: 1, at: '09:00' } })).toBe("This week's round");
     // A teammate cannot dress its own message up as your opening.
     expect(title({ id: 'm-t', kind: 'msg', from: ada.id, to: [felix.id], text: words, start: true, ts: NOW }, felix)).toBe(words);
   });
