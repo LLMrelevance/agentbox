@@ -77,7 +77,20 @@ const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/;
 /** What an unfinished folder is called. A task name may never start with a dot. */
 const BUILDING = '.building-';
 
-const git = (cwd, args) => execFileSync('git', args, {
+// A HOOK RUN BY THE APP IN A TASK FOLDER IS A WORKER'S CODE RUN AS THE APP.
+// core.hooksPath is often the relative 'scripts/hooks', which git resolves
+// against the working tree it runs in, so in a task folder it is that folder's
+// own scripts/hooks -- which a worker edits. parkTaskFolder commits there
+// (post-commit, reference-transaction), so the app's every git in a linked
+// worktree runs hook-free. The primary checkout, where `worktree add` runs its
+// own post-checkout, keeps its hooks: a linked worktree's `.git` is a file.
+const inLinkedWorktree = (cwd) => {
+  try { return fs.lstatSync(path.join(cwd, '.git')).isFile(); } catch { return false; }
+};
+const git = (cwd, args) => execFileSync('git', [
+  ...(inLinkedWorktree(cwd) ? ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false'] : []),
+  ...args,
+], {
   cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'],
 }).trim();
 
