@@ -100,7 +100,11 @@ describe('the offer in the store', () => {
     expect(sup._isContinuation(answered)).toBe(false);
     expect(sup._isContinuation({ ...answered, labels: ['founder'] })).toBe(true);
     await team.tick({ items: store.listItems(), now });
-    expect(store.listItems().find((i) => i.id === offers[0].id).status).toBe('done');
+    const closed = store.listItems().find((i) => i.id === offers[0].id);
+    expect(closed.status).toBe('done');
+    // And out of Needs you: the second power test found it there, done and counted.
+    const { isCleanRun } = await import('../shared/repeats.mjs');
+    expect(isCleanRun(closed)).toBe(true);
     const made = team.list();
     expect(made).toHaveLength(1);
     expect(made[0].status).toBe('draft');

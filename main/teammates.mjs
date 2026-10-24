@@ -274,9 +274,11 @@ export class Teammates {
         const text = tap.words ? `${tap.words}\n\nLike these asks of mine:\n${asks}` : `Someone to take on asks like these, which I keep making:\n${asks}`;
         this.describe({ text, product: row.product }, now);
       }
+      // Clean, so the answered offer leaves Needs you rather than waiting to be read.
       workItemsDisk.updateWorkItem(dir, row.id, {
         status: 'done',
-        note: tap.kind === 'make' ? 'A new teammate is setting itself up. Its questions are in the team chat.' : 'Not now. This one will not be offered again.',
+        labels: [...(row.labels ?? []), 'clean'],
+        note: tap.kind === 'make' ? 'A new teammate is setting itself up in the team chat.' : 'Not now. This one will not be offered again.',
       }, { source: 'system', now });
     }
     const offered = new Set(chat.messages.filter((m) => m.kind === 'act' && m.verb === 'offered').map((m) => m.ref));
@@ -287,7 +289,7 @@ export class Teammates {
     const body = [`${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`)].join('\n');
     const result = [
       `**${offer.title}**`, '', body, '',
-      'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It asks you a few questions first.',
+      'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It sets itself up from these and asks you if anything is unclear.',
       '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
     ].join('\n');
     // Recorded first, so a crash after it can never offer the same job twice.
@@ -329,6 +331,8 @@ export class Teammates {
       return { body: [`${who} passed you this in the team chat.`, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? ''].join('\n').trim(), yours: false };
     }
     const text = String(trigger.text ?? '').trim() || '(no words)';
+    // Pressing Start is not writing these words, so they are not shown as yours.
+    if (trigger.opening === 'start') return { body: `Started from the Teammates page. ${text.replace(/^You have just been started\.\s*/, '')}`, yours: false };
     if (trigger.from === YOU) return { body: text, yours: true };
     return { body: `${who} wrote to you in the team chat:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
   }
@@ -416,6 +420,8 @@ export class Teammates {
       '- Reach the person only when you need them: a decision, a yes before anything that leaves (sends, posts, ships, merges, pays), or a sign-in only they have. Then end this run with your question as your answer: bold first line, numbered options, your recommendation first. It reaches their inbox. Leave this item open.',
       `- When nothing needs them, post a one-line summary to the team chat, then close this run yourself: update_work_item with status done and labels ["founder", "${teammateLabel(t.id)}", "${HOP_LABEL_PREFIX}${hop}", "clean"] in one call. This run is your own work, not the person's ask, so closing it needs no quote from them.`,
       '- Never wait or poll for a teammate. Say what you are waiting for in the chat and finish; their reply wakes you.',
+      '- When the person changes your job, goal or when you work, save it with team_setup (every, at, on) and say so. Your schedule is yours to set that way; never send them to a menu for it.',
+      '- Hand work on with team_pass, not create_work_item: a thread you file waits in their Later list for them to start it.',
     ].filter((x) => x !== null).join('\n');
   }
 }

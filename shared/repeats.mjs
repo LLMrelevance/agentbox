@@ -37,7 +37,7 @@ export function standingInstruction(rule) {
 // predicate exists to hide, never to show, so it fails open by construction.
 export function isCleanRun(item) {
   const labels = item?.labels ?? [];
-  const aRun = !!ruleIdOf(item) || labels.some((l) => typeof l === 'string' && l.startsWith('teammate:'));
+  const aRun = !!ruleIdOf(item) || labels.some((l) => typeof l === 'string' && (l.startsWith('teammate:') || l === 'teammate-offer'));
   return aRun && labels.includes(CLEAN_LABEL);
 }
 

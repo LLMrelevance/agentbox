@@ -73,6 +73,19 @@ describe('teammates through the store', () => {
     expect(runs[0].body).not.toMatch(/team_post/);
   });
 
+  // Pressing Start opened the run on "You have just been started...", signed
+  // You, words the person never wrote (second power test).
+  it('a started teammate\'s first run opens on the app\'s words, not yours', async () => {
+    const ada = team.create({ starter: 'quality' });
+    team.start(ada.id);
+    await tick(Date.now());
+    const run = store.listItems().find((i) => teammateIdOf(i) === ada.id);
+    expect(run.body).toMatch(/^Started from the Teammates page\. Introduce yourself/);
+    const lines = work.readLinesFrom(dir).lines.filter((l) => l.id === run.id);
+    expect(threadEvents(lines).find((e) => e.field === 'body')?.who).not.toBe('you');
+    expect(team.briefFor(run)).toMatch(/save it with team_setup/);
+  });
+
   it('a teammate posts, passes work, and the tick makes the other teammate\'s run with where it came from', async () => {
     const ada = team.create({ starter: 'quality' });
     const felix = team.create({ starter: 'maintainer' });
