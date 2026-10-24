@@ -4398,9 +4398,12 @@ export class Supervisor {
   // main/cloud/run-cli.mjs, when cloud runs are on (`cloudRuns`), set up
   // (~/.agentbox/cloud.json) and under their own cap (`maxCloudSessions`).
 
+  // Picked-back-up runs count: they hold a cloud slot, and their rows show
+  // them working there.
   _cloudLoad() {
     let n = 0;
     for (const s of this.sessions.values()) if (s.cloud) n += 1;
+    for (const v of this._comingHome?.values() ?? []) if (!this.sessions.has(v.itemId)) n += 1;
     return n;
   }
 
