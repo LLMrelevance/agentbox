@@ -33,6 +33,7 @@ import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
+import { newUserWindow } from './new-user-window.mjs';
 import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
@@ -467,6 +468,15 @@ async function createWindow() {
       site: typeof cloudConfig.phoneSite === 'string' ? cloudConfig.phoneSite : null,
       // No alert on her phone while she is at this Mac (main/phone-alerts.mjs).
       idleMs: () => powerMonitor.getSystemIdleTime() * 1000,
+      // A reply she sends with the lid shut carries on in the cloud (shared/cloud-kit.mjs).
+      carrying: (c) => supervisor.phoneCarrying(c),
+      kitsFor: (slug) => supervisor.leavesKitsFor(slug),
+      adopt: ({ project, item, runId, replies }) => supervisor.adoptCloudRun({ product: project, itemId: item, runId, replies }),
+      cloudReplies: ({ project, item, replies }) => supervisor.cloudRunReplies({ product: project, itemId: item, replies }),
+      runHome: ({ project, item, runId }) => supervisor.cloudRunHome({ product: project, itemId: item, runId }),
+      // And a new thread she starts with the lid shut.
+      newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
+      adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),
@@ -686,9 +696,18 @@ async function createWindow() {
   window = new BrowserWindow({
     width: 1440,
     height: 900,
-    minWidth: 980,
+    // Half of a 1440-point screen, so the window tiles; under 700 is the phone layout.
+    minWidth: 720,
     minHeight: 600,
-    title: NAME,
+    // A throwaway copy says which one it is and stands a shoulder clear;
+    // your own window is centred and titled as it was.
+    ...newUserWindow({
+      fresh: runningAsAFreshUser(),
+      name: NAME,
+      screen: electronScreen.getPrimaryDisplay()?.workArea,
+      width: 1440,
+      height: 900,
+    }),
     backgroundColor: '#1a1a1c',
     titleBarStyle: 'hiddenInset',
     webPreferences: {
@@ -698,6 +717,11 @@ async function createWindow() {
       webviewTag: true, // the inbox-zero browser
     },
   });
+
+  // Electron hands the window's title to the page's the moment one loads, and
+  // renderer/index.html carries the app's name, so a throwaway copy went back
+  // to saying "Agentbox" as soon as it drew anything.
+  window.on('page-title-updated', (e) => e.preventDefault());
 
   // THE MENU IS A BAR INSIDE THE WINDOW on Linux and Windows. On macOS it is
   // the system menu, so it stays. The menu itself stays everywhere: the Ctrl
@@ -984,14 +1008,22 @@ async function createWindow() {
   // a locked screen all read the same from in there). The renderer says what
   // arrived; main/notify.mjs decides. tell me when I am in another app, never
   // while I am in Agentbox.
-  installNotifier({ app, window, Notification, powerMonitor, ipcMain, nativeImage, onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou) });
+  // A banner and the tray never disagree: whatever a banner told you about
+  // while you were away is in the tray until you are back (w-93b3a1a796).
+  let cornerTag = null;
+  const notifier = installNotifier({
+    app, window, Notification, powerMonitor, ipcMain, nativeImage,
+    onArrivals: (list, needsYou) => team?.phoneArrivals(list, needsYou),
+    onChange: () => cornerTag?.refresh(),
+  });
   // THE CORNER TAG (w-dafae58a23): what is ready for her, floating over
   // whatever app she is in. Its page is built beside the app's own, and comes
   // from the dev server only when the app's own page does.
-  createCornerTag({
+  cornerTag = createCornerTag({
     BrowserWindow, screen: electronScreen, ipcMain, Menu, powerMonitor, config, saveConfig, mainWindow: window,
     preload: path.join(appDir, 'main', 'corner-tag-preload.cjs'),
     glass: loadLiquidGlass(),
+    told: () => notifier.told(),
     count: (name, props) => analytics.track(name, props),
     // `part` is the tag itself or the list beside it, one page drawn twice.
     load: (tagWindow, part) => {

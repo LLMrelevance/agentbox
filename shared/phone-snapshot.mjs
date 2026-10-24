@@ -235,15 +235,31 @@ export const PHONE_COMMANDS = ['reply', 'new', 'snooze', 'close', 'stop', 'run-n
 // secrets in it hidden as a thread's words are, and the fingerprint of the card
 // her Mac drew, which her answer must carry back.
 export function phoneApproval(request, card, ctx = {}) {
+  // Her Allow signs the whole request by its digest, so the phone may carry the
+  // digest only when it drew the request whole; a card that hid, clipped or
+  // dropped anything carries none and is answered on the computer. A home path
+  // written ~ is for her eyes, not a value hidden from what she signs.
+  let lossy = false;
+  const text = (s, n) => {
+    if (hideSecrets(s) !== s) lossy = true;
+    const t = hideSecrets(s, ctx);
+    if (t.length > n) { lossy = true; return `${t.slice(0, n)}…`; }
+    return t;
+  };
   const clean = (v, depth = 0) => {
-    if (typeof v === 'string') return clip(v, 4000, ctx);
+    if (typeof v === 'string') return text(v, 4000);
     if (typeof v === 'number' || typeof v === 'boolean' || v === null) return v;
-    if (depth > 3) return undefined;
-    if (Array.isArray(v)) return v.slice(0, 40).map((x) => clean(x, depth + 1));
-    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).slice(0, 40).map(([k, x]) => [k, clean(x, depth + 1)]));
+    if (depth > 3) { lossy = true; return undefined; }
+    if (Array.isArray(v)) { if (v.length > 40) lossy = true; return v.slice(0, 40).map((x) => clean(x, depth + 1)); }
+    if (v && typeof v === 'object') {
+      const entries = Object.entries(v);
+      if (entries.length > 40) lossy = true;
+      return Object.fromEntries(entries.slice(0, 40).map(([k, x]) => [k, clean(x, depth + 1)]));
+    }
     return undefined;
   };
-  return { id: String(request.id), at: Number(request.at) || 0, tool: clip(String(request.tool ?? 'unknown'), 200, ctx), input: clean(request.input ?? {}), card };
+  const shown = { id: String(request.id), at: Number(request.at) || 0, tool: text(String(request.tool ?? 'unknown'), 200), input: clean(request.input ?? {}) };
+  return lossy ? { ...shown, card: null, answerOnComputer: true } : { ...shown, card };
 }
 
 // WHAT SHE PICKED WITH A REPLY OR A NEW THREAD, as the window's own handlers
@@ -288,4 +304,45 @@ export function checkCommand(cmd, { projects, hasItem }) {
   if (cmd.kind === 'approve' && !(typeof p.approval === 'string' && /^[\w-]{1,80}$/.test(p.approval) && typeof p.allow === 'boolean'
     && typeof p.card === 'string' && /^[\w+/=-]{8,200}$/.test(p.card) && (p.note === undefined || (typeof p.note === 'string' && p.note.length <= 500)))) return 'an answer needs its card';
   return null;
+}
+
+// A TURN THE CLOUD TOOK WITH THE COMPUTER SHUT, written into the thread's copy
+// by the cloud server (cloud/gateway/phone.mjs), as the computer would have
+// written it: her reply, the agent's answer and the row waiting on her
+// (main/store.mjs recordSessionResult). The computer's own copy replaces this
+// one once it is back and has brought the run home.
+export function withCloudTurn(snapshot, { reply, answer, repliedAt, answeredAt, status = 'blocked' }, limits = SNAPSHOT_LIMITS) {
+  if (!snapshot || typeof snapshot !== 'object' || !snapshot.item?.id) return null;
+  const ctx = { home: null };
+  const id = snapshot.item.id;
+  // No reply for a new thread's first turn: her ask is already its first line.
+  const replied = reply !== null && reply !== undefined;
+  const said = clip(String(reply ?? ''), limits.textChars, ctx);
+  const result = clip(String(answer ?? ''), limits.textChars, ctx);
+  const lines = [
+    ...(replied ? [{ id, ts: repliedAt, source: 'founder', patch: { answer: said, status: 'open' } }] : []),
+    { id, ts: answeredAt, source: 'agent', patch: { result } },
+    { id, ts: answeredAt, source: 'system', patch: { status } },
+  ];
+  const wrote = { ...(snapshot.item.wrote ?? {}), ...(replied ? { answer: { ts: repliedAt, source: 'founder' } } : {}), result: { ts: answeredAt, source: 'agent' }, status: { ts: answeredAt, source: 'system' } };
+  const item = { ...snapshot.item, ...(replied ? { answer: said } : {}), result, status, updatedAt: answeredAt, wrote };
+  let history = [...(Array.isArray(snapshot.history) ? snapshot.history : []), ...lines];
+  let older = Number(snapshot.olderLines) || 0;
+  while (history.length > limits.lines || (history.length > lines.length && bytesOf({ ...snapshot, item, history }) > limits.bytes)) {
+    history = history.slice(1);
+    older += 1;
+  }
+  return { ...snapshot, item, history, olderLines: older };
+}
+
+// THE PHONE'S COPY OF A THREAD THE CLOUD STARTED FROM THE PHONE, before its
+// computer has one: the row her ask made, being worked on.
+export function newThreadSnapshot({ itemId, title, body = '', at }, limits = SNAPSHOT_LIMITS) {
+  const words = { title: String(title ?? ''), ...(body ? { body: String(body) } : {}) };
+  const said = { ts: at, source: 'founder' };
+  return threadSnapshot(
+    { id: itemId, ...words, kind: 'directive', labels: ['founder'], priority: 0, status: 'claimed', createdAt: at, updatedAt: at, wrote: { title: said, ...(body ? { body: said } : {}) } },
+    [{ ts: at, source: 'founder', patch: { ...words, status: 'open' } }],
+    limits,
+  );
 }

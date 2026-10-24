@@ -48,6 +48,6 @@ describe('App.tsx asks it', () => {
     expect(app).toMatch(/const stay = staysOnTheTask\(item, text, engine\) \|\| talking \|\| !movesOn\(item\);/);
   });
   it('for a picked option', () => {
-    expect(app).toMatch(/`Option \$\{option\.n\} → \$\{item\.productName\}`, undefined, !movesOn\(item\),/);
+    expect(app).toMatch(/`Option \$\{option\.n\} sent → \$\{item\.productName\}`, undefined, !movesOn\(item\),/);
   });
 });

@@ -5,17 +5,21 @@
 
 import { REQUEST_CHANNELS } from '../../shared/bridge-map.mjs';
 import { madeHere, phoneChoices } from '../../shared/phone-snapshot.mjs';
+import { runOfClaim } from '../../shared/cloud-kit.mjs';
+import { Name } from '../../shared/product-name.mjs';
 import { statusForReply } from './list-rules';
 import { cloudPlaces } from './cloud-files';
 
 export interface PhoneRows {
-  projects: { device: string; project: string; name: string; updated_at?: string }[];
+  // `cloud`: that computer leaves its threads ready for Agentbox Cloud (shared/cloud-kit.mjs).
+  projects: { device: string; project: string; name: string; updated_at?: string; cloud?: boolean }[];
   threads: { device: string; project: string; item: string; snapshot: any; updated_at?: string }[];
   // `project` is null only on a 'setting', which is for the computer, not a thread.
-  commands: { id: string; device: string; project: string | null; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; taken_at: string | null; outcome: string | null }[];
+  // `claimed_by` is `cloud:<run id>` when Agentbox Cloud took it with the computer away.
+  commands: { id: string; device: string; project: string | null; item: string | null; kind: string; payload: any; created_at: string; claimed_at?: string | null; claimed_by?: string | null; taken_at: string | null; outcome: string | null }[];
 }
 
-export interface Waiting { product: string; id: string; at: number; text: string; refused?: string }
+export interface Waiting { product: string; id: string; at: number; text: string; refused?: string; cloud?: true }
 
 // How long a refusal stays on her screen: long enough to be read the next time
 // she looks, not forever.
@@ -124,7 +128,8 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     const key = `${slug}/${c.item}`;
     const row = items.get(key);
     const id = screenId.get(key) ?? c.item;
-    const said = (text: string) => waiting.push({ product: slug, id: id as string, at, text, ...(refused ? { refused } : {}) });
+    const cloud = c.kind === 'reply' && takenAt === null && !!runOfClaim(c.claimed_by);
+    const said = (text: string) => waiting.push({ product: slug, id: id as string, at, text, ...(refused ? { refused } : {}), ...(cloud ? { cloud: true as const } : {}) });
     if (c.kind === 'reply' && c.item) {
       said(String(c.payload?.text ?? ''));
       // Answered, as the window marks a row the moment she sends, so it is In
@@ -137,10 +142,13 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     else if (c.kind === 'snooze' && row) items.set(key, { ...row, snoozedUntil: Number(c.payload?.until) || null, updatedAt: at });
     else if (c.kind === 'new' && names.has(slug)) {
       const made = madeHere(c.id);
+      // Started in the cloud with the computer away: the copy the cloud wrote is the thread.
+      const inCloud = takenAt === null && !!runOfClaim(c.claimed_by);
+      if (inCloud && items.has(`${slug}/${made}`)) continue;
       items.set(`${slug}/${made}`, {
         id: made, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
         body: String(c.payload?.body ?? ''), kind: 'directive', labels: ['founder'], priority: 0, createdAt: at, updatedAt: at,
-        ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : { status: 'open', waitsForMac: true }),
+        ...(refused ? { status: 'blocked', result: `Your computer could not start this: ${refused}` } : inCloud ? { status: 'claimed' } : { status: 'open', waitsForMac: true }),
       });
     }
   }
@@ -169,7 +177,9 @@ export async function readThreads(select: Select, cache: Map<string, ThreadRow>)
   return light.map((t) => cache.get(keyOf(t))).filter((t): t is ThreadRow => !!t);
 }
 
-const COMMANDS = 'select=id,device,project,item,kind,payload,created_at,claimed_at,taken_at,outcome&order=created_at';
+// Whole rows, so a column the live database does not have yet is never an error.
+const COMMANDS = 'select=*&order=created_at';
+export const PROJECTS_SELECT = 'select=*&order=name';
 // Every command still waiting, however old (Codex's review of step 1,
 // finding 10), and those taken in the last two days, for what they say.
 export async function readCommands(select: Select, now = Date.now()): Promise<PhoneRows['commands']> {
@@ -267,11 +277,13 @@ export const ago = (ms: number) => {
 // so one quiet for longer than this is away.
 const MAC_AWAY_MS = 15 * 60_000;
 /** The line over her inbox when what it shows may be out of date, or null. */
-export function phoneStatusLine({ error, fetchedAt, macSeen }: { error: string | null; fetchedAt: number; macSeen: number }, now = Date.now()): string | null {
+export function phoneStatusLine({ error, fetchedAt, macSeen, cloud = false }: { error: string | null; fetchedAt: number; macSeen: number; cloud?: boolean }, now = Date.now()): string | null {
   if (error) return `Can't reach your inbox online.${fetchedAt ? ` This is how it was ${ago(now - fetchedAt)}.` : ''}`;
-  if (macSeen && now - macSeen > MAC_AWAY_MS) return `Your Mac was last online ${ago(now - macSeen)}. What you send waits for it.`;
+  if (macSeen && now - macSeen > MAC_AWAY_MS) return cloud ? `Your computer is off. Replies carry on in ${Name} Cloud.` : `Your Mac was last online ${ago(now - macSeen)}. What you send waits for it.`;
   return null;
 }
+/** Whether a computer of hers leaves its threads ready for Agentbox Cloud. */
+export const cloudCarriesOn = (projects: { cloud?: boolean }[]) => projects.some((p) => p.cloud === true);
 /** When the most recently seen of her computers last wrote its projects. */
 export const macSeenOf = (projects: { updated_at?: string }[]) => Math.max(0, ...projects.map((p) => Date.parse(p.updated_at ?? '') || 0));
 

@@ -385,10 +385,14 @@ describe('the hook is switched on without anyone remembering to', () => {
   const hooksPath = (dir) =>
     spawnSync('git', ['config', '--get', 'core.hooksPath'], { cwd: dir, encoding: 'utf8' }).stdout.trim();
 
-  it('points git at the versioned hooks directory', () => {
+  // Absolute, because git resolves a relative hooksPath against whichever
+  // working tree runs it, and a task folder's own scripts/hooks is a worker's.
+  const versioned = (dir) => path.join(fs.realpathSync(dir), 'scripts/hooks');
+
+  it('points git at the versioned hooks directory, by its absolute path', () => {
     const dir = checkout('install');
     expect(install(dir).status).toBe(0);
-    expect(hooksPath(dir)).toBe('scripts/hooks');
+    expect(hooksPath(dir)).toBe(versioned(dir));
   });
 
   it('says so and changes nothing when it is already on', () => {
@@ -397,7 +401,25 @@ describe('the hook is switched on without anyone remembering to', () => {
     const second = install(dir);
     expect(second.status).toBe(0);
     expect(second.stdout).toContain('already on');
-    expect(hooksPath(dir)).toBe('scripts/hooks');
+    expect(hooksPath(dir)).toBe(versioned(dir));
+  });
+
+  it('turns the old relative scripts/hooks into the absolute path', () => {
+    const dir = checkout('relative');
+    execFileSync('git', ['config', 'core.hooksPath', 'scripts/hooks'], { cwd: dir });
+    expect(install(dir).status).toBe(0);
+    expect(hooksPath(dir)).toBe(versioned(dir));
+  });
+
+  it('points a linked worktree at the primary checkout, not its own copy', () => {
+    const dir = checkout('primary');
+    fs.writeFileSync(path.join(dir, 'f'), 'f');
+    execFileSync('git', ['add', '-A'], { cwd: dir });
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'base'], { cwd: dir });
+    const linked = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'zero-linked-')), 'task');
+    execFileSync('git', ['worktree', 'add', '-q', linked], { cwd: dir });
+    expect(install(linked).status).toBe(0);
+    expect(hooksPath(dir)).toBe(versioned(dir));
   });
 
   it('leaves a hooks path somebody else chose alone', () => {

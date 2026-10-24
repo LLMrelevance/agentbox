@@ -185,6 +185,40 @@ const cannotServe = (method, why) => Object.freeze({
   message: `${Name} cannot answer ${method}: ${why}.`,
 });
 
+const UNKNOWN_REQUEST = `${Name} does not recognise this request, so it is refused rather than guessed at`;
+
+// Refuse in the method's own vocabulary where it has one. A declined
+// elicitation leaves the turn running; the error frame is a protocol failure.
+const refusal = (shape) => {
+  if (shape === 'decision') return { result: { decision: REFUSAL_DECISION } };
+  if (shape === 'elicitation') return { result: { action: REFUSAL_DECISION } };
+  // v1 SAYS NO WITH AN OBJECT, NOT A WORD. `decline` is not in its
+  // vocabulary at all, so a timed-out or unowned legacy card answered in our
+  // own word would be a protocol error on a question the server is waiting on.
+  if (shape === 'legacy') return { result: { decision: LEGACY_DECISIONS.decline } };
+  return { error: { ...REFUSAL_ERROR } };
+};
+
+/** This client's yes to `method`, without the JSON-RPC envelope, or null for a request a yes does not answer. */
+export function yesTo(method) {
+  const shape = APPROVAL_SHAPE.get(method);
+  if (shape === 'decision') return { result: { decision: 'accept' } };
+  if (shape === 'elicitation') return { result: { action: 'accept' } };
+  return null;
+}
+
+/**
+ * The no this client sends `method` when nobody can be asked, without the
+ * JSON-RPC envelope: for the cloud server driving a Codex run with the
+ * computer shut (cloud/gateway/phone.mjs), so it refuses in these words.
+ */
+export function refusalTo(method) {
+  const cannot = CANNOT_SERVE.get(method);
+  if (cannot) return { error: cannotServe(method, cannot) };
+  const shape = APPROVAL_SHAPE.get(method);
+  return shape ? refusal(shape) : { error: cannotServe(method, UNKNOWN_REQUEST) };
+}
+
 const plain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 const only = (keys, allowed) => keys.every((k) => allowed.includes(k));
 
@@ -377,7 +411,7 @@ export function createCodexAppServer({
     const shape = APPROVAL_SHAPE.get(msg.method);
     if (!shape) {
       call(() => onUnknownRequest?.(msg.method, msg.params));
-      return write({ jsonrpc: '2.0', id: msg.id, error: cannotServe(msg.method, `${Name} does not recognise this request, so it is refused rather than guessed at`) });
+      return write({ jsonrpc: '2.0', id: msg.id, error: cannotServe(msg.method, UNKNOWN_REQUEST) });
     }
 
     const id = threadOf(msg.params);
@@ -411,18 +445,6 @@ export function createCodexAppServer({
     openCards.delete(id);
     write({ jsonrpc: '2.0', id, ...body });
   }
-
-  // Refuse in the method's own vocabulary where it has one. A declined
-  // elicitation leaves the turn running; the error frame is a protocol failure.
-  const refusal = (shape) => {
-    if (shape === 'decision') return { result: { decision: REFUSAL_DECISION } };
-    if (shape === 'elicitation') return { result: { action: REFUSAL_DECISION } };
-    // v1 SAYS NO WITH AN OBJECT, NOT A WORD. `decline` is not in its
-    // vocabulary at all, so a timed-out or unowned legacy card answered in our
-    // own word would be a protocol error on a question the server is waiting on.
-    if (shape === 'legacy') return { result: { decision: LEGACY_DECISIONS.decline } };
-    return { error: { ...REFUSAL_ERROR } };
-  };
 
   /**
    * The handler's answer in the shape the method takes, or null, which means

@@ -48,7 +48,7 @@ describe('the panel', () => {
   });
   it('narrows the conversation and the dock by its own width, and scrolls on its own', () => {
     // 'rail' while it is folded (w-a3482b8c2c), which narrows them by the rail's width instead.
-    expect(focus).toMatch(/data-summary=\{summaryShown \? 'open' : summaryOffered \? 'rail' : undefined\}/);
+    expect(focus).toContain('data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}');
     expect(css).toMatch(/\.focus-pane\[data-summary="open"\] > \.focus-scroll,\s*\.focus-pane\[data-summary="open"\] > \.focus-dock \{ margin-right: var\(--ts-panel-w\); \}/);
     expect(css).toMatch(/\.ts-panel \{[^}]*overflow-y: auto/);
   });

@@ -76,12 +76,31 @@ export function inPoints({ width, height, glass, radius }, zoom) {
 
 /**
  * What started waiting after you last looked, which is the last time the
- * app's window was in front. Before you have ever looked, everything counts.
+ * app's window was in front, and whatever a notification told you about since
+ * you were last at the app (`told`, { id, at }), dated from when it told you.
+ * Before you have ever looked, everything counts.
  */
-export function newSince(ready, lookedAt) {
-  const list = ready ?? [];
-  if (!(lookedAt > 0)) return [...list];
-  return list.filter((r) => Number.isFinite(r.since) && r.since > lookedAt);
+export function newSince(ready, lookedAt, told = []) {
+  const toldAt = new Map();
+  for (const t of told ?? []) if (t?.id != null) toldAt.set(t.id, Number.isFinite(t.at) ? t.at : 0);
+  const out = [];
+  for (const r of ready ?? []) {
+    const own = Number.isFinite(r.since) ? r.since : null;
+    if (toldAt.has(r.id)) out.push(own != null && own >= toldAt.get(r.id) ? r : { ...r, since: toldAt.get(r.id) });
+    else if (!(lookedAt > 0) || (own != null && own > lookedAt)) out.push(r);
+  }
+  return out;
+}
+
+/**
+ * What is left once you have crossed some off the tray (`dismissed`, id to
+ * when). A thread stays off until it has something newer than that.
+ */
+export function notDismissed(list, dismissed = {}) {
+  return (list ?? []).filter((r) => {
+    const at = dismissed?.[r.id];
+    return !(Number.isFinite(at) && !(r.since > at));
+  });
 }
 
 /**

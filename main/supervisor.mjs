@@ -39,7 +39,12 @@ import {fillName} from '../shared/product-name.mjs';
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { cloudWorkPending, takeCloudNews } from './cloud/marker.mjs';
+import { cloudWorkPending, takeCloudNews, writeMarker, readMarker } from './cloud/marker.mjs';
+import { cloudClients } from './cloud/clients.mjs';
+import { kitCopyPath, kitFramePath, readKitCopy, markerForCloudRun } from './cloud/kit.mjs';
+import { REPLY_MARK, replyFrame, serverJoinedKey } from '../shared/cloud-kit.mjs';
+import { NEW_THREAD, NEW_THREAD_CODEX, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit } from '../shared/cloud-kit.mjs';
+import { execFile as execFileCb } from 'node:child_process';
 import { CLOSED_UNSHIPPED, closedBeforeItShipped } from '../shared/not-shipped.mjs';
 import { handBackWhat, handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
@@ -127,7 +132,7 @@ import {
 import { createCodexAppServer } from './codex-app-server.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
 import { CodexUsage } from './codex-usage.mjs';
-import { createCodexWorker, mcpServerNames, workerThreadParams } from './codex-session.mjs';
+import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
@@ -151,6 +156,15 @@ import { runEndedProps } from './analytics.mjs';
 import { appendRun, runLedgerPath } from './run-ledger.mjs';
 
 const POLL_MS = 15_000;
+// A project's kit for a new thread from the phone: left again at most this
+// often, and once main has moved, looked for at most this often
+// (Supervisor#_leaveNewThreadKit).
+const NEW_KIT_EVERY_MS = 3 * 3_600_000;
+const NEW_KIT_LOOK_MS = 10 * 60_000;
+// Git asked without holding the window's thread (tests/the-window-waits-on-no-new-subprocess).
+const gitAsync = (cwd, args) => new Promise((resolve, reject) => {
+  execFileCb('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 30_000 }, (err, out) => (err ? reject(err) : resolve(String(out).trim())));
+});
 // HOW LONG SHE WAITS AFTER PRESSING THE BUTTON, and until now it was the line
 // above: composing a task and answering a question both wrote a line to the
 // store and then nothing looked at that store until the next fifteen second
@@ -395,6 +409,19 @@ export function storeGrantUnderAnyOfOurNames(args, storeServer = STORE_SERVER) {
 // unknown name as the engine she is actually running.
 function engineOf(engine) {
   return isEngine(engine) ? engine : DEFAULT_ENGINE;
+}
+
+// A Codex run's output is app-server JSON-RPC, a line each; Codex's readers
+// take a notification's method and params (main/codex.mjs). For a Codex run
+// coming home, read line by line as Claude Code's stream is.
+function codexLineReaders(r) {
+  const note = (line) => { try { const m = JSON.parse(line); return typeof m?.method === 'string' && m.id === undefined ? m : null; } catch { return null; } };
+  const on = (fn, withView) => (a, b) => {
+    const m = note(withView ? b : a);
+    if (!m) return withView ? false : null;
+    return withView ? fn(a, m.method, m.params) : fn(m.method, m.params);
+  };
+  return { capture: on(r.capture, true), stream: on(r.stream, true), activity: on(r.activity, true), summarize: on(r.summarize, false), trace: on(r.trace, false) };
 }
 
 export class Supervisor {
@@ -1051,6 +1078,14 @@ export class Supervisor {
       if (blockers.some((b) => !b || b.status !== 'done')) continue;
       const cleared = Math.max(...blockers.map((b) => b.wrote?.status?.ts ?? 0));
       if (cleared <= (item.wrote?.blockedBy?.ts ?? 0) || cleared <= this._waitsSince) continue;
+      // A wait somebody else wrote is theirs to show, not a reason to start a
+      // run on this Mac. blockedBy is a teammate-settable shared field but is
+      // not in mayRunHere's STARTS_A_RUN list, so a teammate could point your
+      // blocked row at one of your running rows and make your Mac spawn on it
+      // when that finished. A wait with no writer (your own agent, solo) still
+      // resumes.
+      const waitBy = item.wrote?.blockedBy?.by;
+      if (waitBy && waitBy !== me) continue;
       const key = `${item.product}:${item.id}:${cleared}`;
       if (this._resumedWaits.has(key)) continue;
       if (!mayRunHere(item, productBySlug.get(item.product), me)) continue;
@@ -5398,10 +5433,11 @@ export class Supervisor {
   // (tests/a-cloud-run-the-app-restarted-under-still-reaches-its-thread). It
   // shows once it speaks: a run that had already ended only comes home.
   _followComingHome({ itemId, rec }, child) {
-    const { capture, stream, summarize, trace: traceOne, activity } = harnessFor('claude').readers();
+    const engine = engineOf(rec.engine) === 'codex' ? 'codex' : 'claude';
+    const { capture, stream, summarize, trace: traceOne, activity } = engine === 'codex' ? codexLineReaders(harnessFor('codex').readers()) : harnessFor('claude').readers();
     const joinedAt = Date.now();
     const view = {
-      itemId, product: rec.product, startedAt: rec.startedAt ?? joinedAt, engine: 'claude', cloud: true,
+      itemId, product: rec.product, startedAt: rec.startedAt ?? joinedAt, engine, cloud: true,
       tail: [], saying: '', sayingAt: 0, stop: () => child.kill('SIGINT'),
     };
     const item = { id: itemId, product: rec.product };
@@ -5474,6 +5510,8 @@ export class Supervisor {
           } catch (e) { console.warn('zero: could not settle a joined run\'s reply:', e.message); }
         }
         this.forgetFinishedSession(item, session);
+        // Its turn is the thread's newest now, so the phone's next reply starts from it.
+        this._leaveKitForThePhone(item, { ...session, cwd: rec.cwd, profile: rec.profile, exitFailed: code !== 0 });
         this.onChange?.();
       },
     };
@@ -6567,9 +6605,19 @@ export class Supervisor {
    * and deliberately not on `_isContinuation`.
    */
   _isFreshWork(item, now = Date.now(), autonomous = new Set(this.config.autonomousProducts ?? [])) {
+    // A worker can put the 'founder' label on any row through the store MCP
+    // (create_work_item/update_work_item take a free labels array), and nothing
+    // else here checked who wrote it, so a forged label auto-spawned a run she
+    // never asked for. Every MCP write is source 'agent' and the fold refuses to
+    // let an agent line overwrite a founder-held label, so a label we KNOW an
+    // agent authored is the forged one and nothing else. A label with no
+    // recorded author (a legacy row from before `wrote` tracking) keeps its old
+    // treatment rather than being newly refused.
+    const founderInitiated = (item.labels ?? []).includes('founder')
+      && item.wrote?.labels?.source !== 'agent';
     return !(item.labels ?? []).includes(FIRST_RUN_LABEL)
       && item.status === 'open' && item.kind !== 'question' && item.kind !== 'review'
-      && ((item.labels ?? []).includes('founder') || autonomous.has(item.product)) && !item.answer
+      && (founderInitiated || autonomous.has(item.product)) && !item.answer
       // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
       // the same rule as the paragraph above, read from the other end: a
       // proposal waits for her, and a finished answer sitting on an open row
@@ -7664,7 +7712,7 @@ export class Supervisor {
       '',
       '---',
       '',
-      keysForAgents(),
+      keysForAgents(undefined, { mac: process.platform === 'darwin' }),
     ].join('\n'));
     return blocks.length ? blocks.join('\n\n') : null;
   }
@@ -9455,6 +9503,7 @@ export class Supervisor {
       this._recordRun(item, session);
       this._noteCloudNoRoom(session, code);
       this._noteCloudOutcome(session, code, signal);
+      this._leaveKitForThePhone(item, session);
       this._noteHowTheRunStarted(item, session);
       onLine(`session exited (${code})`);
       if (this._noteCloudHandBack(item, session)) {
@@ -10118,6 +10167,397 @@ export class Supervisor {
       ...(session.carrying ? { carrying: session.carrying } : {}),
     };
     this._saveState();
+  }
+
+  /* ------------- THE PHONE'S THREADS, READY FOR THE CLOUD ------------- */
+  // docs/cloud/PHONE-PLAN.md step 2. After each turn of a thread on her phone
+  // this computer leaves its next turn ready in her cloud storage (a kit,
+  // shared/cloud-kit.mjs), so a reply she sends with the lid shut is started
+  // there by the cloud server; waking, this computer joins that run
+  // (`adoptCloudRun`). Only on the managed cloud, the one with a server to
+  // start it. A Codex thread's kit opens its app-server thread in the cloud and
+  // the server starts her reply there as a turn (`_codexKitLaunch`).
+
+  /** Which projects are on her phone, and this computer as it knows it (main/phone-inbox.mjs). */
+  phoneCarrying({ device, slugs }) {
+    this._phoneCarries = { device, slugs: new Set(slugs ?? []) };
+  }
+
+  _kitsPossible(engine = 'claude') {
+    return this._cloudReady(engine) && typeof this._cloudConfig?.gateway === 'string';
+  }
+
+  /** Whether this computer leaves kits for a project's threads, which the phone says. */
+  leavesKitsFor(slug) {
+    return !!this._phoneCarries?.slugs.has(slug) && (this._kitsPossible('claude') || this._kitsPossible('codex'));
+  }
+
+  _leaveKitForThePhone(item, session) {
+    try {
+      const engine = engineOf(session?.engine);
+      if ((engine !== 'claude' && engine !== 'codex') || session.command || session.exitFailed || !this.runFinished(session)) return;
+      if (!this._phoneCarries?.device || !this.leavesKitsFor(item.product) || !this._kitsPossible(engine) || !session.cwd) return;
+      const writers = (this._kitWriters ??= new Map());
+      const w = writers.get(item.id);
+      if (w?.child) { w.again = { item, session }; return; }
+      this._writeKit(item, session);
+    } catch (error) {
+      this._kitTrouble('start', error.message);
+    }
+  }
+
+  _kitTrouble(kind, line) {
+    this._kitSaid ??= new Set();
+    if (this._kitSaid.has(kind)) return;
+    this._kitSaid.add(kind);
+    console.warn(`zero: no kit for the phone (${kind}): ${line}`);
+  }
+
+  // The reply run's own command line, as a real reply would be planned, with
+  // the reply's place marked in its prompt.
+  _writeKit(item, session) {
+    const product = this.store.listProducts().find((p) => p.slug === item.product);
+    const fresh = product ? this.store.readItem?.(item.product, item.id) ?? item : null;
+    if (!fresh) return;
+    const engine = engineOf(session?.engine);
+    const plan = this.spawnPlan({ ...fresh, answer: REPLY_MARK, status: 'open', wrote: { ...(fresh.wrote ?? {}), answer: { ts: Date.now(), source: 'founder' } } }, product, { continuation: true, engine });
+    const frame = plan.command ? null : replyFrame(plan.prompt);
+    if (!frame) return;
+    const profile = plan.resumeProfile ?? session.profile;
+    const framed = kitFramePath(this.userDir, item.product, item.id);
+    fs.mkdirSync(path.dirname(framed), { recursive: true });
+    const launch = engine === 'codex'
+      ? this._codexKitLaunch(fresh, plan, { cwd: session.cwd, profile })
+      : harnessFor('claude').cloudLaunch(this, plan, { item: fresh, profile, env: this._workerEnv('claude') });
+    if (!launch) return;
+    fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
+    const child = this._spawnCloudRelay(['--agentbox-kit', ...launch.args], {
+      cwd: session.cwd,
+      env: { ...launch.env, AGENTBOX_KIT_DEVICE: this._phoneCarries.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, item.product, item.id) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    const rec = { child, again: null };
+    this._kitWriters.set(item.id, rec);
+    let said = '';
+    child.stderr?.on('data', (d) => { if (said.length < 2000) said += d; });
+    const done = (code) => {
+      if (rec.child !== child) return;
+      rec.child = null;
+      if (code !== 0) this._kitTrouble(`exit ${code}`, said.trim().split('\n').pop() || 'it ended without saying why');
+      const next = rec.again;
+      if (next) { rec.again = null; this._leaveKitForThePhone(next.item, next.session); } else this._kitWriters.delete(item.id);
+    };
+    child.on('error', () => done(1));
+    child.once('exit', done);
+  }
+
+  // A CODEX THREAD'S KIT (shared/cloud-kit.mjs): the app-server a cloud run of
+  // it starts (`_cloudCodexServer`), and, in a file read once, the thread to
+  // resume with the params this computer would give it and the turn's own
+  // settings; the relay rewrites them for the cloud (main/cloud/run.mjs
+  // `codexKitOpen`). A thread with no conversation yet, or a review, has none.
+  _codexKitLaunch(item, plan, { cwd, profile }) {
+    if (!plan.resumeId || plan.reviewTarget) return null;
+    const home = this._codexProfileHome(profile);
+    const params = this.codexThreadParamsFor(plan, cwd, [], this._codexStoreServer(item), home, { cloud: true });
+    const { input: _said, ...settings } = this.codexTurnParamsFor(plan);
+    const asked = kitFramePath(this.userDir, item.product, item.id).replace(/\.frame\.json$/, '.codex.json');
+    fs.writeFileSync(asked, JSON.stringify({ resume: resumeThreadParams(plan.resumeId, params), turn: { threadId: plan.resumeId, ...settings } }), { mode: 0o600 });
+    return {
+      args: ['--agentbox-codex', 'app-server'],
+      env: {
+        ...this._workerEnv('codex'), CODEX_HOME: home, STORE_ACCOUNT_ID: this.config.accountId, ...storeRootEnv(this.config.storeRoot),
+        ZERO_PRODUCT: item.product, ZERO_ITEM: item.id, ...this._cloudDocsEnv(item), AGENTBOX_KIT_CODEX: asked,
+      },
+    };
+  }
+
+  /* ---------- A NEW THREAD FROM THE PHONE, READY FOR THE CLOUD ---------- */
+  // Each project on her phone keeps a kit for a fresh thread beside its
+  // threads' kits (shared/cloud-kit.mjs fillNewThreadKit): a new thread's own
+  // command line and brief, planned for a stand-in row whose id, title and
+  // body are marks, packed from main. Left each pass of the phone at most
+  // every NEW_KIT_EVERY_MS, and as soon as main has moved (looked at every
+  // NEW_KIT_LOOK_MS). A project with no repository gets none.
+
+  /** The projects on her phone, from the phone's pass (main/phone-inbox.mjs). */
+  leaveNewThreadKits({ slugs = [] } = {}) {
+    for (const slug of slugs) this._leaveNewThreadKit(slug).catch(() => {});
+  }
+
+  async _leaveNewThreadKit(slug, now = Date.now()) {
+    try {
+      if (!this._phoneCarries?.device || !this.leavesKitsFor(slug)) return;
+      const left = (this._newThreadKits ??= new Map());
+      const was = left.get(slug);
+      if (was?.child || was?.codexChild || was?.looking || (was && now - was.lookedAt < NEW_KIT_LOOK_MS)) return;
+      const product = this.store.listProducts().find((p) => p.slug === slug);
+      const base = product?.repoPath ? this.productFolder(product) : null;
+      if (!base || !fs.existsSync(base)) return;
+      const root = real(base);
+      // Main, as a task folder is branched from it (main/task-folders.mjs baseRef).
+      const looking = { ...(was ?? {}), looking: true, lookedAt: now };
+      left.set(slug, looking);
+      let main = null;
+      for (const ref of ['refs/heads/main', 'refs/heads/master']) {
+        try { main = await gitAsync(root, ['rev-parse', '--verify', '-q', ref]); break; } catch { /* the next */ }
+      }
+      looking.looking = false;
+      if (!main) return;
+      if (was && was.main === main && now - was.at < NEW_KIT_EVERY_MS) return;
+      const stub = {
+        id: NEW_ITEM_MARK, product: slug, title: NEW_TITLE_MARK, body: NEW_BODY_MARK, kind: 'directive', status: 'open', priority: 0,
+        labels: ['founder'], createdAt: now, updatedAt: now, wrote: { title: { ts: now, source: 'founder' }, body: { ts: now, source: 'founder' } },
+      };
+      // The engine a new thread here gets when she chose none, which the server reads off the kits.
+      const defaultEngine = engineOf(this._engineFor(stub)) === 'codex' ? 'codex' : 'claude';
+      const rec = { child: null, codexChild: null, main, at: now, lookedAt: now };
+      left.set(slug, rec);
+      const ctx = { slug, stub, product, root: real(root), defaultEngine, rec };
+      if (this._kitsPossible('claude')) this._writeClaudeNewThreadKit(ctx);
+      if (this._kitsPossible('codex')) this._writeCodexNewThreadKit(ctx);
+    } catch (error) {
+      this._kitTrouble('new', error.message);
+    }
+  }
+
+  _writeClaudeNewThreadKit({ slug, stub, product, root, defaultEngine, rec }) {
+    const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'claude' });
+    if (plan.command || plan.resumeId) return;
+    const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
+    if (!frame) return;
+    const profile = this._projectProfile(slug, 'claude') ?? 'default';
+    const launch = harnessFor('claude').cloudLaunch(this, plan, { item: stub, profile, env: this._workerEnv('claude') });
+    const dir = path.join(this.userDir, 'cloud-kits');
+    fs.mkdirSync(dir, { recursive: true });
+    const framed = kitFramePath(this.userDir, slug, NEW_THREAD);
+    fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
+    const asked = path.join(dir, `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--_new.asked.json`);
+    const cwd = path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
+    fs.writeFileSync(asked, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine }), { mode: 0o600 });
+    const child = this._spawnCloudRelay(['--agentbox-kit', ...launch.args], {
+      cwd: root,
+      env: { ...launch.env, AGENTBOX_KIT_DEVICE: this._phoneCarries.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_NEW: asked, AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, slug, NEW_THREAD) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    this._followNewKitWriter(rec, 'child', child);
+  }
+
+  // A NEW CODEX THREAD'S KIT: the app-server a cloud run of it starts, and, in
+  // files read once, the thread to start for the stand-in (its folder and
+  // names marked) with the turn's own settings, and its brief. Her title and
+  // body go only into the first turn, so a start that carried them is none.
+  _writeCodexNewThreadKit({ slug, stub, product, root, defaultEngine, rec }) {
+    const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'codex' });
+    if (plan.command || plan.resumeId || plan.reviewTarget) return;
+    const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
+    if (!frame) return;
+    const profile = this._projectProfile(slug, 'codex') ?? 'default';
+    const home = this._codexProfileHome(profile);
+    const cwd = path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
+    const start = this.codexThreadParamsFor(plan, cwd, [], this._codexStoreServer(stub), home, { cloud: true });
+    const { input: _said, ...turn } = this.codexTurnParamsFor(plan);
+    if ([NEW_TITLE_MARK, NEW_BODY_MARK].some((m) => JSON.stringify(start).includes(m))) { this._kitTrouble('new-codex', 'a new Codex thread\'s start would carry her words'); return; }
+    const dir = path.join(this.userDir, 'cloud-kits');
+    fs.mkdirSync(dir, { recursive: true });
+    const named = `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--${NEW_THREAD_CODEX}`;
+    const framed = kitFramePath(this.userDir, slug, NEW_THREAD_CODEX);
+    fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
+    const askedNew = path.join(dir, `${named}.asked.json`);
+    fs.writeFileSync(askedNew, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine }), { mode: 0o600 });
+    const askedCodex = path.join(dir, `${named}.codex.json`);
+    fs.writeFileSync(askedCodex, JSON.stringify({ start, turn }), { mode: 0o600 });
+    const child = this._spawnCloudRelay(['--agentbox-kit', '--agentbox-codex', 'app-server'], {
+      cwd: root,
+      env: {
+        ...this._workerEnv('codex'), CODEX_HOME: home, STORE_ACCOUNT_ID: this.config.accountId, ...storeRootEnv(this.config.storeRoot),
+        ZERO_PRODUCT: slug, ZERO_ITEM: NEW_ITEM_MARK, ...this._cloudDocsEnv(stub),
+        AGENTBOX_KIT_DEVICE: this._phoneCarries.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_NEW: askedNew, AGENTBOX_KIT_CODEX: askedCodex,
+        AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, slug, NEW_THREAD_CODEX),
+      },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    this._followNewKitWriter(rec, 'codexChild', child);
+  }
+
+  _followNewKitWriter(rec, field, child) {
+    rec[field] = child;
+    let said = '';
+    child.stderr?.on('data', (d) => { if (said.length < 2000) said += d; });
+    const done = (code) => {
+      if (rec[field] !== child) return;
+      rec[field] = null;
+      if (code !== 0) { this._kitTrouble(`new ${code}`, said.trim().split('\n').pop() || 'it ended without saying why'); rec.main = null; }
+    };
+    child.on('error', () => done(1));
+    child.once('exit', done);
+  }
+
+  // The copy of the new-thread kit the server would have taken: the coding
+  // agent she chose, or the one the project gives a new thread (cloud/gateway/phone.mjs).
+  _newThreadCopyFor(slug, chosen) {
+    const read = (engine) => {
+      const k = readKitCopy(kitCopyPath(this.userDir, slug, engine === 'codex' ? NEW_THREAD_CODEX : NEW_THREAD));
+      return k?.project === slug && k.engine === engine ? k : null;
+    };
+    if (chosen === 'codex') return read('codex');
+    const claude = read('claude');
+    if (chosen) return claude;
+    const codex = read('codex');
+    return ((claude ?? codex)?.newThread?.defaultEngine ?? 'claude') === 'codex' ? codex : claude;
+  }
+
+  /** How this computer makes a thread's task folder, off the window's thread. */
+  async _makeTaskFolder(base, id) {
+    const made = await folderJob('restoreTaskFolder', base, id);
+    return made?.path ?? null;
+  }
+
+  /**
+   * A NEW THREAD SHE STARTED ON THE PHONE WITH THE LID SHUT, which the cloud
+   * server started from this project's new-thread kit as run `runId` under
+   * `itemId` (madeHere of her command). Made this computer's own: the server
+   * told it is joined, the thread's folder made on its branch at the main
+   * the kit saw, the run's marker in it, and only then the row under that id
+   * (so nothing here starts a run of its own on it), then joined or brought
+   * home. 'no-kit' makes the row for an ordinary run here; 'busy' is asked
+   * again later.
+   */
+  async adoptCloudNewThread({ product: slug, itemId, runId, title, body = '', command, replies = [], choices = {} }) {
+    const makeRow = () => {
+      const had = this.store.readItem?.(slug, itemId);
+      if (had) return had;
+      return this.store.composeItem(slug, { id: itemId, title, body, fromPhone: command, ...choices });
+    };
+    const copy = this._newThreadCopyFor(slug, choices?.engine);
+    const filled = copy ? fillNewThreadKit(copy, { itemId, title, body }) : null;
+    if (!filled) {
+      makeRow();
+      for (const reply of replies) this.store.answerItem(slug, itemId, { answer: reply, status: 'open' });
+      this.onChange?.();
+      return 'no-kit';
+    }
+    const { kit } = filled;
+    const place = this._cloudPlace(kit.cwd, slug, itemId);
+    if (this.sessions.has(itemId) || this._adoptingNew?.has(itemId) || (fs.existsSync(kit.cwd) && cloudWorkPending(place))) return 'busy';
+    (this._adoptingNew ??= new Set()).add(itemId);
+    try {
+      await this._tellServerJoined(runId);
+      const product = this.store.listProducts().find((p) => p.slug === slug);
+      const base = product ? this.productFolder(product) : null;
+      if (!base) return 'busy';
+      const root = real(base);
+      // Its branch at the main the kit saw, so the folder made next is on it.
+      try { await gitAsync(root, ['rev-parse', '--verify', '-q', `refs/heads/${kit.branch}`]); } catch {
+        await gitAsync(root, ['branch', kit.branch, filled.mainSha]);
+      }
+      const folder = await this._makeTaskFolder(base, itemId);
+      if (!folder || real(folder) !== real(kit.cwd)) {
+        this._kitTrouble('new-folder', `the folder for ${itemId} is not where its cloud run worked (${folder ?? 'none'})`);
+        return 'busy';
+      }
+      fs.mkdirSync(path.dirname(kitCopyPath(this.userDir, slug, itemId)), { recursive: true });
+      fs.writeFileSync(kitCopyPath(this.userDir, slug, itemId), JSON.stringify(kit), { mode: 0o600 });
+      writeMarker(place, markerForCloudRun(kit, runId));
+      makeRow();
+      const carrying = this._answerHeard(slug, itemId, replies);
+      const codex = kit.engine === 'codex';
+      const configDir = kit.marker?.configDir;
+      const codexHome = kit.env?.CODEX_HOME;
+      const profile = codex
+        ? (!codexHome || codexHome === this._codexProfileHome('default') ? 'default' : codexHome)
+        : (!configDir || configDir === this._claudeConfigDir('default') ? 'default' : configDir);
+      this._liveSessions[itemId] = {
+        sessionId: null, product: slug, cwd: kit.cwd, profile, engine: codex ? 'codex' : 'claude', continuation: false, startedAt: Date.now(), cloud: true,
+        ...(carrying ? { carrying } : {}),
+      };
+      this._saveState();
+      this._bringCloudHome(place);
+      this.onChange?.();
+      return 'adopted';
+    } finally {
+      this._adoptingNew.delete(itemId);
+    }
+  }
+
+  /**
+   * A REPLY SHE SENT WITH THE LID SHUT, which the cloud server started from
+   * this thread's kit as run `runId` (with any follow-ups it fed the same run),
+   * made this thread's own: the server told it is joined, its marker written
+   * as for a run the app left going, each of her replies on the row in order
+   * with no run of its own, and the run joined or brought home.
+   * 'adopted', 'no-kit' (her replies are left for an ordinary run) or 'busy'
+   * (other cloud work is still coming home here; asked again later).
+   */
+  async adoptCloudRun({ product: slug, itemId, runId, replies = [] }) {
+    const kit = readKitCopy(kitCopyPath(this.userDir, slug, itemId));
+    if (!kit || kit.item !== itemId || kit.project !== slug) {
+      for (const reply of replies) this.store.answerItem(slug, itemId, { answer: reply, status: 'open' });
+      this.onChange?.();
+      return 'no-kit';
+    }
+    const place = this._cloudPlace(kit.cwd, slug, itemId);
+    if (cloudWorkPending(place) || this.sessions.has(itemId)) return 'busy';
+    // Before the run is joined, so the server's next reply and its idle close stop.
+    await this._tellServerJoined(runId);
+    writeMarker(place, markerForCloudRun(kit, runId));
+    const carrying = this._answerHeard(slug, itemId, replies);
+    const codex = kit.engine === 'codex';
+    const configDir = kit.marker?.configDir;
+    const codexHome = kit.env?.CODEX_HOME;
+    const profile = codex
+      ? (!codexHome || codexHome === this._codexProfileHome('default') ? 'default' : codexHome)
+      : (!configDir || configDir === this._claudeConfigDir('default') ? 'default' : configDir);
+    this._liveSessions[itemId] = {
+      sessionId: null, product: slug, cwd: kit.cwd, profile, engine: codex ? 'codex' : 'claude', continuation: true, startedAt: Date.now(), cloud: true,
+      ...(carrying ? { carrying } : {}),
+    };
+    this._saveState();
+    this._bringCloudHome(place);
+    this.onChange?.();
+    return 'adopted';
+  }
+
+  /** Replies the server fed a run after this computer took it: on the row, never run again here. */
+  async cloudRunReplies({ product: slug, itemId, replies = [] }) {
+    this._answerHeard(slug, itemId, replies);
+    this.onChange?.();
+  }
+
+  /** Whether a run the cloud started for this thread is home: its marker gone and nothing bringing it. */
+  cloudRunHome({ product: slug, itemId, runId }) {
+    const kit = readKitCopy(kitCopyPath(this.userDir, slug, itemId));
+    const place = this._cloudPlace(kit?.cwd ?? this._liveSessions?.[itemId]?.cwd, slug, itemId);
+    if (!place) return true;
+    return !this._stillComingHome(place) && readMarker(place)?.runId !== runId;
+  }
+
+  // Each reply on the row in order, each marked as heard so none starts a run of its own. The last one's key.
+  _answerHeard(slug, itemId, replies) {
+    let key = null;
+    for (const reply of replies) {
+      const saved = this.store.answerItem(slug, itemId, { answer: reply, status: 'open' });
+      if (!saved) continue;
+      key = this._answerKey({ ...saved, product: slug, id: itemId });
+      this._handledAnswers.add(key);
+    }
+    this._saveState();
+    return key;
+  }
+
+  // `runs/server/<run>.joined.json` in her cloud storage (cloud/gateway/phone.mjs).
+  async _tellServerJoined(runId) {
+    try {
+      const storage = await this._cloudStorage();
+      await storage.put(serverJoinedKey(runId), JSON.stringify({ joinedAt: Date.now() }));
+    } catch (error) {
+      this._kitTrouble('joined', `could not tell the cloud this computer joined its run: ${error.message}`);
+    }
+  }
+
+  async _cloudStorage() {
+    const config = readCloudConfig(process.env, this.config.home);
+    return (await cloudClients(config, { home: this.config.home })).storage;
   }
 
   // And forgotten at its end when it never said its id and left nothing in the
