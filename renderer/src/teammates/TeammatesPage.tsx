@@ -59,7 +59,7 @@ export function TeammatesPage({ view, open, products, engines, onTab, onOpenTeam
   };
   const t = team.find((x) => x.id === open) ?? null;
 
-  if (!t && !team.length) return <div className="tq-page"><Starters products={products} call={call} error={error} onOpen={onOpenTeammate} /></div>;
+  if (!t && !team.length) return <div className="tq-page"><Starters products={products} engines={engines} call={call} error={error} onOpen={onOpenTeammate} /></div>;
   if (!t) {
     return <div className="tq-page tq-team">
       <div className="th-bar"><div className="tm-tabs">
@@ -67,7 +67,7 @@ export function TeammatesPage({ view, open, products, engines, onTab, onOpenTeam
         <button type="button" className={`tm-tab${open === 'roster' ? ' on' : ''}`} onClick={() => onTab('roster')}>Teammates<b>{team.length}</b></button>
       </div></div>
       {open === 'roster'
-        ? <Roster team={team} products={products} call={call} error={error} onOpen={onOpenTeammate} />
+        ? <Roster team={team} products={products} engines={engines} call={call} error={error} onOpen={onOpenTeammate} />
         : <ChatColumn view={view} team={team} only={null} me={me} call={call} onOpenThread={onOpenThread} placeholder="Message the team. @Name wakes that teammate." error={error} />}
     </div>;
   }
@@ -192,7 +192,8 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
   if (editing) return <aside className="gr-side tq-side"><About t={t} products={products} engines={engines} call={call} onDone={() => setEditing(false)} /></aside>;
   return <aside className="gr-side tq-side">
     {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">Answer its questions in the chat. It starts once its job is clear.</div></div>}
-    <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div></div>
+    <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div>
+      <div className="tq-sv dim tq-works">{t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}{t.engine && engines.length > 1 ? `, on ${engines.find((e) => e.id === t.engine)?.label ?? t.engine}` : ''}</div></div>
     {(t.waiting.length > 0 || t.asking || t.question) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
       {t.question && <div className="tq-li need">Its question in the chat</div>}
       {t.asking && t.running && <button type="button" className="tq-li need" onClick={() => onOpenThread(t.running!.product, t.running!.id)}>Allow or deny a command</button>}
@@ -273,18 +274,26 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
 /* ---------------------------------------------------------- roster, starters */
 // Where new teammates work: the project you last sent a thread to, else one
 // with code in it, since most starters work on code.
-function useWorkIn(products: Product[]) {
+function useWorkIn(products: Product[], engines: { id: string; label: string }[] = []) {
+  const [engine, setEngine] = useState('');
   const real = products.filter((p) => !p.practice);
   const [slug, setSlug] = useState<string | null>(() => {
     const last = rememberedProject();
     return real.find((p) => p.slug === last)?.slug ?? real.find((p) => p.repoPath)?.slug ?? real[0]?.slug ?? null;
   });
   const shown = real.some((p) => p.slug === slug) ? slug : real.find((p) => p.repoPath)?.slug ?? real[0]?.slug ?? null;
-  const picker = real.length > 1 && shown
+  const where = real.length > 1 && shown
     ? <label className="tq-workin"><span>Work in</span><select className="tq-in" value={shown} onChange={(e) => setSlug(e.target.value)}>
         {real.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select></label>
     : null;
-  return { product: shown, picker };
+  const on = engines.length > 1
+    ? <label className="tq-workin"><span>Runs on</span><select className="tq-in" value={engine} onChange={(e) => setEngine(e.target.value)}>
+        <option value="">Your default</option>{engines.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select></label>
+    : null;
+  const picker = where || on ? <span className="tq-pickers">{where}{on}</span> : null;
+  // What a new teammate is made with, from these two choices.
+  const fields = { ...(shown ? { product: shown } : {}), ...(engine ? { engine } : {}) };
+  return { product: shown, fields, picker };
 }
 
 function StarterCard({ s, on, onPick, button }: { s: Starter; on?: boolean; onPick: () => void; button?: string }) {
@@ -296,13 +305,13 @@ function StarterCard({ s, on, onPick, button }: { s: Starter; on?: boolean; onPi
   </button>;
 }
 
-function Describe({ call, onOpen, product, label = 'Make a teammate' }: { call: Call; onOpen: (id: string) => void; product: string | null; label?: string }) {
+function Describe({ call, onOpen, fields, label = 'Make a teammate' }: { call: Call; onOpen: (id: string) => void; fields: Record<string, string>; label?: string }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const go = async () => {
     if (!text.trim() || busy) return;
     setBusy(true);
-    const made = await call('describe', { text: text.trim(), ...(product ? { product } : {}) });
+    const made = await call('describe', { text: text.trim(), ...fields });
     setBusy(false);
     if (made === false) return;
     setText('');
@@ -316,14 +325,14 @@ function Describe({ call, onOpen, product, label = 'Make a teammate' }: { call: 
   </div>;
 }
 
-function Starters({ products, call, error, onOpen }: { products: Product[]; call: Call; error: string | null; onOpen: (id: string) => void }) {
+function Starters({ products, engines, call, error, onOpen }: { products: Product[]; engines: { id: string; label: string }[]; call: Call; error: string | null; onOpen: (id: string) => void }) {
   const [picked, setPicked] = useState<Set<string>>(() => new Set(['quality', 'maintainer', 'video']));
   const [busy, setBusy] = useState(false);
   const hasProject = products.some((p) => !p.practice);
-  const where = useWorkIn(products);
+  const where = useWorkIn(products, engines);
   const start = async () => {
     setBusy(true);
-    for (const s of STARTERS) if (picked.has(s.starter)) await call('create', { starter: s.starter, ...(where.product ? { product: where.product } : {}) });
+    for (const s of STARTERS) if (picked.has(s.starter)) await call('create', { starter: s.starter, ...where.fields });
     setBusy(false);
   };
   const flip = (k: string) => setPicked((x) => { const n = new Set(x); if (n.has(k)) n.delete(k); else n.add(k); return n; });
@@ -335,14 +344,14 @@ function Starters({ products, call, error, onOpen }: { products: Product[]; call
     <div className="ob-grid">{STARTERS.map((s) => <StarterCard key={s.starter} s={s} on={picked.has(s.starter)} onPick={() => flip(s.starter)} />)}</div>
     {error && <p className="tq-error" role="alert">{error}</p>}
     <div className="ob-foot ob-foot-start">
-      <Describe call={call} onOpen={onOpen} product={where.product} />
+      <Describe call={call} onOpen={onOpen} fields={where.fields} />
       <button type="button" className="ob-btn tq-go" disabled={!picked.size || busy || !hasProject} onClick={() => void start()}>{picked.size ? `Start ${picked.size} teammate${picked.size === 1 ? '' : 's'}` : 'Pick one or more'}</button>
     </div>
   </div>;
 }
 
-function Roster({ team, products, call, error, onOpen }: { team: Teammate[]; products: Product[]; call: Call; error: string | null; onOpen: (id: string) => void }) {
-  const where = useWorkIn(products);
+function Roster({ team, products, engines, call, error, onOpen }: { team: Teammate[]; products: Product[]; engines: { id: string; label: string }[]; call: Call; error: string | null; onOpen: (id: string) => void }) {
+  const where = useWorkIn(products, engines);
   const started = new Set(team.map((t) => t.starter).filter(Boolean));
   const others = STARTERS.filter((s) => !started.has(s.starter) && !team.some((t) => t.name === s.name));
   return <div className="tp-body">
@@ -353,10 +362,10 @@ function Roster({ team, products, call, error, onOpen }: { team: Teammate[]; pro
       <span className="goal">{t.goal ?? ''}</span>
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
     </button>)}
-    {others.length > 0 && <><div className="tp-sec">Start another</div>
-      <div className="ob-grid">{others.slice(0, 3).map((s) => <StarterCard key={s.starter} s={s} button="Start" onPick={() => { void call('create', { starter: s.starter, ...(where.product ? { product: where.product } : {}) }); }} />)}</div></>}
+    {others.length > 0 && <><div className="tq-sec-row"><div className="tp-sec">Start another</div>{where.picker}</div>
+      <div className="ob-grid">{others.slice(0, 3).map((s) => <StarterCard key={s.starter} s={s} button="Start" onPick={() => { void call('create', { starter: s.starter, ...where.fields }); }} />)}</div></>}
     {error && <p className="tq-error" role="alert">{error}</p>}
-    <div className="tq-roster-foot">{where.picker}<Describe call={call} onOpen={onOpen} product={where.product} /></div>
+    <div className="tq-roster-foot">{others.length ? null : where.picker}<Describe call={call} onOpen={onOpen} fields={where.fields} /></div>
   </div>;
 }
 

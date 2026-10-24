@@ -50,3 +50,19 @@ describe('someone new, made from a task', () => {
     expect(later).not.toMatch(/also your first job/);
   });
 });
+
+// The second power test pressed Start on a card and got a teammate on the
+// default agent in a project it never chose. Start and Make a teammate take
+// the project and the agent picked above them.
+describe('starting one from the Teammates page', () => {
+  const page = read('renderer/src/teammates/TeammatesPage.tsx');
+  it('makes it with the project and agent picked, from every way in', () => {
+    expect(page).toMatch(/const fields = \{ \.\.\.\(shown \? \{ product: shown \} : \{\}\), \.\.\.\(engine \? \{ engine \} : \{\}\) \};/);
+    expect(page.match(/call\('create', \{ starter: s\.starter, \.\.\.where\.fields \}\)/g)).toHaveLength(2);
+    expect(page).toMatch(/call\('describe', \{ text: text\.trim\(\), \.\.\.fields \}\)/);
+    expect(page).toMatch(/<span>Runs on<\/span>/);
+  });
+  it('says when it works, and on which agent, beside its goal', () => {
+    expect(page).toMatch(/`Works \$\{t\.worksLabel\}` : 'Works when someone writes to it'/);
+  });
+});
