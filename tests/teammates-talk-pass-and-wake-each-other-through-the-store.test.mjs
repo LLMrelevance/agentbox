@@ -189,6 +189,21 @@ describe('teammates through the store', () => {
 
   // The power test's founder had Company (docs, no code), Product and Website,
   // and all three starters landed on Company, the first in the list.
+  it('a teammate is told where all of the person\'s work lives, and which project is its own', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-projects-'));
+    const listed = [{ slug: 'company', dir: '/d/company', name: 'Company', repoPath: null }, { slug: 'product', dir: '/d/product', name: 'Product', repoPath: '/r/product' }, { slug: 'practice', dir: '/d/p', name: 'Practice', practice: true }];
+    const here = new Teammates({ config: { storeRoot: root, accountId: 'acct-projects' }, modules: mods, listProducts: () => listed, listItems: () => [] });
+    const hugo = here.create({ starter: 'fundraising', product: 'company' });
+    const brief = here.briefFor({ id: 'w-h', product: 'company', labels: ['founder', `teammate:${hugo.id}`, 'hop:0'] });
+    expect(brief).toContain('- Company (yours): no code, docs at /d/company');
+    expect(brief).toContain('- Product: code at /r/product');
+    expect(brief).not.toContain('Practice');
+    // With one project there is nothing to list.
+    const one = new Teammates({ config: { storeRoot: root, accountId: 'acct-one' }, modules: mods, listProducts: () => [listed[1]], listItems: () => [] });
+    const ada = one.create({ starter: 'quality' });
+    expect(one.briefFor({ id: 'w-a', product: 'product', labels: ['founder', `teammate:${ada.id}`, 'hop:0'] })).not.toContain("person's projects");
+  });
+
   it('works where you say, and unnamed, in a project with code rather than the first one listed', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-where-'));
     const listed = [{ slug: 'company', dir: root, name: 'Company', repoPath: null }, { slug: 'product', dir: root, name: 'Product', repoPath: '/r' }, { slug: 'practice', dir: root, name: 'Practice', practice: true, repoPath: '/p' }];

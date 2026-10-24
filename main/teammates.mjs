@@ -334,6 +334,21 @@ export class Teammates {
     return { body: `${who} wrote to you in the team chat:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
   }
 
+  // Where the person's work lives. A teammate works in one project, but a job
+  // like fundraising draws on all of them: the power test's investor update
+  // read one repository and missed what had shipped in the others.
+  _projectsFor(t) {
+    let products = [];
+    try { products = this.store.listProducts().filter((p) => !p.practice); } catch { return []; }
+    if (products.length < 2) return [];
+    return [
+      "## The person's projects",
+      ...products.map((p) => `- ${p.name}${p.slug === t.product ? ' (yours)' : ''}: ${p.repoPath ? `code at ${p.repoPath}` : 'no code'}${p.dir ? `, docs at ${p.dir}` : ''}`),
+      'Read any of them when your job needs it. Change files only in your own, unless the person asks.',
+      '',
+    ];
+  }
+
   // The standing part of a teammate's brief, read fresh at every spawn so its
   // memory and the chat are current even on a reply.
   briefFor(item, now = Date.now()) {
@@ -374,6 +389,7 @@ export class Teammates {
       t.memory.length ? '## What you know about the person (follow these)' : null,
       ...t.memory.map((m) => `- ${m.text}`),
       t.memory.length ? '' : null,
+      ...this._projectsFor(t),
       '## The team',
       ...(others.length ? others.map((o) => { const s = statusOf(o, items, now); return `- ${o.name}${o.role ? `, ${o.role}` : ''}${o.paused ? ' (paused)' : ''}: ${o.job ? o.job.slice(0, 200) : 'no job yet'}${s.now ? ` Now: ${s.now}.` : ''}`; }) : ['- You are the only teammate so far.']),
       '',
