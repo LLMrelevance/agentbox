@@ -32,11 +32,16 @@ const verbs = (lines) => itemThread(lines, []).events.filter((e) => e.kind === '
 const first = (lines) => itemThread(lines, []).events[0];
 
 describe('what a thread you opened puts on the screen', () => {
-  it('with no short name, the sentence: "You opened this"', () => {
-    expect(verbs(composed)).toContain('You opened this');
+  // SINCE w-326fb83c0e A ONE-LINE THREAD SAYS WHAT YOU TYPED, named or not: it
+  // is a title with no body, and the quiet sentence left the ask in the header
+  // and nowhere else. So this form is your byline over the ask as well, which
+  // is why the drive has to read both.
+  it('with no short name, your byline over the ask and no sentence', () => {
+    expect(first(composed)).toMatchObject({ who: 'you' });
+    expect(verbs(composed).join(' ')).not.toMatch(/opened this/);
   });
 
-  it('once its worker names it, your byline over the ask instead, and no sentence', () => {
+  it('once its worker names it, your byline over the ask, and still no sentence', () => {
     const named = [...composed, line(T0 + 30_000, 'agent', { label: 'Say PINEAPPLE' })];
     expect(first(named)).toMatchObject({ who: 'you' });
     expect(verbs(named).join(' ')).not.toMatch(/opened this/);
