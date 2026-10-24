@@ -57,9 +57,16 @@ line, so build with them, not around them:
   every run's end is counted by `_noteHowTheRunStarted`: six starts in ten
   minutes that each ended before the agent began hold the thread and say so on
   its row (`tests/no-thread-is-started-over-and-over-without-a-word`). A new
-  way to start or end a run goes through both.
+  way to start or end a run goes through both. A held thread tries again on
+  its own after 30 minutes, 2 hours and 8 hours, then waits for a reply
+  (`tests/a-held-thread-tries-again-on-its-own`).
 - Every network call has a deadline that ends it
   (`tests/no-network-call-in-the-app-can-wait-forever`).
+- A thread nothing will start again on its own is in Needs you, never In
+  progress. Needs you is the one list a person reads; anything outside it is
+  assumed seen to. The supervisor names those threads in `stalled`, and the
+  list rules take them as `stopped`
+  (`tests/a-thread-nothing-will-start-is-in-needs-you`).
 
 ## SHIPPING IS ONE COMMAND: `npm run ship`
 

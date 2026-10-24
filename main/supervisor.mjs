@@ -97,7 +97,7 @@ import { snapshotRepo } from './git-change.mjs';
 import { importedAgentBrief, importedAgentName, THREAD_LABEL } from '../shared/agent-import.mjs';
 import { readTranscriptHead } from './agent-sessions.mjs';
 import { planStamp, readPlan } from './claude-plan.mjs';
-import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, deadRunPromisesARetry, undeliveredAnswerSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
+import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemedy, deadRunSentence, deadRunCause, deadRunPromisesARetry, undeliveredAnswerSentence, stoppedStartingSentence, limitResetsAt, limitResetMoment, strandedSentence, strandedRemedy, causeBreakdown } from '../shared/spawn-trouble.mjs';
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall, STOPPED_ON_REQUEST } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
@@ -235,6 +235,10 @@ const MAX_DELIVERY_ATTEMPTS = 3;
 // limit here is keyed to one way of failing; this one is not.
 const STORM_STARTS = 6;
 const STORM_WINDOW_MS = 10 * 60_000;
+// A held thread tries once more on its own after each of these, counted from
+// the try before, in case what stopped it has gone away. Then it waits for a
+// person.
+const HELD_RETRY_MS = [30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
 // How many cloud runs may be packing and sending at once (`_cloudStarting`).
 // Turning the cloud on with Everything once started up to ten together.
 const CLOUD_STARTING_AT_ONCE = 2;
@@ -522,6 +526,10 @@ export class Supervisor {
       // are frequent. It is keyed and cleared exactly like _deliveryAttempts.
       this._fruitless = state.fruitless ?? {};
       this._heldStarts = state.heldStarts ?? {};
+      // A hold saved before holds tried again on their own gets the first try.
+      for (const held of Object.values(this._heldStarts)) {
+        if (held && held.tries == null) Object.assign(held, { tries: 0, next: (held.since ?? 0) + HELD_RETRY_MS[0] });
+      }
       this._deadStarts = state.deadStarts ?? {};
       // WHAT IS WRONG WITH EACH ACCOUNT, KEPT ACROSS A RESTART (w-cf0e8821b3).
       //
@@ -4961,29 +4969,50 @@ export class Supervisor {
     // those read as the agent getting going. It can outlast FAST_EXIT_MS as
     // well: a weekly limit is reported about two minutes in.
     const refused = accountRefusedTheRun(session);
-    if (!refused && (session.sessionId != null || session.result != null)) { delete this._deadStarts[key]; return; }
+    this._heldStarts ??= {};
+    const held = this._heldStarts[key];
+    if (!refused && (session.sessionId != null || session.result != null)) {
+      delete this._deadStarts[key];
+      if (held) { delete this._heldStarts[key]; this._saveState(); }
+      return;
+    }
     const now = Date.now();
-    if (session.stoppedByUs || (!refused && now - (session.startedAt ?? now) >= FAST_EXIT_MS)) return;
+    if (session.stoppedByUs) return;
+    if (!refused && now - (session.startedAt ?? now) >= FAST_EXIT_MS) {
+      if (held?.trying) { delete this._heldStarts[key]; this._saveState(); }
+      return;
+    }
+    const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
+      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
+    // A try of its own that died at once is held again straight away.
+    if (held?.trying) {
+      const tries = (held.tries ?? 0) + 1;
+      const next = tries < HELD_RETRY_MS.length ? Math.max(held.trying + HELD_RETRY_MS[tries], now + HELD_RETRY_MS[0]) : null;
+      this._heldStarts[key] = { since: now, said: said ?? held.said ?? null, tries, next };
+      delete this._deadStarts[key];
+      this._saveState();
+      this._sayItStoppedStarting(item, stoppedStartingSentence({ tries, triedAt: held.trying, said: said ?? held.said, next }));
+      return;
+    }
     const starts = (this._deadStarts[key] ?? []).filter((t) => now - t < STORM_WINDOW_MS);
     starts.push(now);
     this._deadStarts[key] = starts;
-    this._heldStarts ??= {};
     // Saved every time, so the six are still six across a restart of the app.
-    if (starts.length < STORM_STARTS || this._heldStarts[key]) { this._saveState(); return; }
-    const said = (session.tail ?? []).filter((l) => typeof l === 'string' && l.startsWith('stderr:'))
-      .flatMap((l) => l.slice('stderr:'.length).split('\n')).map((l) => l.trim()).filter((l) => l && !l.startsWith(CLOUD_SENT)).at(-1) ?? null;
-    this._heldStarts[key] = { since: now, said };
+    if (starts.length < STORM_STARTS || held) { this._saveState(); return; }
+    const next = now + HELD_RETRY_MS[0];
+    this._heldStarts[key] = { since: now, said, tries: 0, next };
     this._saveState();
+    this._sayItStoppedStarting(item, stoppedStartingSentence({ starts: starts.length, minutes: Math.round(STORM_WINDOW_MS / 60_000), said, next }));
+  }
+
+  _sayItStoppedStarting(item, result) {
     try {
-      this.store.recordSessionResult(item.product, item.id, {
-        result: `${Name} stopped starting this thread: it was started ${starts.length} times in ${Math.round(STORM_WINDOW_MS / 60_000)} minutes, and every run ended before its agent began.${said ? ` The last one said: "${said.slice(0, 300)}".` : ''} Reply here to try again.`,
-        status: 'blocked',
-      });
+      this.store.recordSessionResult(item.product, item.id, { result, status: 'blocked' });
     } catch (e) { console.warn(`${nameSlug}: could not say that a thread stopped starting:`, e.message); }
     this.onChange?.();
   }
 
-  // Held until she writes on the row.
+  // Held until a person writes on the row, or until its own next try.
   _heldFromStarting(item) {
     const key = `${item?.product}:${item?.id}`;
     const held = this._heldStarts?.[key];
@@ -4994,7 +5023,35 @@ export class Supervisor {
       this._saveState();
       return false;
     }
-    return true;
+    return !held.trying;
+  }
+
+  // The same question without letting go, for the lists the window reads.
+  _isHeld(item) {
+    const held = this._heldStarts?.[`${item?.product}:${item?.id}`];
+    return !!held && !held.trying && !(lastFounderWrite(item) > held.since);
+  }
+
+  // A HELD THREAD'S OWN NEXT TRY (HELD_RETRY_MS): reopened and queued the way
+  // a resume by name is, for one start, which `_noteHowTheRunStarted` judges.
+  retryHeldThreads(items, now = Date.now()) {
+    if (!this._heldStarts) return;
+    const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
+    const me = process.env.AGENTBOX_PERSON_ID || null;
+    let tried = false;
+    for (const item of items) {
+      const key = `${item.product}:${item.id}`;
+      const held = this._heldStarts[key];
+      if (!held || held.trying || !held.next || now < held.next) continue;
+      if (item.status === 'done' || this.sessions.has(item.id) || stoppedByHer(item) || this.claimHeldElsewhere(item)) continue;
+      if (!this.store.isDue(item, now) || !mayRunHere(item, productBySlug.get(item.product), me)) continue;
+      held.trying = now;
+      tried = true;
+      if (item.status !== 'open') this.store.answerItem(item.product, item.id, { status: 'open' });
+      for (const k of [...this._handledAnswers]) if (k.startsWith(`${key}:`)) this._handledAnswers.delete(k);
+      this._resumeQueue.add(item.id);
+    }
+    if (tried) this._saveState();
   }
 
   // Resume, Restart, Send Back and Run now are a person's word on the row, as
@@ -5934,15 +5991,17 @@ export class Supervisor {
     // NOR IS A ROW A RESTART IS BRINGING BACK: a cloud run followed home, or a
     // session the startup sweep puts back once it can (`recoverInterrupted`).
     const heldBySweep = (id) => !!this._recovering?.has(id) && !!this._liveSessions[id] && !this.sessions.has(id);
+    // A row the start hold keeps is stopped too, whatever became of its reply.
     let stalled = [];
     try {
       stalled = allThreads()
-        .filter((i) => i.status === 'open' && i.answer && i.answer !== '(withdrawn)'
+        .filter((i) => i.status === 'open'
           && !this.sessions.has(i.id) && !settingUp(i.id)
           && !this._comingHome?.has(i.id)
           && !heldBySweep(i.id)
-          && !answerSettled(i)
-          && this._answerDelivered(i))
+          && (this._isHeld(i) || (i.answer && i.answer !== '(withdrawn)'
+            && !answerSettled(i)
+            && this._answerDelivered(i))))
         .map((i) => i.id);
     } catch {}
     // Queued: everything a tick WOULD spawn once a slot frees — an answered
@@ -5993,6 +6052,8 @@ export class Supervisor {
         // lapses, and `queued` must never advertise a row the tick is going to
         // walk past (claimHeldElsewhere).
         .filter((i) => !this.claimHeldElsewhere(i))
+        // Nor a row the start hold keeps: `spawnWorker` turns it away.
+        .filter((i) => !this._isHeld(i))
         // THE TICK'S OWN TWO TESTS, NOT A SECOND COPY OF THEM. The copy that
         // was here said yes to a row already holding an agent's result nobody
         // had replied to, which `_isFreshWork` has always said no to: search
@@ -6500,6 +6561,7 @@ export class Supervisor {
 
     // Threads whose wait has just cleared go into the same queue (w-5244c90c33).
     try { this.resumeFinishedWaits(items); } catch (e) { console.warn('zero: could not resume a finished wait:', e.message); }
+    try { this.retryHeldThreads(items, now); } catch (e) { console.warn('zero: could not try a held thread again:', e.message); }
 
     // Rows she resumed by name that had no slot at the time. First call on the
     // next free slot, ahead of everything: she asked for these out loud, and a
