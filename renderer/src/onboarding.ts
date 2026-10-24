@@ -3037,6 +3037,34 @@ export function practising(run: { step: Step; practice: string | null } | null):
   return !!run && !!run.practice && IN_PRACTICE.includes(run.step);
 }
 
+/**
+ * Whether the walk is drawing a screen over the whole window. The setup
+ *  screens, the hand-off and the finish card are `.fr-screen`: fixed, opaque,
+ *  covering everything. The practice round rings a real app somebody is using,
+ *  and `landed` draws nothing.
+ *
+ *  Asked by the keys rather than by the drawing: a key that opens something
+ *  over the app opens it UNDER one of these screens, where nobody sees it. */
+export function walkCoversTheApp(run: { step: Step } | null | undefined): boolean {
+  if (!run) return false;
+  return run.step !== 'landed' && !IN_PRACTICE.includes(run.step);
+}
+
+/**
+ * Which control on the screen Tab moves to, as an index into the screen's own
+ *  controls: the one after where focus is, wrapping, and the first one when
+ *  focus is not on the screen at all.
+ *
+ *  A walk screen holds its focus the way any dialog does. Stopping the app's
+ *  tab rotation was only half of it: the screens are fixed over an app still in
+ *  the document, so the browser's Tab walked into the sidebar behind them and
+ *  the focus ring was drawn where nobody could see it. */
+export function tabStop(count: number, at: number, shift = false): number {
+  if (count <= 0) return -1;
+  if (at < 0) return shift ? count - 1 : 0;
+  return (at + (shift ? -1 : 1) + count) % count;
+}
+
 export function forcedStep(param: string | null): Step | null {
   if (!param) return null;
   if (param === '1') return 'welcome';

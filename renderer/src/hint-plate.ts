@@ -37,6 +37,9 @@
 //   now carries a note pointing here. `esc` and a bare arrow are one key
 //   whatever their length, so only a real chord splits.
 
+import { capNameOf, capsOf } from '../../shared/key-caps.mjs';
+import { MAC } from './this-keyboard';
+
 /** One line of a plate: the caps to draw, and the fragment beside them. */
 export interface HintLine {
   /** The chord as the app writes it, e.g. '⌘⌥↓'. Split by `capsFor`. */
@@ -51,13 +54,12 @@ export interface HintLine {
  *  A chord becomes one cap per glyph. Anything that is a single key stays whole
  *  however many characters it is written with, which is what keeps `esc` from
  *  being drawn as three caps.
+ *
+ *  THE GLYPHS ARE THIS KEYBOARD'S (shared/key-caps.mjs): ⌘↵ on a Mac, Ctrl and
+ *  Enter where there is no Command key.
  */
-export function capsFor(key: string): string[] {
-  if (key.length <= 1) return [key];
-  // The words the app writes out for one physical key. Nothing else is
-  // multi-character and single-key.
-  if (key === 'esc') return [key];
-  return [...key];
+export function capsFor(key: string, mac: boolean = MAC): string[] {
+  return capsOf(key, mac);
 }
 
 /**
@@ -68,8 +70,8 @@ export function capsFor(key: string): string[] {
  *  because it shows the icon on the keyboard as well as the name". ↵ keeps its
  *  bare cap here; nobody asked for that one.
  */
-export function capWord(glyph: string): string | null {
-  return glyph === '⇥' ? 'Tab' : null;
+export function capWord(glyph: string, mac: boolean = MAC): string | null {
+  return capNameOf(glyph, mac);
 }
 
 /**

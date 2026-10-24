@@ -144,9 +144,12 @@ export function createAnalytics({ config, version, dir, client, env = process.en
 
   return {
     get enabled() { return on(); },
+    // A whole phrase, verb and all: the line that prints it reads
+    // `diagnostics ${reason}`, and a reason with no verb of its own made that
+    // "diagnostics is has nowhere to send to".
     get reason() {
       if (!hasDestination) return 'has nowhere to send to';
-      return diagnosticsOn(config) ? 'on' : 'turned off';
+      return diagnosticsOn(config) ? 'is on' : 'is turned off';
     },
     hasDestination,
     installId,

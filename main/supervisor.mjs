@@ -7694,7 +7694,7 @@ export class Supervisor {
       '',
       '---',
       '',
-      keysForAgents(),
+      keysForAgents(undefined, { mac: process.platform === 'darwin' }),
     ].join('\n'));
     return blocks.length ? blocks.join('\n\n') : null;
   }
