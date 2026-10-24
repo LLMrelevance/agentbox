@@ -16,6 +16,10 @@
 //   - the function, bundled into one file, with a public function URL
 //   - S3's notice to the function when a run's done.json lands
 //   - a sweep every 5 minutes
+//   - a phone sweep every minute, which starts in the cloud a phone's reply
+//     no computer has claimed (cloud/gateway/phone.mjs), with the team
+//     database's service key kept in Secrets Manager, read once from the
+//     Supabase Management API with this Mac's Supabase CLI sign-in
 //   - a notice from the budget the spike made (`agentcore-sandboxes`) that
 //     pauses new runs when the month's spend passes it
 //   - a trail of the account's management events and of reads and writes of
@@ -37,7 +41,7 @@ const ROOT = path.join(HERE, '..');
 const NAMES = {
   fn: 'agentbox-gateway', role: 'agentbox-gateway-role', signer: 'agentbox-gateway-signer', notice: 'agentbox-gateway-done',
   sweep: 'agentbox-gateway-sweep', topic: 'agentbox-gateway-budget', budget: 'agentcore-sandboxes',
-  stripe: 'agentbox-gateway-stripe',
+  stripe: 'agentbox-gateway-stripe', phoneSweep: 'agentbox-gateway-phone', supabase: 'agentbox-gateway-supabase',
   trail: 'agentbox-gateway-trail', trailRole: 'agentbox-gateway-trail-logs', trailLogs: '/agentbox/cloudtrail', alarms: 'agentbox-gateway-alarm',
 };
 export const STRIPE_SECRET_NAME = NAMES.stripe;
@@ -54,8 +58,9 @@ export const FUNCTION_SECONDS = 90;
  * the role reads and writes only its ledger and the calls it relays, looks
  * for a run's done.json, and deletes what a Mac asks it to.
  */
-export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn = `arn:aws:secretsmanager:${region}:${account}:secret:${NAMES.signer}-*`, stripeSecretArn = null }) {
+export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn = `arn:aws:secretsmanager:${region}:${account}:secret:${NAMES.signer}-*`, stripeSecretArn = null, supabaseSecretArn = null }) {
   const at = (p) => `arn:aws:s3:::${bucket}/${p}`;
+  const secrets = [signerSecretArn, stripeSecretArn, supabaseSecretArn].filter(Boolean);
   return {
     Version: '2012-10-17',
     Statement: [
@@ -65,7 +70,7 @@ export function rolePolicy({ bucket, runtimeArn, region, account, signerSecretAr
       { Effect: 'Allow', Action: ['s3:DeleteObject'], Resource: [at('runs/*'), at('logins/*')] },
       // runs/ too, so a done.json not there yet answers 404, not 403.
       { Effect: 'Allow', Action: ['s3:ListBucket'], Resource: `arn:aws:s3:::${bucket}`, Condition: { StringLike: { 's3:prefix': ['ledger/*', 'runs/*'] } } },
-      { Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: stripeSecretArn ? [signerSecretArn, stripeSecretArn] : signerSecretArn },
+      { Effect: 'Allow', Action: ['secretsmanager:GetSecretValue'], Resource: secrets.length === 1 ? secrets[0] : secrets },
       { Effect: 'Allow', Action: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'], Resource: `arn:aws:logs:${region}:${account}:log-group:/aws/lambda/${NAMES.fn}*` },
     ],
   };
@@ -185,6 +190,30 @@ export function withDoneNotice(current, functionArn) {
   };
 }
 
+/** The team database's service key, out of the Management API's list of its keys. */
+export function serviceKeyOf(keys) {
+  const found = Array.isArray(keys) ? keys.find((k) => k?.name === 'service_role' && typeof k.api_key === 'string') : null;
+  return found ? found.api_key : null;
+}
+
+// This Mac's Supabase CLI sign-in, as `supabase login` keeps it in the keychain.
+function supabaseCliToken() {
+  if (process.env.SUPABASE_ACCESS_TOKEN) return process.env.SUPABASE_ACCESS_TOKEN;
+  try {
+    const raw = execFileSync('security', ['find-generic-password', '-s', 'Supabase CLI', '-w'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    return raw.startsWith('go-keyring-base64:') ? Buffer.from(raw.slice('go-keyring-base64:'.length), 'base64').toString('utf8') : raw;
+  } catch { return null; }
+}
+
+async function databaseServiceKey(dbUrl) {
+  const ref = /^https:\/\/([a-z0-9]+)\.supabase\.co/.exec(dbUrl || '')?.[1];
+  const token = ref ? supabaseCliToken() : null;
+  if (!token) return null;
+  const res = await fetch(`https://api.supabase.com/v1/projects/${ref}/api-keys?reveal=true`, { headers: { authorization: `Bearer ${token}`, 'user-agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20_000) });
+  if (!res.ok) return null;
+  return serviceKeyOf(await res.json());
+}
+
 /** The function in one file, with nothing to install in Lambda. */
 export async function bundle(outDir) {
   const { build } = await import('esbuild');
@@ -251,15 +280,24 @@ async function main() {
   // Stripe's key and webhook secret, once scripts/stripe-setup.mjs has stored them.
   const stripeSecretArn = aws(['secretsmanager', 'describe-secret', '--secret-id', NAMES.stripe], { allowFail: true })?.ARN || null;
   if (!stripeSecretArn) say('no Stripe secret yet: paying stays off until scripts/stripe-setup.mjs runs');
+  // The team database's service key, for the phone sweep. Never printed.
+  const serviceKey = await databaseServiceKey(db.url).catch(() => null);
+  if (serviceKey) {
+    const value = JSON.stringify({ serviceKey });
+    if (aws(['secretsmanager', 'describe-secret', '--secret-id', NAMES.supabase], { allowFail: true })) aws(['secretsmanager', 'put-secret-value', '--secret-id', NAMES.supabase, '--secret-string', value]);
+    else aws(['secretsmanager', 'create-secret', '--name', NAMES.supabase, '--secret-string', value]);
+  }
+  const supabaseSecretArn = aws(['secretsmanager', 'describe-secret', '--secret-id', NAMES.supabase], { allowFail: true })?.ARN || null;
+  if (!supabaseSecretArn) say('no database service key (sign in with `supabase login`): a phone\'s reply waits for its computer');
 
   // The role.
   const trust = JSON.stringify({ Version: '2012-10-17', Statement: [{ Effect: 'Allow', Principal: { Service: 'lambda.amazonaws.com' }, Action: 'sts:AssumeRole' }] });
   let role = aws(['iam', 'get-role', '--role-name', NAMES.role], { allowFail: true })?.Role;
   if (!role) { say(`making role ${NAMES.role}`); role = aws(['iam', 'create-role', '--role-name', NAMES.role, '--assume-role-policy-document', trust]).Role; }
-  aws(['iam', 'put-role-policy', '--role-name', NAMES.role, '--policy-name', `${NAMES.role}-policy`, '--policy-document', JSON.stringify(rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn, stripeSecretArn }))], { json: false });
+  aws(['iam', 'put-role-policy', '--role-name', NAMES.role, '--policy-name', `${NAMES.role}-policy`, '--policy-document', JSON.stringify(rolePolicy({ bucket, runtimeArn, region, account, signerSecretArn, stripeSecretArn, supabaseSecretArn }))], { json: false });
 
   // The function. A role made a moment ago is not assumable yet: retry.
-  const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_SECRET_ARN: signerSecretArn, ...(stripeSecretArn ? { STRIPE_SECRET_ARN: stripeSecretArn } : {}) };
+  const env = { REGION: region, BUCKET: bucket, RUNTIME_ARN: runtimeArn, SUPABASE_URL: db.url, SUPABASE_ANON_KEY: db.anonKey, SIGNER_SECRET_ARN: signerSecretArn, ...(stripeSecretArn ? { STRIPE_SECRET_ARN: stripeSecretArn } : {}), ...(supabaseSecretArn ? { SUPABASE_SERVICE_SECRET_ARN: supabaseSecretArn } : {}) };
   // The chip goes with the code (create, or a code update), never with a settings update.
   const settings = ['--runtime', 'nodejs22.x', '--handler', 'index.handler', '--timeout', String(FUNCTION_SECONDS), '--memory-size', '512', '--environment', JSON.stringify({ Variables: env })];
   const arm = ['--architectures', 'arm64'];
@@ -298,6 +336,14 @@ async function main() {
   const rule = aws(['events', 'put-rule', '--name', NAMES.sweep, '--schedule-expression', 'rate(5 minutes)']).RuleArn;
   aws(['events', 'put-targets', '--rule', NAMES.sweep, '--targets', JSON.stringify([{ Id: 'gateway', Arn: fnArn, Input: '{"sweep":true}' }])]);
   allow('sweep', 'events.amazonaws.com', ['--source-arn', rule]);
+
+  // The phone sweep, every minute: a reply no computer has claimed for a
+  // minute starts in the cloud (cloud/gateway/phone.mjs).
+  if (supabaseSecretArn) {
+    const phoneRule = aws(['events', 'put-rule', '--name', NAMES.phoneSweep, '--schedule-expression', 'rate(1 minute)']).RuleArn;
+    aws(['events', 'put-targets', '--rule', NAMES.phoneSweep, '--targets', JSON.stringify([{ Id: 'gateway', Arn: fnArn, Input: '{"phoneSweep":true}' }])]);
+    allow('phone-sweep', 'events.amazonaws.com', ['--source-arn', phoneRule]);
+  }
 
   // The budget's alarm pauses new runs.
   const topic = aws(['sns', 'create-topic', '--name', NAMES.topic]).TopicArn;

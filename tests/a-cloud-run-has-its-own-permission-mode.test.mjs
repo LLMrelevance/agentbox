@@ -69,8 +69,11 @@ describe('saving it', () => {
 describe('a cloud run', () => {
   it('is spawned with the cloud’s flag, and a run here is not', () => {
     const src = fs.readFileSync(new URL('../main/harnesses/claude.mjs', import.meta.url), 'utf8');
+    // Made in one place (`cloudLaunch`), which a kit for the phone shares.
+    const launch = src.slice(src.indexOf('cloudLaunch(sup, plan'), src.indexOf('  spawn(sup, plan'));
+    expect(launch).toContain('cloudPermissionArgs(plan.args, cloudClaudeMode(sup.config.cloudPermission, plan.answerMode))');
     const cloud = src.slice(src.indexOf('if (cloud) {'), src.indexOf('// The binary is the one this definition names'));
-    expect(cloud).toContain('cloudPermissionArgs(plan.args, cloudClaudeMode(sup.config.cloudPermission, plan.answerMode))');
+    expect(cloud).toContain('claudeHarness.cloudLaunch(sup, plan');
     expect(src.slice(src.indexOf('// The binary is the one this definition names'))).not.toContain('cloudPermissionArgs');
   });
 });

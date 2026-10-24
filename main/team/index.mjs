@@ -225,6 +225,14 @@ export function createTeamService({
       readSettings: phone.readSettings ?? null,
       version: phone.version ?? '',
       idleMs: phone.idleMs ?? null,
+      // The lid shut: projects whose threads carry on in the cloud, and runs it started (shared/cloud-kit.mjs).
+      carrying: phone.carrying ?? null,
+      kitsFor: phone.kitsFor ?? null,
+      adopt: phone.adopt ?? null,
+      cloudReplies: phone.cloudReplies ?? null,
+      runHome: phone.runHome ?? null,
+      newThreadKits: phone.newThreadKits ?? null,
+      adoptNew: phone.adoptNew ?? null,
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
