@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import type { Product, Teammate, TeammatesView, TeamChatLine, TeamRunLine } from '../types';
 import { api } from '../api';
 import { STARTERS, type Starter } from '../../../shared/teammates.mjs';
+import { rememberedProject } from '../compose-project';
 import { chatEntries, clockOf, dayOf, nameOf, type ChatEntry } from './chat-lines';
 import { TeammateMark } from './TeammatesRail';
 import './teammates.css';
@@ -19,6 +20,7 @@ const ICON = {
   arrow: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>,
   plus: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
   keep: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true"><path d="M7 4.5h10v15l-5-3.8-5 3.8z" /></svg>,
+  reply: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 7 4 12l5 5" /><path d="M4 12h10a6 6 0 0 1 6 6" /></svg>,
   pause: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg>,
 };
 
@@ -96,6 +98,8 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
       prevFrom = e.from;
     } else {
       rows.push(<Activity key={e.id} e={e} team={team} only={only} call={call} onOpenThread={onOpenThread} />);
+      // A message after an activity line says who it is from again.
+      prevFrom = '';
     }
   }
   return <div className="tq-chat">
@@ -110,7 +114,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
 function Message({ m, team, me, lead, only, call }: { m: TeamChatLine; team: Teammate[]; me: string; lead: boolean; only: Teammate | null; call: Call }) {
   const t = team.find((x) => x.id === m.from) ?? null;
   const mine = m.from === 'you';
-  const to = (Array.isArray(m.to) ? m.to : []).filter((x) => x !== only?.id).map((x) => nameOf(x, team));
+  const to = (Array.isArray(m.to) ? m.to : []).map((x) => nameOf(x, team));
   return <div className={`rm-cm tq-m${lead ? '' : ' tq-cont'}`}>
     {lead && <div className="h">
       {mine ? <span className="rm-pic rm-ini tq-you" aria-hidden="true">{me.trim() ? initials(me) : YOU_GLYPH}</span> : <TeammateMark t={t} size="pic" />}
@@ -135,6 +139,9 @@ function Activity({ e, team, only, call, onOpenThread }: { e: ChatEntry; team: T
     if (r.verb === 'sent') {
       return <div className="tq-act">{ICON.inbox}<span><span className="v">{who}{only ? 'Sent you' : 'sent you'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}
         {r.waiting ? <span className="tq-st need">Waiting on you</span> : r.answered ? <span className="tq-st">Answered</span> : null}</div>;
+    }
+    if (r.verb === 'answered') {
+      return <div className="tq-act">{ICON.reply}<span><span className="v">{only ? 'You answered' : `You answered ${nameOf(r.teammate, team)} on`}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button>{r.text ? <span className="v">: “{r.text}”</span> : null}</span>{time}</div>;
     }
     if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">{who}{only ? 'Finished' : 'finished'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
     return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Picked up' : 'picked up'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
@@ -238,6 +245,22 @@ function About({ t, products, engines, call, onDone }: { t: Teammate; products: 
 }
 
 /* ---------------------------------------------------------- roster, starters */
+// Where new teammates work: the project you last sent a thread to, else one
+// with code in it, since most starters work on code.
+function useWorkIn(products: Product[]) {
+  const real = products.filter((p) => !p.practice);
+  const [slug, setSlug] = useState<string | null>(() => {
+    const last = rememberedProject();
+    return real.find((p) => p.slug === last)?.slug ?? real.find((p) => p.repoPath)?.slug ?? real[0]?.slug ?? null;
+  });
+  const shown = real.some((p) => p.slug === slug) ? slug : real.find((p) => p.repoPath)?.slug ?? real[0]?.slug ?? null;
+  const picker = real.length > 1 && shown
+    ? <label className="tq-workin"><span>Work in</span><select className="tq-in" value={shown} onChange={(e) => setSlug(e.target.value)}>
+        {real.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}</select></label>
+    : null;
+  return { product: shown, picker };
+}
+
 function StarterCard({ s, on, onPick, button }: { s: Starter; on?: boolean; onPick: () => void; button?: string }) {
   return <button type="button" className={`ob-card${on ? ' on' : ''}`} onClick={onPick} aria-pressed={button ? undefined : !!on}>
     <span className="ob-out">{s.outcome}</span>
@@ -247,13 +270,13 @@ function StarterCard({ s, on, onPick, button }: { s: Starter; on?: boolean; onPi
   </button>;
 }
 
-function Describe({ call, onOpen, label = 'Make a teammate' }: { call: Call; onOpen: (id: string) => void; label?: string }) {
+function Describe({ call, onOpen, product, label = 'Make a teammate' }: { call: Call; onOpen: (id: string) => void; product: string | null; label?: string }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const go = async () => {
     if (!text.trim() || busy) return;
     setBusy(true);
-    const made = await call('describe', { text: text.trim() });
+    const made = await call('describe', { text: text.trim(), ...(product ? { product } : {}) });
     setBusy(false);
     if (made === false) return;
     setText('');
@@ -271,26 +294,29 @@ function Starters({ products, call, error, onOpen }: { products: Product[]; call
   const [picked, setPicked] = useState<Set<string>>(() => new Set(['quality', 'maintainer', 'video']));
   const [busy, setBusy] = useState(false);
   const hasProject = products.some((p) => !p.practice);
+  const where = useWorkIn(products);
   const start = async () => {
     setBusy(true);
-    for (const s of STARTERS) if (picked.has(s.starter)) await call('create', { starter: s.starter });
+    for (const s of STARTERS) if (picked.has(s.starter)) await call('create', { starter: s.starter, ...(where.product ? { product: where.product } : {}) });
     setBusy(false);
   };
   const flip = (k: string) => setPicked((x) => { const n = new Set(x); if (n.has(k)) n.delete(k); else n.add(k); return n; });
   return <div className="ob-wrap">
     <h2 className="tq-h2">Pick your first teammates</h2>
     <p className="tq-lede">They work on your project while you're away and only reach you when they need you.</p>
+    {where.picker && <div className="tq-where">{where.picker}</div>}
     {!hasProject && <p className="tq-error">Make a project first. A teammate works in one of your projects.</p>}
     <div className="ob-grid">{STARTERS.map((s) => <StarterCard key={s.starter} s={s} on={picked.has(s.starter)} onPick={() => flip(s.starter)} />)}</div>
     {error && <p className="tq-error" role="alert">{error}</p>}
     <div className="ob-foot ob-foot-start">
-      <Describe call={call} onOpen={onOpen} />
+      <Describe call={call} onOpen={onOpen} product={where.product} />
       <button type="button" className="th-new tq-go" disabled={!picked.size || busy || !hasProject} onClick={() => void start()}>{picked.size ? `Start ${picked.size} teammate${picked.size === 1 ? '' : 's'}` : 'Pick one or more'}</button>
     </div>
   </div>;
 }
 
 function Roster({ team, products, call, error, onOpen }: { team: Teammate[]; products: Product[]; call: Call; error: string | null; onOpen: (id: string) => void }) {
+  const where = useWorkIn(products);
   const started = new Set(team.map((t) => t.starter).filter(Boolean));
   const others = STARTERS.filter((s) => !started.has(s.starter) && !team.some((t) => t.name === s.name));
   return <div className="tp-body">
@@ -302,9 +328,9 @@ function Roster({ team, products, call, error, onOpen }: { team: Teammate[]; pro
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
     </button>)}
     {others.length > 0 && <><div className="tp-sec">Start another</div>
-      <div className="ob-grid">{others.slice(0, 3).map((s) => <StarterCard key={s.starter} s={s} button="Start" onPick={() => { void call('create', { starter: s.starter, product: products.find((p) => !p.practice)?.slug }); }} />)}</div></>}
+      <div className="ob-grid">{others.slice(0, 3).map((s) => <StarterCard key={s.starter} s={s} button="Start" onPick={() => { void call('create', { starter: s.starter, ...(where.product ? { product: where.product } : {}) }); }} />)}</div></>}
     {error && <p className="tq-error" role="alert">{error}</p>}
-    <Describe call={call} onOpen={onOpen} />
+    <div className="tq-roster-foot">{where.picker}<Describe call={call} onOpen={onOpen} product={where.product} /></div>
   </div>;
 }
 

@@ -43,6 +43,8 @@ import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
 import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
+import { TeammatesContext } from '../teammates/row-lead';
+import { teammateIdOf } from '../../../shared/teammates.mjs';
 
 // THE BACKSTOP, NOT THE HEARTBEAT.
 //
@@ -161,6 +163,9 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   // surfaces that sit outside the thread.
   clean: (text: string) => string;
 }) {
+  const teammates = useContext(TeammatesContext);
+  const teammateId = teammateIdOf(item);
+  const teammate = teammateId ? teammates.get(teammateId) ?? null : null;
   // Keyed to its row: the effect below empties it only after the first paint
   // of a new row, and without the key that frame drew the last row's messages
   // under this one's header (w-388be0a968).
@@ -362,9 +367,10 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
         events={events}
         omitted={omitted}
         chat={chat}
-        name={THEM}
-        // AND WHAT THAT AGENT WAS, on the answers the row has a record for.
-        nameOf={ranOf}
+        name={teammate?.name ?? THEM}
+        // AND WHAT THAT AGENT WAS, on the answers the row has a record for. A
+        // teammate's run is signed with its name.
+        nameOf={teammate ? () => teammate.name : ranOf}
         landOn={item.id}
         onWhole={() => setWhole(true)}
         onOpenOrigin={onOpenOrigin}

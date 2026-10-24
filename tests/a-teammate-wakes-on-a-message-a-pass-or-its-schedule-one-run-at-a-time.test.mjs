@@ -214,6 +214,18 @@ describe('what you see', () => {
     expect(runLines([r], [ada]).map((l) => l.verb)).toEqual(['picked', 'sent', 'finished']);
   });
 
+  // The power test answered Ada in her thread, and her page never showed it:
+  // it ended on "Sent you ... waiting on you" as if nothing had been said.
+  it('your answer in its thread shows, and its next word after it', () => {
+    const r = run(ada, { id: 'w-c2c2c2', title: 'Onboarding', createdAt: 10, answer: 'Look at Product, not Company', result: 'Done: two findings', wrote: { answer: { ts: 40, source: 'founder' }, result: { ts: 50, source: 'agent' } } });
+    const lines = runLines([r], [ada]);
+    expect(lines.map((l) => l.verb)).toEqual(['picked', 'answered', 'sent']);
+    expect(lines.find((l) => l.verb === 'answered')).toMatchObject({ text: 'Look at Product, not Company', ts: 40 });
+    // No answer, no line; and a withdrawn one is not words of yours.
+    expect(runLines([run(ada, { id: 'w-c3c3c3', createdAt: 10 })], [ada]).map((l) => l.verb)).toEqual(['picked']);
+    expect(runLines([run(ada, { id: 'w-c4c4c4', createdAt: 10, answer: '(withdrawn)', wrote: { answer: { ts: 40, source: 'founder' } } })], [ada]).map((l) => l.verb)).toEqual(['picked']);
+  });
+
   it('a clean run shows no sent line, and a queued one shows nothing', () => {
     const clean = run(ada, { id: 'w-dddddd', status: 'done', createdAt: 10, labels: ['founder', teammateLabel(ada.id), 'clean'], result: 'nothing', wrote: { result: { ts: 20, source: 'agent' }, status: { ts: 21, source: 'agent' } } });
     const q = run(ada, { id: 'w-eeeeee', start: 'later' });

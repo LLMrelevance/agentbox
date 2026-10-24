@@ -379,7 +379,9 @@ export interface TeamChatLine {
 }
 export interface TeamRunLine {
   id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;
-  verb: 'picked' | 'passed' | 'sent' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean; ts: number;
+  verb: 'picked' | 'passed' | 'sent' | 'answered' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
+  /** Your words, on an `answered` line. */
+  text?: string; ts: number;
 }
 export interface TeammatesView { list: Teammate[]; chat: TeamChatLine[]; runs: TeamRunLine[]; error?: string }
 export type TeammatesResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };

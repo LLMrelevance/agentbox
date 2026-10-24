@@ -37,7 +37,8 @@ export class Teammates {
   // the first real project.
   _product(slug) {
     const products = this.store.listProducts().filter((p) => !p.practice && !p.personal);
-    return products.find((p) => p.slug === slug)?.slug ?? products[0]?.slug ?? null;
+    // Unnamed, the first with code in it: most of what a teammate does is code.
+    return products.find((p) => p.slug === slug)?.slug ?? products.find((p) => p.repoPath)?.slug ?? products[0]?.slug ?? null;
   }
 
   create(fields = {}, now = Date.now()) {
@@ -187,9 +188,10 @@ export class Teammates {
           const labels = ['founder', teammateLabel(t.id), `${HOP_LABEL_PREFIX}${hop}`];
           if (a.trigger.kind === 'pass' && a.trigger.from && a.trigger.from !== YOU) labels.push(`${FROM_LABEL_PREFIX}${a.trigger.from}`);
           await lock.withProjectLock(dir, async () => {
-            workItemsDisk.createWorkItemIfAbsent(dir, a.id, {
+            const opening = this.openingFor(t, a.trigger, team);
+            const made = workItemsDisk.createWorkItemIfAbsent(dir, a.id, {
               title: a.title,
-              body: this.triggerText(t, a.trigger, team),
+              ...(opening.yours ? {} : { body: opening.body }),
               kind: 'directive',
               priority: 5,
               labels,
@@ -198,6 +200,9 @@ export class Teammates {
               ...(t.model ? { model: t.model } : {}),
               ...(t.effort ? { effort: t.effort } : {}),
             }, { source: 'system', now });
+            // Your words go in as yours, the way a task you type does, so the
+            // thread opens on them under your name.
+            if (made?.created !== false && opening.yours) workItemsDisk.updateWorkItem(dir, a.id, { title: a.title, body: opening.body }, { source: 'founder', now });
           });
         } else if (a.type === 'seen') {
           writeChat(this.dir(), { kind: 'seen', ref: a.msg, for: a.teammate, ...(a.run ? { run: a.run } : {}) }, now);
@@ -234,28 +239,19 @@ export class Teammates {
   }
 
   // Why this run exists, written into the run's own body.
-  triggerText(t, trigger, team) {
+  // What opens the run's thread: your own words when you wrote, and otherwise
+  // a plain line saying what woke it. How to answer is in its brief.
+  openingFor(t, trigger, team) {
     const who = this.nameOf(trigger.from, team);
     if (trigger.kind === 'schedule') {
-      return `It is time for your ${isWorks(t.works) ? ruleLabel(t.works) : 'regular'} round. Do your job, as your brief describes, for today.`;
+      return { body: `Time for your ${isWorks(t.works) ? ruleLabel(t.works) : 'regular'} round.`, yours: false };
     }
     if (trigger.kind === 'pass') {
-      return [`${who} passed you this work in the team chat.`, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? '', '', 'Do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and who it belongs to.'].join('\n');
+      return { body: [`${who} passed you this in the team chat.`, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? ''].join('\n').trim(), yours: false };
     }
-    if (t.status === 'draft') {
-      return [
-        'You are a new teammate, still being set up. What the person asked for and anything they have answered since is in the team chat in your brief. Their newest words:',
-        '', `> ${String(trigger.text ?? '').split('\n').join('\n> ')}`, '',
-        'Set yourself up, then stop:',
-        '1. Pick a short first name that no teammate has and a plain role (two or three words). Draft your job, goal, how you count the goal, when you work and what you ask the person first. Save all of it with team_setup.',
-        '2. If something important is unclear, ask the person, one question per team_post, at most three, each with two or three short answers in `options`. Then finish this run quietly. Their answer wakes you again with the chat in your brief.',
-        '3. When nothing is unclear, call team_setup with ready true, post one or two sentences saying what you will do first, and finish quietly.',
-      ].join('\n');
-    }
-    if (trigger.kind === 'message' && trigger.from === YOU) {
-      return ['The person wrote to you in the team chat:', '', `> ${String(trigger.text ?? '').split('\n').join('\n> ')}`, '', 'Reply to them in the team chat with team_post, and do what they ask if it is part of your job.'].join('\n');
-    }
-    return [`${who} wrote to you in the team chat:`, '', `> ${String(trigger.text ?? '').split('\n').join('\n> ')}`, '', `Reply in the team chat with team_post. Start your reply with @${who} only if ${who} needs to act on it.`].join('\n');
+    const text = String(trigger.text ?? '').trim() || '(no words)';
+    if (trigger.from === YOU) return { body: text, yours: true };
+    return { body: `${who} wrote to you in the team chat:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
   }
 
   // The standing part of a teammate's brief, read fresh at every spawn so its
@@ -288,7 +284,7 @@ export class Teammates {
     return [
       `# You are ${t.name}${t.role ? `, the ${t.role}` : ''}: a teammate`,
       '',
-      `You are one of the person's teammates in {{Name}}: an agent with a standing job that works on its own, talks with the other teammates in one team chat, and reaches the person only when it needs them. This thread is one run of your work; why you are awake is in its body.`,
+      `You are one of the person's teammates in {{Name}}: an agent with a standing job that works on its own, talks with the other teammates in one team chat, and reaches the person only when it needs them. This thread is one run of your work, and its opening message is why you are awake.`,
       '',
       t.job ? `Your job: ${t.job}` : null,
       t.goal ? `Your goal: ${t.goal}${t.counted ? ` (counted as: ${t.counted})` : ''}` : null,
@@ -304,6 +300,19 @@ export class Teammates {
       '## The team chat, newest last',
       ...(tail.length ? tail.map(line) : ['(nothing yet)']),
       '',
+      '## Answering what woke you',
+      ...(t.status === 'draft' ? [
+        'You are a new teammate, still being set up. The opening message is what the person asked for, and anything they have answered since is in the team chat above. Set yourself up, then stop:',
+        '1. Pick a short first name that no teammate has and a plain role (two or three words). Draft your job, goal, how you count the goal, when you work and what you ask the person first. Save all of it with team_setup.',
+        '2. If something important is unclear, ask the person, one question per team_post, at most three, each with two or three short answers in `options`. Then finish this run quietly. Their answer wakes you again with the chat in your brief.',
+        '3. When nothing is unclear, call team_setup with ready true, post one or two sentences saying what you will do first, and finish quietly.',
+      ] : [
+        '- If the person wrote to you, the opening is their words from the team chat. Reply to them there with team_post, and do what they ask if it is part of your job.',
+        '- If a teammate passed you work, do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and whose it is.',
+        '- If a teammate wrote to you, reply in the team chat. Start with @Name only if they need to act on it.',
+        '- If it is your round, do your job for today, as above.',
+      ]),
+      '',
       '## How a teammate works',
       '- Talk with team_post: short and plain, one to three sentences. Post when you start something worth knowing, when you finish, and when you hand something on. Naming someone with @Name wakes them, so do that only when they need to act.',
       '- Hand work to a teammate whose job it is with team_pass (to, title, details). They get it as a run of their own. Do not do another teammate\'s job.',
@@ -311,7 +320,6 @@ export class Teammates {
       '- Reach the person only when you need them: a decision, a yes before anything that leaves (sends, posts, ships, merges, pays), or a sign-in only they have. Then end this run with your question as your answer: bold first line, numbered options, your recommendation first. It reaches their inbox. Leave this item open.',
       `- When nothing needs them, post a one-line summary to the team chat, then close this run yourself: update_work_item with status done and labels ["founder", "${teammateLabel(t.id)}", "${HOP_LABEL_PREFIX}${hop}", "clean"] in one call. This run is your own work, not the person's ask, so closing it needs no quote from them.`,
       '- Never wait or poll for a teammate. Say what you are waiting for in the chat and finish; their reply wakes you.',
-      t.status === 'draft' ? '- You are still being set up. Your name and job are not settled until you call team_setup.' : null,
     ].filter((x) => x !== null).join('\n');
   }
 }

@@ -7,12 +7,14 @@
 // never made twice for one message.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { appHome } from '../main/store/home.mjs';
 import { loadStore } from '../main/store-modules.mjs';
 import { Teammates } from '../main/teammates.mjs';
 import { teammateIdOf, passedFromOf, hopOf } from '../shared/teammates.mjs';
 import { isCleanRun } from '../shared/repeats.mjs';
+import { threadEvents } from '../renderer/src/thread-history';
 
 describe('teammates through the store', () => {
   let product; let dir; let mods; let team; let core; let work; let store;
@@ -56,11 +58,19 @@ describe('teammates through the store', () => {
     const runs = store.listItems().filter((i) => teammateIdOf(i) === ada.id);
     expect(runs).toHaveLength(1);
     expect(runs[0].labels).toEqual(expect.arrayContaining(['founder', `teammate:${ada.id}`, 'hop:0']));
-    expect(runs[0].body).toContain('Can you try checkout on a phone?');
+    // The thread opens on your words, as yours: the power test found it
+    // opening on the app's instructions, signed "The agent".
+    expect(runs[0].body).toBe('Can you try checkout on a phone?');
+    const lines = work.readLinesFrom(dir).lines.filter((l) => l.id === runs[0].id);
+    const opening = threadEvents(lines).find((e) => e.field === 'body');
+    expect(opening).toMatchObject({ who: 'you', words: 'Can you try checkout on a phone?' });
     const brief = team.briefFor(runs[0]);
     expect(brief).toContain('You are Ada, the Quality lead');
     expect(brief).toContain('Can you try checkout on a phone?');
     expect(brief).toContain(`"teammate:${ada.id}"`);
+    // How to answer is the brief's, not the thread's.
+    expect(brief).toMatch(/If the person wrote to you/);
+    expect(runs[0].body).not.toMatch(/team_post/);
   });
 
   it('a teammate posts, passes work, and the tick makes the other teammate\'s run with where it came from', async () => {
@@ -82,6 +92,10 @@ describe('teammates through the store', () => {
     expect(passedFromOf(felixRun)).toBe(ada.id);
     expect(hopOf(felixRun)).toBe(1);
     expect(felixRun.body).toContain('Tap Buy twice on a slow connection.');
+    // A teammate's work is not your words.
+    const lines = work.readLinesFrom(dir).lines.filter((l) => l.id === felixRun.id);
+    expect(threadEvents(lines).find((e) => e.field === 'body')?.who).not.toBe('you');
+    expect(felixRun.body).not.toMatch(/team_post/);
   });
 
   it('keeps a preference, says so in the chat, and briefs every later run with it', async () => {
@@ -102,12 +116,25 @@ describe('teammates through the store', () => {
     expect(teammate.status).toBe('draft');
     await tick(Date.now());
     const run = store.listItems().find((i) => teammateIdOf(i) === teammate.id);
-    expect(run.body).toContain('still being set up');
+    expect(run.body).toBe('Keep the help pages right whenever the app changes');
+    expect(team.briefFor(run)).toContain('still being set up');
+    expect(team.briefFor(run)).toMatch(/team_setup/);
     onRun(run.id);
     core.teamSetup({ name: 'Dana', role: 'Docs writer', every: 'weekday', at: '10:00', ready: true });
     const after = team.get(teammate.id);
     expect(after).toMatchObject({ name: 'Dana', role: 'Docs writer', letter: 'D', status: 'active', works: { every: 'weekday', at: '10:00' } });
     expect(() => core.teamSetup({ every: 'sometimes' })).toThrow(/every is one of/);
+  });
+
+  // The power test's founder had Company (docs, no code), Product and Website,
+  // and all three starters landed on Company, the first in the list.
+  it('works where you say, and unnamed, in a project with code rather than the first one listed', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-tm-where-'));
+    const listed = [{ slug: 'company', dir: root, name: 'Company', repoPath: null }, { slug: 'product', dir: root, name: 'Product', repoPath: '/r' }, { slug: 'practice', dir: root, name: 'Practice', practice: true, repoPath: '/p' }];
+    const here = new Teammates({ config: { storeRoot: root, accountId: 'acct-where' }, modules: mods, listProducts: () => listed, listItems: () => [] });
+    expect(here.create({ starter: 'quality' }).product).toBe('product');
+    expect(here.create({ starter: 'maintainer', product: 'company' }).product).toBe('company');
+    expect(here.create({ starter: 'support', product: 'practice' }).product).toBe('product');
   });
 
   it('refuses: a session that is no teammate\'s run, passing to yourself, and a name nobody has', async () => {

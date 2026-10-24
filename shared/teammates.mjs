@@ -344,6 +344,11 @@ export function runLines(items, teammates = []) {
     const base = { teammate: tid, item: item.id, product: item.product, title: item.label || item.title };
     const v = verbFor(item, teammates);
     out.push({ ...base, id: `${item.id}:start`, kind: 'run', verb: v.verb, by: v.by, byName: v.byName, ts: item.wrote?.start?.ts ?? item.createdAt ?? 0 });
+    const a = item.wrote?.answer;
+    const said = typeof item.answer === 'string' ? item.answer.trim() : '';
+    if (a && a.source === 'founder' && said && said !== '(withdrawn)') {
+      out.push({ ...base, id: `${item.id}:answered`, kind: 'run', verb: 'answered', text: clip(said, 400), ts: a.ts });
+    }
     const r = item.wrote?.result;
     if (r && r.source === 'agent' && !(item.labels ?? []).includes('clean')) {
       const answered = (item.wrote?.answer?.ts ?? 0) > r.ts;

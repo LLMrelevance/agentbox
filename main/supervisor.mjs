@@ -5203,7 +5203,7 @@ export class Supervisor {
   // one; a personal project, a command she typed, or a Remote Control session
   // stays on this Mac.
   _mayRunInCloud(item, product, cwd, { remoteOnly = false } = {}) {
-    if (remoteOnly) return false;
+    if (remoteOnly || teammateIdOf(item)) return false;
     if (item?.id && (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {}))) return false;
     if (!product || !cwd || cwd === product.repoPath) return false;
     if (cwd === product.dir ? !item?.id || !this._cloudTakesPlain() : !product.repoPath) return false;
@@ -5255,6 +5255,7 @@ export class Supervisor {
     if (!this._cloudSetUp()) return null;
     if (!this._cloudFirst()) return { why: 'started-before' };
     if (item?.id && this.threadOnMac?.[item.id] === true) return { why: 'kept' };
+    if (teammateIdOf(item)) return { why: 'teammate' };
     if (item?.id && item.id in (this.movedToMac ?? {})) return this._movedWhy?.[item.id] ?? { why: 'handed-back', detail: null };
     if (this._mustRunHere(item, engine)) return { why: 'codex-reply' };
     if (!this._cloudTakesProject(product)) return { why: 'project' };
@@ -5670,6 +5671,8 @@ export class Supervisor {
   // The part of `_mayRunInCloud` that can be asked before a row has a folder.
   _cloudEligible(item) {
     if (!item || String(item.id || '').startsWith('digest-')) return false;
+    // The team chat it talks through is files on this computer.
+    if (teammateIdOf(item)) return false;
     if (this.threadOnMac?.[item.id] === true || item.id in (this.movedToMac ?? {})) return false;
     return this._cloudTakesProject(this.store.listProducts?.().find((p) => p.slug === item.product));
   }
