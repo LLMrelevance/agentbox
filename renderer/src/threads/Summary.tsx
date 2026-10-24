@@ -32,7 +32,7 @@ import { shownToPeople } from '../../../shared/thread-cards.mjs';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { isDirect } from './page-rules';
 import { rowTitle } from '../list-rules';
-import { inStep, SharedMark } from './Pages';
+import { inStep, RunningMark, SharedMark } from './Pages';
 import { FleetContext } from '../fleet';
 import { factsFor, statusCell, type StatusCell } from '../status-word';
 import { TicketText } from '../components/TicketReference';
@@ -53,6 +53,7 @@ function Glyph({ kind }: { kind: StateGlyph }) {
  * nothing can start it, and rings faintly while it waits its turn.
  */
 function StatusGlyph({ status }: { status: StatusCell }) {
+  if (status.live && status.cloud) return <RunningMark cloud />;
   return <span className={`ts-st ts-st-${status.mark}${status.live ? ' live' : ''}`} aria-hidden="true" ref={status.live ? inStep : undefined} />;
 }
 
