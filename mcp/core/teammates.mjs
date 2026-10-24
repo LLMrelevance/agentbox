@@ -94,8 +94,20 @@ export function teamRemember({ text } = {}, ctx = {}) {
 
 const EVERY = ['day', 'weekday', 'week', 'never'];
 
+// Or answered in the setup thread itself, which reaches the run as its answer.
+function answeredInThread(item) {
+  const said = typeof item?.answer === 'string' ? item.answer.trim() : '';
+  return !!said && said !== '(withdrawn)' && item.wrote?.answer?.source === 'founder';
+}
+
+function answeredSince(dir, id) {
+  const { messages } = readChat(dir);
+  const asked = messages.filter((m) => m.kind === 'msg' && m.from === YOU && m.setup && (m.to ?? []).includes(id)).at(-1);
+  return messages.some((m) => m.kind === 'msg' && m.from === YOU && !m.setup && (m.to ?? []).includes(id) && m.ts > (asked?.ts ?? 0));
+}
+
 export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, runsOn, ready } = {}, ctx = {}) {
-  const { dir, me, team } = teammateContext(ctx);
+  const { dir, me, team, item } = teammateContext(ctx);
   const now = ctx.now ?? Date.now();
   const patch = {};
   if (typeof name === 'string' && name.trim()) {
@@ -118,6 +130,11 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
   if (runsOn !== undefined) {
     if (runsOn !== 'claude' && runsOn !== 'codex') throw new Error('runsOn is claude or codex');
     patch.engine = runsOn;
+  }
+  // A new teammate asks before it starts, so ready waits for the person's
+  // own words to it after the ask that made it.
+  if (ready === true && me.status === 'draft' && !answeredSince(dir, me.id) && !answeredInThread(item)) {
+    throw new Error('ask you first: post your questions with team_post, each with options, and finish; you can go ready once the person has answered');
   }
   if (ready === true) patch.status = 'active';
   writeTeammate(dir, me.id, patch, now);

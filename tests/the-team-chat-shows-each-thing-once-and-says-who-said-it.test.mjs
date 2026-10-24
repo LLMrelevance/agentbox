@@ -81,7 +81,7 @@ describe('the line under a teammate in the sidebar', async () => {
     expect(nowLine({ ...base, paused: true, running: { id: 'w', product: 'p' }, now: 'Draft the intro emails' })).toBe('Draft the intro emails');
     expect(nowLine({ ...base, question: true })).toBe('Has a question for you');
     expect(nowLine({ ...base, status: 'draft' })).toBe('Setting up');
-    expect(nowLine(base)).toBe('Free');
+    expect(nowLine(base)).toBe('Idle');
   });
 });
 

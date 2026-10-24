@@ -1,6 +1,8 @@
 // What the team chat draws, from the snapshot: messages, passes and the lines
 // runs leave, in time order, seen whole or through one teammate.
-import type { Teammate, TeamChatLine, TeamRunLine, TeammatesView, WorkItem } from '../types';
+import type { RunningSession, Teammate, TeamChatLine, TeamRunLine, TeammatesView, WorkItem } from '../types';
+import { spanLabel } from '../notes';
+import { nextRunAt } from '../../../shared/repeats.mjs';
 import { teammateIdOf } from '../../../shared/teammates.mjs';
 
 export type ChatEntry = TeamChatLine | TeamRunLine;
@@ -100,4 +102,33 @@ export function heldFor(view: TeammatesView | null | undefined, id: string): Tea
 export function heldTitle(view: TeammatesView | null | undefined, stop: TeamChatLine): string {
   const held = view?.chat.find((m) => m.id === stop.ref);
   return String(held?.title ?? held?.text ?? 'the work').replace(/\s+/g, ' ').trim().slice(0, 120);
+}
+
+// What a teammate's current run is doing, for the live line under its chat:
+// the step it is on and for how long, or that no agent has it yet.
+export function workingLine(
+  t: Pick<Teammate, 'name' | 'running' | 'now'>,
+  session: Pick<RunningSession, 'startedAt' | 'activity'> | null | undefined,
+  now = Date.now(),
+): { state: 'working' | 'waiting'; lead: string; step: string } | null {
+  if (!t.running) return null;
+  const run = t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : 'its next run';
+  if (!session) return { state: 'waiting', lead: `${t.name} is waiting for a free agent to start`, step: run };
+  const elapsed = Math.max(0, now - session.startedAt);
+  const step = session.activity?.at(-1)?.label?.trim() || run;
+  return { state: 'working', lead: elapsed < 60_000 ? `${t.name} just started` : `${t.name} is working, ${spanLabel(elapsed)} in`, step };
+}
+
+export function longMessage(text: string): boolean {
+  return text.length > 900 || text.split('\n').length > 12;
+}
+
+// Not "Free", which reads as the plan you are on.
+export function idleLine(t: Pick<Teammate, 'works'>, now = Date.now()): string {
+  const at = t.works ? nextRunAt(t.works, now) : null;
+  if (!at) return 'Idle';
+  const when = new Date(at);
+  const clock = when.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).toLowerCase().replace(/\s/g, '');
+  const sameDay = new Date(now).toDateString() === when.toDateString();
+  return `Idle until ${sameDay ? '' : `${when.toLocaleDateString('en-US', { weekday: 'short' })} `}${clock}`;
 }

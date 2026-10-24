@@ -2,6 +2,7 @@
 // with a dot when it is waiting on you. With the sidebar wide, its name and
 // what it is on. The first row opens the team chat.
 import type { Teammate } from '../types';
+import { idleLine } from './chat-lines';
 import './teammates.css';
 
 export function TeammateMark({ t, size = 'sm', waiting = false }: { t: Pick<Teammate, 'letter' | 'name'> | null; size?: 'sm' | 'hd' | 'pic' | 'big'; waiting?: boolean }) {
@@ -13,7 +14,7 @@ export function nowLine(t: Teammate): string {
   if (t.held) return 'Holding work for your go-ahead';
   if (t.status === 'draft') return 'Setting up';
   if (t.paused && !t.running) return t.waiting.length || t.asking ? 'Paused, waiting on you' : 'Paused';
-  return t.now ?? 'Free';
+  return t.now ?? idleLine(t);
 }
 
 const TEAM_ICON = <svg className="workspace-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeDasharray="2 1.6" aria-hidden="true"><rect x="3.5" y="7.5" width="10" height="10" /><rect x="10.5" y="4.5" width="10" height="10" /></svg>;

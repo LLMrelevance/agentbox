@@ -2,7 +2,7 @@
 // rows, the title, the right end of the top bar and the page. Kept apart from
 // useRooms, whose every field App reads is pinned by its own tests.
 import { useMemo, useState, type ReactNode } from 'react';
-import type { Product, TeammatesView } from '../types';
+import type { Product, RunningSession, TeammatesView } from '../types';
 import { TeammatesPage, TeammatesTitle } from './TeammatesPage';
 import { TeammatesRail } from './TeammatesRail';
 import { asksYou, heldFor } from './chat-lines';
@@ -10,8 +10,10 @@ import { asksYou, heldFor } from './chat-lines';
 /** 'team' is the team chat, 'roster' the Teammates tab, anything else a teammate's id. */
 export type TeammatesOpen = string | null;
 
-export function useTeammates({ view: stored, asking = [], products, engines, me, onEnter, onOpenThread, onChanged }: {
+export function useTeammates({ view: stored, asking = [], running = [], products, engines, me, onEnter, onOpenThread, onChanged }: {
   view: TeammatesView | null | undefined;
+  /** The agents running now (`snapshot.supervisor.running`). */
+  running?: RunningSession[];
   /** Threads waiting for you to allow or deny a command. */
   asking?: (string | null)[];
   products: Product[];
@@ -38,6 +40,7 @@ export function useTeammates({ view: stored, asking = [], products, engines, me,
     };
   }, [stored, askingKey]);
   const live = !!view;
+  const sessions = useMemo(() => new Map(running.map((r) => [r.itemId, r])), [running]);
   const go = (which: string) => { onEnter(); setOpen(which); };
   const leave = () => setOpen(null);
   const known = open === 'team' || open === 'roster' || !!view?.list.some((t) => t.id === open);
@@ -45,7 +48,7 @@ export function useTeammates({ view: stored, asking = [], products, engines, me,
   const railLit = shownOpen === 'roster' ? 'team' : shownOpen;
   const page: ReactNode = shownOpen && view
     ? <TeammatesPage view={view} open={shownOpen} products={products} engines={engines} me={me}
-        onTab={(tab) => setOpen(tab)} onOpenTeammate={go} onOpenThread={onOpenThread} onChanged={onChanged} />
+        onTab={(tab) => setOpen(tab)} onOpenTeammate={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} />
     : null;
   return {
     live,

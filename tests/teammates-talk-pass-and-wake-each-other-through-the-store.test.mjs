@@ -136,6 +136,16 @@ describe('teammates through the store', () => {
     expect(team.briefFor(run)).toContain('still being set up');
     expect(team.briefFor(run)).toMatch(/team_setup/);
     onRun(run.id);
+    // It asks before it starts: "it basically just made a bunch of assumptions
+    // that I didn't really want (about the timing of how it works, what it
+    // should do, etc.)". Ready is refused until you have answered it.
+    expect(team.briefFor(run)).toMatch(/Always ask/);
+    expect(() => core.teamSetup({ name: 'Dana', role: 'Docs writer', every: 'weekday', at: '10:00', ready: true })).toThrow(/ask you first/);
+    expect(team.get(teammate.id).status).toBe('draft');
+    core.teamPost({ text: 'When should I check the help pages?', options: ['Weekdays at 10am (my guess)', 'After each release'] });
+    // Its own question is not your answer.
+    expect(() => core.teamSetup({ ready: true })).toThrow(/ask you first/);
+    team.post({ text: 'Weekdays at 10am', to: [teammate.id] });
     core.teamSetup({ name: 'Dana', role: 'Docs writer', every: 'weekday', at: '10:00', ready: true });
     const after = team.get(teammate.id);
     expect(after).toMatchObject({ name: 'Dana', role: 'Docs writer', letter: 'D', status: 'active', works: { every: 'weekday', at: '10:00' } });

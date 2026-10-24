@@ -4,11 +4,11 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import type { Product, Teammate, TeammatesView, TeamChatLine, TeamRunLine } from '../types';
+import type { Product, RunningSession, Teammate, TeammatesView, TeamChatLine, TeamRunLine } from '../types';
 import { api } from '../api';
 import { MAX_HOPS, STARTERS, type Starter } from '../../../shared/teammates.mjs';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatEntries, clockOf, dayOf, heldFor, heldTitle, nameOf, type ChatEntry } from './chat-lines';
+import { answerTo, chatEntries, clockOf, dayOf, heldFor, heldTitle, idleLine, longMessage, nameOf, workingLine, type ChatEntry } from './chat-lines';
 import { TeammateMark } from './TeammatesRail';
 import './teammates.css';
 
@@ -28,6 +28,7 @@ const YOU_GLYPH = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" st
 
 /** What the store handed back, or false when it refused (the reason is shown). */
 type Call = (op: string, args: Record<string, unknown>) => Promise<unknown>;
+const NO_SESSIONS: ReadonlyMap<string, RunningSession> = new Map();
 
 export function TeammatesTitle({ view, open }: { view: TeammatesView | null; open: string }) {
   const t = view?.list.find((x) => x.id === open) ?? null;
@@ -35,8 +36,10 @@ export function TeammatesTitle({ view, open }: { view: TeammatesView | null; ope
   return <h1 className="workspace-title tq-title"><TeammateMark t={t} size="hd" /><span>{t.name}</span>{t.role && <span className="tq-role">{t.role}</span>}</h1>;
 }
 
-export function TeammatesPage({ view, open, products, engines, onTab, onOpenTeammate, onOpenThread, onChanged, me }: {
+export function TeammatesPage({ view, open, products, engines, onTab, onOpenTeammate, onOpenThread, onChanged, me, sessions = NO_SESSIONS }: {
   view: TeammatesView | null;
+  /** The agents running now, by thread, so a teammate at work can say what it is doing. */
+  sessions?: ReadonlyMap<string, RunningSession>;
   /** 'team' for the chat, 'roster' for the Teammates tab, or a teammate's id. */
   open: string;
   products: Product[];
@@ -68,18 +71,18 @@ export function TeammatesPage({ view, open, products, engines, onTab, onOpenTeam
       </div></div>
       {open === 'roster'
         ? <Roster team={team} products={products} engines={engines} call={call} error={error} onOpen={onOpenTeammate} />
-        : <ChatColumn view={view} team={team} only={null} me={me} call={call} onOpenThread={onOpenThread} placeholder="Message the team. @Name wakes that teammate." error={error} />}
+        : <ChatColumn view={view} team={team} only={null} me={me} call={call} sessions={sessions} onOpenThread={onOpenThread} placeholder="Message the team. @Name wakes that teammate." error={error} />}
     </div>;
   }
   return <div className="tq-page tq-one">
-    <ChatColumn view={view} team={team} only={t} me={me} call={call} onOpenThread={onOpenThread} placeholder={t.status === 'draft' ? `Answer ${t.name === 'New teammate' ? 'your new teammate' : t.name}` : `Message ${t.name}`} error={error} />
-    <SidePanel t={t} products={products} engines={engines} call={call} onOpenThread={onOpenThread} />
+    <ChatColumn view={view} team={team} only={t} me={me} call={call} sessions={sessions} onOpenThread={onOpenThread} placeholder={t.status === 'draft' ? `Answer ${t.name === 'New teammate' ? 'your new teammate' : t.name}` : `Message ${t.name}`} error={error} />
+    <SidePanel t={t} products={products} engines={engines} call={call} onOpenThread={onOpenThread} sessions={sessions} />
   </div>;
 }
 
 /* ------------------------------------------------------------------ chat */
-function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, error }: {
-  view: TeammatesView | null; team: Teammate[]; only: Teammate | null; me: string; call: Call;
+function ChatColumn({ view, team, only, me, call, sessions, onOpenThread, placeholder, error }: {
+  view: TeammatesView | null; team: Teammate[]; only: Teammate | null; me: string; call: Call; sessions: ReadonlyMap<string, RunningSession>;
   onOpenThread: (product: string, id: string) => void; placeholder: string; error: string | null;
 }) {
   const entries = useMemo(() => chatEntries(view, only?.id ?? null), [view, only?.id]);
@@ -97,7 +100,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
       rows.push(<Message key={e.id} m={e} team={team} me={me} lead={lead} only={only} call={call} onOpenThread={onOpenThread} answered={answerTo(view, e)} />);
       prevFrom = e.from;
     } else {
-      rows.push(<Activity key={e.id} e={e} view={view} team={team} only={only} call={call} onOpenThread={onOpenThread} />);
+      rows.push(<Activity key={e.id} e={e} view={view} team={team} only={only} call={call} onOpenThread={onOpenThread} waitingToStart={e.kind === 'run' && e.verb === 'picked' && !sessions.has(e.item) && team.some((x) => x.running?.id === e.item)} />);
       // A message after an activity line says who it is from again.
       prevFrom = '';
     }
@@ -105,6 +108,7 @@ function ChatColumn({ view, team, only, me, call, onOpenThread, placeholder, err
   return <div className="tq-chat">
     <div className="tq-lines" ref={scroller}>
       {rows.length ? rows : <p className="tq-empty">{only ? `Nothing yet. Say hello to ${only.name}.` : 'Nothing yet. Write to a teammate with @Name, or open one on the left.'}</p>}
+      {(only ? [only] : team).filter((x) => x.running).map((x) => <LiveRow key={`live-${x.id}`} t={x} session={sessions.get(x.running!.id)} only={!!only} onOpen={() => onOpenThread(x.running!.product, x.running!.id)} />)}
     </div>
     {error && <p className="tq-error" role="alert">{error}</p>}
     {!error && (view?.trouble || view?.error) && <p className="tq-error" role="status">{view?.trouble ?? `Teammates could not be read: ${view?.error}`}</p>}
@@ -124,7 +128,7 @@ function Message({ m, team, me, lead, only, call, onOpenThread, answered }: { m:
       {mine && m.via && m.viaProduct && <button type="button" className="tq-to tq-link" onClick={() => onOpenThread(m.viaProduct!, m.via!)}>open it</button>}
       <em>{clockOf(m.ts)}</em>
     </div>}
-    <div className="tx"><ReactMarkdown remarkPlugins={MD}>{m.text ?? ''}</ReactMarkdown>
+    <div className="tx"><Folded long={longMessage(m.text ?? '')}><ReactMarkdown remarkPlugins={MD}>{m.text ?? ''}</ReactMarkdown></Folded>
       {!mine && t && m.options?.length ? <div className="tq-chips">{m.options.map((o) => (
         <button key={o} type="button" className={`tq-chip${answered === null ? '' : answered.trim() === o ? ' on' : ' dim'}`} disabled={answered !== null}
           onClick={() => { void call('post', { text: o, to: [t.id] }); }}>{o}</button>
@@ -133,7 +137,20 @@ function Message({ m, team, me, lead, only, call, onOpenThread, answered }: { m:
   </div>;
 }
 
-function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; view: TeammatesView | null; team: Teammate[]; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void }) {
+// The foot of the chat while a teammate works: the step it is on, or that it
+// is waiting for an agent. It moves with every snapshot, so a run never looks stuck.
+function LiveRow({ t, session, only, onOpen }: { t: Teammate; session: RunningSession | undefined; only: boolean; onOpen: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, []);
+  const line = workingLine(t, session, now);
+  if (!line) return null;
+  return <div className={`tq-act tq-live${line.state === 'working' ? ' on' : ''}`} role="status">
+    {line.state === 'working' ? <i className="tq-dots tq-moving" aria-hidden="true" /> : ICON.dots}
+    <span><span className="v">{only ? line.lead.replace(`${t.name} `, '').replace(/^./, (c) => c.toUpperCase()) : line.lead}</span> <Inline onClick={onOpen}>{line.step}</Inline></span>
+  </div>;
+}
+
+function Activity({ e, view, team, only, call, onOpenThread, waitingToStart = false }: { e: ChatEntry; view: TeammatesView | null; team: Teammate[]; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void; waitingToStart?: boolean }) {
   const who = only ? '' : `${nameOf(e.kind === 'run' ? e.teammate : e.from, team)} `;
   const time = <em>{clockOf(e.ts)}</em>;
   if (e.kind === 'run') {
@@ -148,6 +165,8 @@ function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; v
     }
     if (r.verb === 'queued') return <div className="tq-act tq-next">{ICON.dots}<span><span className="v">{only ? 'Next' : `Next for ${nameOf(r.teammate, team)}`}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
     if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">{who}{only ? 'Finished' : 'finished'}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
+    // Made for it but no agent on it yet: the live line below says it is waiting.
+    if (waitingToStart) return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Took on' : 'took on'}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
     return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Picked up' : 'picked up'}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
   }
   const c = e as TeamChatLine;
@@ -194,12 +213,12 @@ function Composer({ placeholder, onSend }: { placeholder: string; onSend: (text:
 }
 
 /* ----------------------------------------------------------------- panel */
-function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; products: Product[]; engines: { id: string; label: string }[]; call: Call; onOpenThread: (product: string, id: string) => void }) {
+function SidePanel({ t, products, engines, call, onOpenThread, sessions }: { t: Teammate; products: Product[]; engines: { id: string; label: string }[]; call: Call; onOpenThread: (product: string, id: string) => void; sessions: ReadonlyMap<string, RunningSession> }) {
   const [editing, setEditing] = useState(false);
   useEffect(() => { setEditing(false); }, [t.id]);
   if (editing) return <aside className="gr-side tq-side"><About t={t} products={products} engines={engines} call={call} onDone={() => setEditing(false)} /></aside>;
   return <aside className="gr-side tq-side">
-    {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">It sets itself up from what you wrote, and asks you in the chat if anything is unclear.</div></div>}
+    {t.status === 'draft' && <div className="tq-sec"><div className="tq-sh">Setting up</div><div className="tq-sv dim">It reads what you wrote, then asks you in the chat how it should work before it starts.</div></div>}
     <div className="tq-sec"><div className="tq-sh">Goal<button type="button" className="tq-edit" onClick={() => setEditing(true)}>Edit</button></div><div className="tq-sv">{t.goal ?? <span className="dim">No goal yet</span>}</div>
       <button type="button" className="tq-sv dim tq-works tq-link" title="Change when it works" onClick={() => setEditing(true)}>{t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}{t.engine && engines.length > 1 ? `, on ${engines.find((e) => e.id === t.engine)?.label ?? t.engine}` : ''}</button></div>
     {(t.waiting.length > 0 || t.asking || t.question || t.held) && <div className="tq-sec"><div className="tq-sh">Waiting on you</div>
@@ -208,7 +227,8 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
       {t.asking && t.running && <button type="button" className="tq-li need" onClick={() => onOpenThread(t.running!.product, t.running!.id)}>Allow or deny a command</button>}
       {t.waiting.map((w) => <button key={w.id} type="button" className="tq-li need" onClick={() => onOpenThread(w.product, w.id)}>{w.title}</button>)}</div>}
     <div className="tq-sec"><div className="tq-sh">Now{t.paused && <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: false } }); }}>Resume</button>}</div>
-      <div className={`tq-li${t.running ? ' now' : ''}`}>{t.running && ICON.dots}{t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : t.paused ? 'Paused. It works only when you write to it.' : t.worksLabel ? `Free until its next round, ${t.worksLabel}` : 'Free until someone writes to it'}</div>
+      <div className={`tq-li${t.running ? ' now' : ''}`}>{t.running && ICON.dots}{t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : t.paused ? 'Paused. It works only when you write to it.' : t.worksLabel ? `${idleLine(t)}, then ${t.worksLabel}` : 'Idle until someone writes to it'}</div>
+      {t.running && (() => { const line = workingLine(t, sessions.get(t.running!.id)); return line ? <div className="tq-li dim tq-step">{line.state === 'working' ? (line.step === t.now ? line.lead.replace(`${t.name} `, '').replace(/^./, (c) => c.toUpperCase()) : line.step) : 'Waiting for a free agent to start'}</div> : null; })()}
       {(t.next ?? []).map((n) => <button key={n.id} type="button" className="tq-li dim" onClick={() => onOpenThread(n.product, n.id)}>Next: {n.title}</button>)}</div>
     {t.done.length > 0 && <div className="tq-sec"><div className="tq-sh">Done today<b>{t.done.length}</b></div>
       {t.done.map((d) => <button key={d.id} type="button" className="tq-li" onClick={() => onOpenThread(d.product, d.id)}>{ICON.check}{d.title}</button>)}</div>}
@@ -371,7 +391,7 @@ function Roster({ team, products, engines, call, error, onOpen }: { team: Teamma
     <div className="tp-head"><span>Teammate</span><span>Now</span><span>Goal</span><span className="num">Runs this week</span></div>
     {team.map((t) => <button key={t.id} type="button" className="tp-row" onClick={() => onOpen(t.id)}>
       <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question || !!t.held} /><span>{t.name}</span><i className="r">{t.role}</i></span>
-      <span className="now">{t.waiting.length || t.asking || t.question || t.held ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.now ?? (t.paused ? 'Paused' : 'Free')}</>}</span>
+      <span className="now">{t.waiting.length || t.asking || t.question || t.held ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.now ?? (t.paused ? 'Paused' : idleLine(t))}</>}</span>
       <span className="goal">{t.goal ?? ''}</span>
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
     </button>)}
@@ -380,6 +400,17 @@ function Roster({ team, products, engines, call, error, onOpen }: { team: Teamma
     {error && <p className="tq-error" role="alert">{error}</p>}
     <div className="tq-roster-foot">{others.length ? null : where.picker}<Describe call={call} onOpen={onOpen} fields={where.fields} /></div>
   </div>;
+}
+
+// A long message shows its start and a Show all, so a pasted brief cannot
+// push everything after it out of sight.
+function Folded({ long, children }: { long: boolean; children: ReactNode }) {
+  const [all, setAll] = useState(false);
+  if (!long) return <>{children}</>;
+  return <>
+    <div className={all ? undefined : 'tq-folded'}>{children}</div>
+    <button type="button" className="tq-key tq-more" onClick={() => setAll((x) => !x)}>{all ? 'Show less' : 'Show all'}</button>
+  </>;
 }
 
 // A link inside an activity line. Inline text rather than a button, so a

@@ -18,7 +18,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
 import { flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
-import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
+import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, RunningSession, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
@@ -275,6 +275,7 @@ const liveAnswer = (i: WorkItem) => (i.answer && i.answer !== '(withdrawn)' ? i.
 // No project order yet, as one array, so the sorts that read it do not rerun
 // on every snapshot.
 const NO_ORDER: string[] = [];
+const NO_RUNNING: RunningSession[] = [];
 
 // THE SCREEN BEFORE THERE IS A SCREEN. The app's name in the faintest grey
 // there is, which is right for the half second it is usually up and reads as
@@ -3584,7 +3585,7 @@ export default function App() {
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
   const teammatesUi = useTeammates({
-    view: snap?.teammates, asking: (snap?.approvals ?? []).map((a) => a.item), products: snap?.products ?? [], engines: snap?.engines?.choices ?? [],
+    view: snap?.teammates, asking: (snap?.approvals ?? []).map((a) => a.item), running: snap?.supervisor?.running ?? NO_RUNNING, products: snap?.products ?? [], engines: snap?.engines?.choices ?? [],
     me: team?.byId.get(team.me ?? '')?.name ?? '',
     onEnter: () => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setFocusedRepeat(null); },
     onOpenThread: (product, id) => {

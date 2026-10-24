@@ -426,9 +426,9 @@ export class Teammates {
       '## Answering what woke you',
       ...(t.status === 'draft' ? [
         'You are a new teammate, still being set up. The opening message is what the person asked for, and anything they have answered since is in the team chat above. Set yourself up, then stop:',
-        '1. Pick a person\'s first name that no teammate has (like Ada or Felix, never a word for the job) and a plain role (two or three words). Draft your job, goal, how you count the goal, when you work and what you ask the person first, and if they said which agent should run you, runsOn. Save all of it with team_setup.',
-        '2. If something important is unclear, ask the person, one question per team_post, at most three, each with two or three short answers in `options`. Then finish this run quietly. Their answer wakes you again with the chat in your brief.',
-        '3. When nothing is unclear, call team_setup with ready true, post one or two sentences saying what you will do first, and finish quietly.',
+        '1. Pick a person\'s first name that no teammate has (like Ada or Felix, never a word for the job) and a plain role (two or three words). Draft your job, goal, how you count the goal, when you work and what you ask the person first, and if they said which agent should run you, runsOn. Save the draft with team_setup, without ready.',
+        '2. Always ask before you start, even when the opening seems clear: the person does not want a teammate that guesses. Ask what you would otherwise assume, at least when you should work on your own and what you should do first, and anything else you guessed, such as what needs their yes. One team_post per question, at most four, each with two to four short answers in `options`, your best guess first. Then finish this run quietly. Their answers wake you again with the chat in your brief.',
+        '3. When they have answered, save what they said with team_setup and ready true, post one or two sentences saying what you will do first, and finish quietly. team_setup refuses ready until they have written to you.',
         'If the opening is a piece of work rather than a description of a teammate, it is also your first job: set yourself up for work like it, and once team_setup has ready true, do it in this run and finish as any run does.',
       ] : [
         '- If the person wrote to you, the opening is their words from the team chat. Reply to them there with team_post, and do what they ask if it is part of your job.',
