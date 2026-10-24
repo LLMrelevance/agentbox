@@ -1,6 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import {api} from '../api';
+import {MAC} from '../this-keyboard';
 import {commandRunning,whenACommandFinishes} from '../../../shared/terminal-state.mjs';
 import {linksAtRow} from '../../../shared/terminal-links.mjs';
 import {guardInvalidRange} from '../../../shared/xterm-invalid-range.mjs';
@@ -129,7 +130,7 @@ export function TaskTerminal({product,id,headerTarget,startOpen=false,commandSes
         const input=inputQueue(data=>api.terminal({product,id,action:'write',data}),{onError:report});
         const subscription=terminal.onData(data=>input.push(data));
         // Option+Left/Right jump a word, as in Mac Terminal (shared/terminal-keys.mjs).
-        const mac=/Mac/.test(navigator.platform);
+        const mac=MAC;
         terminal.attachCustomKeyEventHandler(event=>{const sequence=optionWordKey(event,mac);if(sequence===undefined)return true;if(sequence)input.push(sequence);event.preventDefault();return false;});
         dispose=()=>{if(ready)screenCache.set(key,{token,screen:serializer.serialize({scrollback:1000}),offset,cols:terminal.cols,rows:terminal.rows});observer.disconnect();subscription.dispose();terminal.dispose();};
         const consume=async(state:any)=>{if(cancelled)return;setCwd(state.cwd);setProcessName(state.process);setExited(state.exited);watch(state.process,state.exited);if(state.truncated){terminal.reset();terminal.writeln('[Earlier terminal output omitted]');}await new Promise<void>(resolve=>terminal.write(state.data,resolve));offset=state.offset;};

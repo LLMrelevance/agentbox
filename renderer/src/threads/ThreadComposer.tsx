@@ -30,6 +30,7 @@
 // closes the menu before it closes the card.
 
 import { PriorityIcon } from '../components/Priority';
+import { SEND } from '../this-keyboard';
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { PRACTICE_TASK } from '../../../shared/first-run-practice.mjs';
 import type { Product, WorkItem } from '../types';
@@ -1018,8 +1019,8 @@ export function ThreadComposer({
             </button>
             <input ref={fileRef} type="file" multiple hidden onChange={async (e) => { await addFiles(e.target.files); e.target.value = ''; }} />
             <span className="tc-send solo">
-              <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title="Send · ⌘↵">
-                Send <kbd>⌘↵</kbd>
+              <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={`Send · ${SEND}`}>
+                Send <kbd>{SEND}</kbd>
               </button>
             </span>
           </div>
@@ -1061,8 +1062,8 @@ export function ThreadComposer({
               </span>
             )}
             <span className="tc-send" ref={anchor('later')}>
-              <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={refusal ?? stopper?.reason ?? 'Send · ⌘↵'}>
-                Send <kbd>⌘↵</kbd>
+              <button type="button" className="tc-send-main" disabled={!canSend} onClick={() => void send()} title={refusal ?? stopper?.reason ?? `Send · ${SEND}`}>
+                Send <kbd>{SEND}</kbd>
               </button>
               <button type="button" data-trigger className="tc-send-caret" disabled={!canSend} aria-label="Send later"
                 aria-haspopup="menu" aria-expanded={open === 'later'} onClick={() => toggle('later')} onKeyDown={triggerKeys('later')}>
