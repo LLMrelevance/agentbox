@@ -289,3 +289,30 @@ export function checkCommand(cmd, { projects, hasItem }) {
     && typeof p.card === 'string' && /^[\w+/=-]{8,200}$/.test(p.card) && (p.note === undefined || (typeof p.note === 'string' && p.note.length <= 500)))) return 'an answer needs its card';
   return null;
 }
+
+// A TURN THE CLOUD TOOK WITH THE COMPUTER SHUT, written into the thread's copy
+// by the cloud server (cloud/gateway/phone.mjs), as the computer would have
+// written it: her reply, the agent's answer and the row waiting on her
+// (main/store.mjs recordSessionResult). The computer's own copy replaces this
+// one once it is back and has brought the run home.
+export function withCloudTurn(snapshot, { reply, answer, repliedAt, answeredAt, status = 'blocked' }, limits = SNAPSHOT_LIMITS) {
+  if (!snapshot || typeof snapshot !== 'object' || !snapshot.item?.id) return null;
+  const ctx = { home: null };
+  const id = snapshot.item.id;
+  const said = clip(String(reply ?? ''), limits.textChars, ctx);
+  const result = clip(String(answer ?? ''), limits.textChars, ctx);
+  const lines = [
+    { id, ts: repliedAt, source: 'founder', patch: { answer: said, status: 'open' } },
+    { id, ts: answeredAt, source: 'agent', patch: { result } },
+    { id, ts: answeredAt, source: 'system', patch: { status } },
+  ];
+  const wrote = { ...(snapshot.item.wrote ?? {}), answer: { ts: repliedAt, source: 'founder' }, result: { ts: answeredAt, source: 'agent' }, status: { ts: answeredAt, source: 'system' } };
+  const item = { ...snapshot.item, answer: said, result, status, updatedAt: answeredAt, wrote };
+  let history = [...(Array.isArray(snapshot.history) ? snapshot.history : []), ...lines];
+  let older = Number(snapshot.olderLines) || 0;
+  while (history.length > limits.lines || (history.length > lines.length && bytesOf({ ...snapshot, item, history }) > limits.bytes)) {
+    history = history.slice(1);
+    older += 1;
+  }
+  return { ...snapshot, item, history, olderLines: older };
+}
