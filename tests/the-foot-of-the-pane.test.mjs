@@ -302,7 +302,9 @@ describe('the Done row says its key the way its plate did', () => {
   it('prints E on its row and wears no plate', () => {
     expect(focus).not.toContain('data-hint="done"');
     expect(plate).not.toContain("done: [{ key: 'E', what: 'Mark done' }],");
-    expect(menu).toContain('<kbd>{row.key}</kbd>');
+    // `chord` draws the key in this keyboard's own glyphs (shared/key-caps.mjs);
+    // the row still prints its key beside its words, which is what this guards.
+    expect(menu).toContain('<kbd>{chord(row.key)}</kbd>');
   });
 
   it('describes E exactly as the row plate describes it', () => {
