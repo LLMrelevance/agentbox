@@ -236,6 +236,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif
 .ct-quiet { font-size: calc(12.5px * var(--ct-cs)); color: var(--ct-faint); }
 .ct-line.ct-quiet { color: var(--ct-faint); }
 .ct-static { padding: calc(5px * var(--ct-cs)) calc(6px * var(--ct-cs)); }
+.ct-head { padding-top: calc(2px * var(--ct-cs)); padding-bottom: calc(3px * var(--ct-cs)); }
 .ct-mark-sp { width: calc(10px * var(--ct-cs)); flex: none; }
 /* A row's own mark: one apricot dot, the lattice's colour, so the list reads
    as the tag's family. */

@@ -3,6 +3,7 @@
 import { isCleanRun } from '../../shared/repeats.mjs';
 import { answerSettled } from '../../shared/answers.mjs';
 import { saysARunGotNowhere } from '../../shared/spawn-trouble.mjs';
+import { notShippedLine } from '../../shared/not-shipped.mjs';
 import { firstRealLine, previewText } from './format';
 import { TROUBLE_ID } from './trouble-row';
 import { DONE } from './done-word';
@@ -427,12 +428,15 @@ export function clickIntent(
 // timestamp (older ledgers). This only picks the field: how good the text is
 // lives in briefs/founder.md, and markdown stripping is previewText's.
 export function rowSummary(
-  i: { id?: string; body?: string; result?: string; answer?: string; status?: string; title?: string; wrote?: Record<string, { ts: number; by?: string } | undefined> },
+  i: { id?: string; body?: string; result?: string; answer?: string; note?: string; status?: string; title?: string; wrote?: Record<string, { ts: number; by?: string } | undefined> },
   view: string,
 ): string {
   // The trouble row prints only its first line: it ends on a count, not a full
   // stop, so the clip below would run on into the next paragraph.
   if (i.id === TROUBLE_ID) return clipToSentence((i.body ?? '').split('\n')[0].trim());
+  // Over the agent's last word, which was written first and says it ships.
+  const unshipped = notShippedLine(i);
+  if (unshipped) return clipToSentence(unshipped);
   // In the team version the newest answer is the news, whoever wrote it. Only
   // an answer that carries a writer (`by`) counts, and with nobody signed in no
   // line carries one, so the single-person app is unchanged.

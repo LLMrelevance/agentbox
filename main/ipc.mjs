@@ -67,6 +67,7 @@ import { machineryPath } from './store/home.mjs';
 import { EVENT_NAMES } from '../shared/analytics-events.mjs';
 import { Name } from '../shared/product-name.mjs';
 import { handedOnByReply } from '../shared/team-rules.mjs';
+import { closeRefusal, closedAnywayNote } from '../shared/not-shipped.mjs';
 import { saveAttachments } from './save-attachments.mjs';
 import { stageAttachment } from './stage-attachment.mjs';
 
@@ -649,8 +650,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // answered at once (supervisor.sendNow).
   ipcMain.handle('zero:send-now', (_e, { product, id }) => supervisor.sendNow(product, id));
 
-  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone }) => {
+  ipcMain.handle('zero:answer', async (_e, { product, id, answer, status, priority, permissionMode, engine, model, effort, now, inReplyTo, fromPhone, closeUnshipped }) => {
     if (isAgentRow(id)) return { ok: false };
+    // WORK THAT NEVER REACHED MAIN IS NOT CLOSED UNASKED (shared/not-shipped.mjs).
+    // The window asks first and says so with `closeUnshipped`; the phone and
+    // anything else are turned down with the reason.
+    if (status === 'done' && product && id) {
+      let row = null;
+      try { row = store.readItem(product, id); } catch { row = null; }
+      const refused = closeRefusal(row, { closeUnshipped });
+      if (refused) return refused;
+      const said = closeUnshipped ? closedAnywayNote(row) : null;
+      if (said) store.noteItem(product, id, said);
+    }
     // A level picked from ⌘K arrives here with no words, and gives way the
     // same as one picked on the summary (zero:thread-edit). A reply that
     // happens to carry its row's level does not.

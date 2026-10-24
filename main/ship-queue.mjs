@@ -26,6 +26,7 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Name } from '../shared/product-name.mjs';
+import { SHIP_FAILED } from '../shared/not-shipped.mjs';
 
 export const SHIP_LABEL = 'ship';
 const SHIP_MS = 20 * 60 * 1000;
@@ -83,11 +84,16 @@ export const withoutShipLabel = (item) => labelsOf(item).filter((l) => l !== SHI
  * marking, and with a task folder to ship from. THE WINDOW READS THIS TOO
  * (w-0c1ba766eb): a row on this list is waiting on the app, not on a person,
  * so it is In progress and not Needs you until the queue has dealt with it.
+ *
+ * A CLOSED ROW STILL SHIPS, because a close is not a cancel. The window
+ * leaves closed rows out (`waitingIds`), so one stays in Done while it ships.
  */
+export const owedAShip = (item, handled = {}) => wantsShipping(item) && !(markedAt(item) <= (handled[keyOf(item)] ?? -1));
+
 export function waitingToShip(items, products, settings, { folderFor, handled = {} }) {
   const bySlug = new Map(products.map((p) => [p.slug, p]));
   return items
-    .filter((i) => wantsShipping(i) && i.status !== 'done' && !(markedAt(i) <= (handled[keyOf(i)] ?? -1)))
+    .filter((i) => owedAShip(i, handled))
     .map((item) => {
       const product = bySlug.get(item.product);
       const script = product ? shipScriptFor(product, settings) : null;
@@ -229,7 +235,7 @@ export function failureReply(output) {
 export function failureNote(output) {
   const { died, last, ...rest } = whyItDidNotShip(output);
   const said = died ? `${DIED}. It last said: ${last ?? 'nothing at all'}` : diagnosis(rest);
-  return `It did not ship, and it went back to its agent: ${said.slice(0, 300)}`;
+  return `${SHIP_FAILED}${said.slice(0, 300)}`;
 }
 
 export function runScript(script, cwd, { timeout = SHIP_MS, env = process.env } = {}) {
@@ -284,7 +290,15 @@ export class ShipQueue {
     const settings = readShipSettings(this.userDir);
     if (!Object.keys(settings).length) return [];
     return waitingToShip(items, products, settings, { folderFor: this.folderFor, handled: readHandled(this.userDir) })
+      .filter(({ item }) => item.status !== 'done')
       .map(({ item }) => item.id);
+  }
+
+  /** Whether this row's folder must stay for a ship still to come. */
+  owes(item, products) {
+    const settings = readShipSettings(this.userDir);
+    if (!Object.keys(settings).length) return false;
+    return waitingToShip([item], products, settings, { folderFor: this.folderFor, handled: readHandled(this.userDir) }).length > 0;
   }
 
   async ship({ item, product, script, cwd }) {
