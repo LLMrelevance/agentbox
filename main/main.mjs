@@ -38,7 +38,7 @@ import { openFreshUser } from './fresh-user.mjs';
 import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
-import { quitStep, flushBeforeQuit } from './quit-sequence.mjs';
+import { quitStep, flushBeforeQuit, quitThenExit } from './quit-sequence.mjs';
 import { createPlace } from '../shared/where-it-runs-from.mjs';
 import { createSourceUpdater } from './source-updater.mjs';
 import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
@@ -382,7 +382,7 @@ async function createWindow() {
     analytics.track('app_opened');
     usedToday(Date.now());
   } else {
-    console.log(`zero: diagnostics is ${analytics.reason}, nothing is sent`);
+    console.log(`zero: diagnostics ${analytics.reason}, nothing is sent`);
   }
 
   // EVERYBODY HAS SOMEWHERE TO SEND A THREAD (w-f8d123be62, approved
@@ -1193,7 +1193,9 @@ async function createWindow() {
       } catch (err) {
         console.error('screenshot failed:', err.message);
       }
-      app.quit();
+      // The picture is taken, so the run is over whether the quit works or
+      // not. On Linux it did not, and the shell's `timeout` ended these runs.
+      quitThenExit(app, { what: 'the screenshot run' });
     }, Number(process.env.ZERO_SCREENSHOT_DELAY_MS ?? 2500));
   }
 
