@@ -198,7 +198,7 @@ function SidePanel({ t, products, engines, call, onOpenThread }: { t: Teammate; 
       {t.asking && t.running && <button type="button" className="tq-li need" onClick={() => onOpenThread(t.running!.product, t.running!.id)}>Allow or deny a command</button>}
       {t.waiting.map((w) => <button key={w.id} type="button" className="tq-li need" onClick={() => onOpenThread(w.product, w.id)}>{w.title}</button>)}</div>}
     <div className="tq-sec"><div className="tq-sh">Now{t.paused && <button type="button" className="tq-edit" onClick={() => { void call('update', { id: t.id, patch: { paused: false } }); }}>Resume</button>}</div>
-      <div className={`tq-li${t.running ? ' now' : ''}`}>{t.running && ICON.dots}{t.paused ? 'Paused' : t.now && t.now !== 'Waiting on you' ? t.now : t.worksLabel ? `Free until its next round, ${t.worksLabel}` : 'Free until someone writes to it'}</div>
+      <div className={`tq-li${t.running ? ' now' : ''}`}>{t.running && ICON.dots}{t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : t.paused ? 'Paused. It works only when you write to it.' : t.worksLabel ? `Free until its next round, ${t.worksLabel}` : 'Free until someone writes to it'}</div>
       {t.queued > 0 && <div className="tq-li dim">{t.queued} more queued</div>}</div>
     {t.done.length > 0 && <div className="tq-sec"><div className="tq-sh">Done today<b>{t.done.length}</b></div>
       {t.done.map((d) => <button key={d.id} type="button" className="tq-li" onClick={() => onOpenThread(d.product, d.id)}>{ICON.check}{d.title}</button>)}</div>}
@@ -349,7 +349,7 @@ function Roster({ team, products, call, error, onOpen }: { team: Teammate[]; pro
     <div className="tp-head"><span>Teammate</span><span>Now</span><span>Goal</span><span className="num">Runs this week</span></div>
     {team.map((t) => <button key={t.id} type="button" className="tp-row" onClick={() => onOpen(t.id)}>
       <span className="who"><TeammateMark t={t} size="hd" waiting={t.waiting.length > 0 || !!t.asking || !!t.question} /><span>{t.name}</span><i className="r">{t.role}</i></span>
-      <span className="now">{t.waiting.length || t.asking || t.question ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.paused ? 'Paused' : t.now ?? 'Free'}</>}</span>
+      <span className="now">{t.waiting.length || t.asking || t.question ? <span className="need">Waiting on you</span> : <>{t.running && ICON.dots}{t.status === 'draft' ? 'Setting up' : t.now ?? (t.paused ? 'Paused' : 'Free')}</>}</span>
       <span className="goal">{t.goal ?? ''}</span>
       <span className="num">{t.runsThisWeek} of {t.limit}</span>
     </button>)}

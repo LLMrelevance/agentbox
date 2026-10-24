@@ -391,9 +391,9 @@ export function statusOf(teammate, items, now = Date.now()) {
     .filter((i) => i.status === 'done' && (i.wrote?.status?.ts ?? i.updatedAt ?? 0) >= today)
     .map((i) => ({ id: i.id, product: i.product, title: i.label || i.title }));
   let now_ = null;
-  if (teammate.paused) now_ = 'Paused';
-  else if (running) now_ = running.label || running.title;
+  if (running) now_ = running.label || running.title;
   else if (waiting.length) now_ = 'Waiting on you';
+  else if (teammate.paused) now_ = 'Paused';
   return { waiting, now: now_, running: running ? { id: running.id, product: running.product } : null, queued, done, runsThisWeek: runsThisWeek(teammate.id, items, now) };
 }
 

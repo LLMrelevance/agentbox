@@ -83,7 +83,7 @@ describe('teammates through the store', () => {
 
     const posted = core.teamPost({ text: 'Found one: Buy twice charges twice.' });
     expect(posted.to).toEqual([]);
-    const passed = core.teamPass({ to: 'Felix', title: 'Buy twice charges twice', details: 'Tap Buy twice on a slow connection.' });
+    const passed = core.teamPass({ to: 'Felix', title: '**Buy twice charges twice**', details: 'Tap Buy twice on a slow connection.' });
     expect(passed.to).toBe('Felix');
 
     await tick(Date.now());

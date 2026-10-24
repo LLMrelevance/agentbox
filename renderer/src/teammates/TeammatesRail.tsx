@@ -11,8 +11,7 @@ export function TeammateMark({ t, size = 'sm', waiting = false }: { t: Pick<Team
 export function nowLine(t: Teammate): string {
   if (t.question) return 'Has a question for you';
   if (t.status === 'draft') return 'Setting up';
-  if (t.paused) return 'Paused';
-  return t.now ?? 'Free';
+  return t.now ?? (t.paused ? 'Paused' : 'Free');
 }
 
 const TEAM_ICON = <svg className="workspace-nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeDasharray="2 1.6" aria-hidden="true"><rect x="3.5" y="7.5" width="10" height="10" /><rect x="10.5" y="4.5" width="10" height="10" /></svg>;

@@ -241,6 +241,15 @@ describe('what you see', () => {
     expect(runLines([clean, q], [ada]).map((l) => l.verb)).toEqual(['picked', 'finished']);
   });
 
+  // The power test paused Hugo, wrote to him, and watched him work while
+  // everything still said "Paused".
+  it('a paused teammate working on your message says what it is on, and Paused only when idle', () => {
+    const hugo = { ...felix, paused: true };
+    const on = run(hugo, { id: 'w-p1', title: 'Draft the two intro emails', status: 'claimed' });
+    expect(statusOf(hugo, [on], NOW).now).toBe('Draft the two intro emails');
+    expect(statusOf(hugo, [], NOW).now).toBe('Paused');
+  });
+
   it('the panel says what is waiting on you, what it is on now, and what it finished today', () => {
     const waiting = run(ada, { id: 'w-f1f1f1', title: 'Review the fix', status: 'blocked' });
     const running = run(ada, { id: 'w-f2f2f2', title: 'Try sign up on a phone', status: 'claimed' });
