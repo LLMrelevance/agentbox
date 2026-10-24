@@ -85,11 +85,20 @@ describe('in the app', () => {
     }
   });
   it('with Groups on there is no sidebar, and with it off, or on a phone, the sidebar is as it was', () => {
-    expect(app).toContain('const pageMenu = roomsUi.live && workspaceNavigation && !onPhone();');
+    expect(app).toMatch(/const pageMenu = roomsUi\.live && workspaceNavigation && !onPhone\(\)/);
     expect(app).toContain('{workspaceNavigation && !pageMenu && <WorkspaceNavigation');
   });
-  it('a thread keeps the menu in its corner, before its trail', () => {
-    expect(app).toMatch(/: focused \? \(pageMenu \? <div className="gt-titled gt-threadnav">\{teamMark\}\{pageNav\('inbox'\)\}<span className="gt-vsep" aria-hidden="true" \/><div className="workspace-task-header"/);
+  // 2026-10-24: "when we are in a particular task, let's get rid of the inbox
+  // groups dropdown... just have the standard header". The menu there, and the
+  // 64-point bar it forced, cut a document's and a direct message's two-line
+  // header in half (measured on the stage: 88 points of header in 64).
+  it('a thread, a document or a direct message keeps its own header, with no menu and no height forced on it', () => {
+    expect(app).toContain(': focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (');
+    expect(css).not.toMatch(/workspace-task > \.topbar \{[^}]*height/);
+  });
+  it('a folded summary leaves its strip on the left, where it was open', () => {
+    expect(css).toMatch(/\.gt-sumleft \.ts-rail \{[^}]*right: auto; left: 0;/);
+    expect(css).toMatch(/\.gt-sumleft \.focus-pane\[data-summary="rail"\] > \.focus-scroll,/);
   });
   it('a new version, or a copy that has to move, still says so without the sidebar', () => {
     expect(app).toMatch(/pageMenu && <TopNotices\s+update=\{announcesUpdate\(/);

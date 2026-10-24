@@ -520,8 +520,6 @@
 .gt-titlemenu { display: inline-flex; align-items: center; gap: 8px; flex: none; padding: 0; border: 0; background: none; font: inherit; font-size: 17px; letter-spacing: -.03em; color: var(--text); cursor: default; }
 .gt-titlemenu .gt-chev { color: var(--text-faint); margin-top: 2px; }
 .gt-titlemenu.open .gt-chev, .gt-titlemenu:hover .gt-chev { color: var(--text); }
-.gt-threadnav { align-items: center; }
-.gt-threadnav .workspace-task-header { flex: 1; min-width: 0; }
 .gt-crumb { display: flex; align-items: center; gap: 10px; min-width: 0; font: 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
 .gt-crumb-back { display: inline-flex; padding: 4px; margin-left: -4px; border: 0; background: none; color: var(--text-faint); cursor: default; }
 .gt-crumb-back:hover { color: var(--text); }
@@ -567,6 +565,33 @@
 .gt-sumleft .ts-panel { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--line); }
 .gt-sumleft.gt-inset .ts-panel { padding-left: 44px; }
 .gt-sumleft .focus-pane { --ts-panel-w: 368px; }
-/* A thread's top line keeps the Inbox's height and corners, so nothing moves on the way in. */
-.workspace-layout.gt-noside.workspace-task > .topbar { height: 64px; min-height: 64px; flex-basis: 64px; padding-left: 44px; }
-.workspace-layout.gt-noside.workspace-task > .topbar > .topbar-right { right: 28px; }
+/* Folded with S, it leaves its strip on the same side it was open on. */
+.gt-sumleft .focus-pane[data-summary="rail"] > .focus-scroll,
+.gt-sumleft .focus-pane[data-summary="rail"] > .focus-dock,
+.gt-sumleft .focus-pane[data-summary="rail"] > .keep-line,
+.gt-sumleft .focus-pane[data-summary="rail"] > .task-terminal { margin-right: 0; margin-left: var(--ts-rail-w); }
+.gt-sumleft .ts-rail { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--line); }
+.gt-sumleft .ts-rail-ic svg, .gt-sumleft .ts-close svg { transform: scaleX(-1); }
+/* A thread's own header, as it always was, with its arrow on the summary's
+   left edge and its corner where the Inbox's is. Its height is its own: a
+   document's header has a second line. */
+.workspace-layout.gt-inset.workspace-task:not([data-artifact-layout]) > .topbar { padding-left: 36px; }
+.workspace-layout.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }
+
+/* ROUND 18 TRIAL (w-dcaa2c122e), not for shipping: the sidebar stays narrow,
+   and while pointed at it widens over the page rather than pushing it. */
+.app.workspace-layout.gt-rail { --workspace-left: calc(44px + 38px); }
+.gt-rail-open .workspace-navigation.gt-rail-nav { z-index: 40; }
+.gt-rail-open .workspace-navigation.gt-rail-nav::before { content: ''; position: absolute; z-index: -1; inset: -12px -10px -10px -10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--pop); box-shadow: var(--shadow-card); }
+.workspace-collapsed .gt-rail-nav .th-team-name { display: none; }
+.gt-rail-groups { margin-top: 3px; }
+.gt-rail-list { display: flex; flex-direction: column; gap: 2px; margin-top: 14px; }
+.workspace-navigation .gt-rail-row { position: relative; height: 32px; }
+.gt-rail-ic { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; flex: none; font-style: normal; color: var(--text-faint); }
+.gt-rail-ic svg { width: 14px; height: 14px; }
+.gt-rail-row.unread { color: var(--text); }
+.gt-rail-dot { margin-left: auto; width: 5px; height: 5px; flex: none; background: var(--accent); }
+.workspace-collapsed .gt-rail-quiet .gt-rail-list { display: none; }
+.gt-gtitle { display: inline-flex; align-items: center; gap: 10px; }
+.gt-hh { display: inline-flex; color: var(--text-faint); }
+.gt2-groups { left: -10px; top: calc(100% + 24px); }

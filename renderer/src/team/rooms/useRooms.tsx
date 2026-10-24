@@ -19,7 +19,7 @@ import { joinLink, tokenFromLink } from '../../../../shared/room-links.mjs';
 import { RoomsNotReady, RoomsSettings } from './RoomsSettings';
 import { GroupPage, PeoplePanel } from './GroupPage';
 import { GroupBar, GroupMenuButton, groupChoices, type GroupMenuAction } from './GroupList';
-import { PageCrumb } from './PageMenu';
+import { GroupHeading, PageCrumb, RailGroups, railLook, type RailLook } from './PageMenu';
 
 type Dialog =
   | { kind: 'invite'; roomId: string }
@@ -281,7 +281,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />}
       people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />} />;
-    heading = { title: <h1 className="workspace-title">Groups</h1> };
+    const look = railLook();
+    heading = { title: look ? <GroupHeading g={groupList.find((g) => g.key === `room:${open.id}`)} groups={groupList} onPick={pickGroup} menu={look === 'title'} /> : <h1 className="workspace-title">Groups</h1> };
     chips = <div className="gt-topchips"><GroupBar groups={groupList} current={`room:${open.id}`} onPick={pickGroup} /></div>;
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
@@ -351,6 +352,9 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     /** The header's View button over everyone's threads, and B; on a group's chat, its options. Null anywhere else. */
     viewButton,
     chips, crumb, groups: groupList, pickGroup,
+    /** Round 18 trial: Groups' rows in the narrow sidebar. */
+    railGroups: (look: RailLook, onGroupsPage: boolean, direct: string | null) => <RailGroups look={look} onGroupsPage={onGroupsPage}
+      current={direct ? `direct:${direct}` : open ? `room:${open.id}` : null} groups={groupList} onGroups={openTab} onPick={pickGroup} />,
     /** The group a teammate's card was opened over, for its Back. */
     roomName: open ? nameOf(open) : null,
   };

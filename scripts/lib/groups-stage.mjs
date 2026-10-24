@@ -202,6 +202,7 @@ export async function openStage({ dist, width = 1512, height = 945, theme = 'dar
       compactionStatus: async () => null,
       remoteControl: async () => null,
       repeats: async () => [],
+      olderItems: async () => ({ items: [], more: false }),
       dashboard: async () => ({ ok: false }),
       engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     };

@@ -114,6 +114,46 @@ export function TopNotices({ update, onUpdate, move, onMove }: { update: Update 
   </span>;
 }
 
+/** Round 18 trial, not for shipping: a sidebar that stays narrow and widens while
+ *  pointed at. Where a group is picked: its name under Groups while the sidebar
+ *  is wide, or the group's own name over its chat as a switch. */
+export type RailLook = 'hover' | 'title';
+export const railLook = (): RailLook | null => {
+  try { const v = localStorage.getItem('groups.rail'); return v === 'hover' || v === 'title' ? v : null; } catch { return null; }
+};
+
+/** The sidebar's Groups row and, in the hover look, every group under it, shown while the sidebar is wide. */
+export function RailGroups({ look, onGroupsPage, current, groups, onGroups, onPick }: {
+  look: RailLook; onGroupsPage: boolean; current: string | null; groups: readonly GroupChoice[]; onGroups: () => void; onPick: (key: string) => void;
+}) {
+  const { shown } = menuGroups(groups, true);
+  const listed = look === 'hover';
+  return <nav className={`workspace-tabs gt-rail-groups${listed ? ' gt-rail-quiet' : ''}`} aria-label="Groups">
+    <button type="button" className={`workspace-tab${onGroupsPage ? ' active' : ''}`} aria-label="Groups" onClick={onGroups}>{I.groupNav()}<span>Groups</span></button>
+    {listed && <div className="gt-rail-list">{shown.map((g) => {
+      const on = onGroupsPage && g.key === current;
+      return <button type="button" key={g.key} className={`workspace-tab gt-rail-row${on ? ' active' : ''}${g.unread && !on ? ' unread' : ''}`} aria-label={g.name} title={g.name} onClick={() => onPick(g.key)}>
+        <i className="gt-rail-ic">{g.faces.length ? <GroupMark g={g} size={18} /> : I.hash(14)}</i><span className="rm-one">{g.name}</span>{g.unread && !on && <i className="gt-rail-dot" aria-label="Unread" />}</button>;
+    })}</div>}
+  </nav>;
+}
+
+/** A group's name over its chat; in the title look it opens every group. */
+export function GroupHeading({ g, groups, onPick, menu }: { g: GroupChoice | undefined; groups: readonly GroupChoice[]; onPick: (key: string) => void; menu: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useOutside(open, () => setOpen(false));
+  if (!g) return <h1 className="workspace-title">Groups</h1>;
+  const name = <>{g.faces.length ? <GroupMark g={g} size={20} /> : <span className="gt-hh">{I.hash(15)}</span>}<span>{g.name}</span></>;
+  if (!menu) return <h1 className="workspace-title gt-gtitle">{name}</h1>;
+  const { shown } = menuGroups(groups, true);
+  return <span ref={ref} className="gt-tmwrap">
+    <button type="button" className={`gt-titlemenu gt-gtitle${open ? ' open' : ''}`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>{name}<Chevron /></button>
+    {open && <div className="gt2-menu gt2-nav gt2-groups" role="menu">{shown.map((x) => <button type="button" role="menuitem" key={x.key} className={`gt2-row gt2-subrow${x.key === g.key ? ' on' : ''}${x.unread ? ' unread' : ''}`} onClick={() => { setOpen(false); onPick(x.key); }}>
+      {x.faces.length ? <span className="gt2-ic"><GroupMark g={x} size={16} /></span> : <span className="gt2-ic gt2-hash">{I.hash(13)}</span>}
+      <span className="rm-one">{x.name}</span>{x.unread && x.key !== g.key && <span className="gt2-dot" aria-label="Unread" />}</button>)}</div>}
+  </span>;
+}
+
 /** Where a page under a group sits, after the page's name: back, the group, then the page. */
 export function PageCrumb({ parts, onBack }: { parts: string[]; onBack: () => void }) {
   return <span className="gt-crumb">
