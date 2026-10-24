@@ -202,6 +202,10 @@
 /* Its limits open above it as wide as the sidebar, the way your account menu opens from your row. */
 .workspace-navigation .workspace-usage .usage-panel { top: auto; bottom: calc(100% + 8px); left: 0; right: 0; width: auto; border-radius: 0; }
 .workspace-navigation .usage-panel .usage-meter, .workspace-navigation .usage-panel .usage-meter > i { border-radius: 0; }
+/* Using more than one agent, its limits list each under a hairline, the one used last tagged. */
+.usage-panel .usage-other { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.usage-panel h3 small { margin-left: 8px; font-size: 10.5px; font-weight: 500; color: var(--text-faint); }
+.usage-panel .usage-read { margin-top: 8px; font-size: 11.5px; color: var(--agent-ink); }
 @media(max-width:700px) { .workspace-usage { display: none; } }
 /* THE INSTRUCTIONS PAGE IS ONE PAGE (w-4cbcd888ae, 2026-10-01). Picked from
    three drawn in the real app: a heading that says who the page is for and

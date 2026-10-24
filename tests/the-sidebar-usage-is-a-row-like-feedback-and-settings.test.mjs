@@ -36,11 +36,13 @@ describe('the row', () => {
     // What is drawn, not what is read aloud or shown on pointing, which keeps the whole sentence.
     expect(html.replace(/="[^"]*"/g, '')).not.toContain('used');
   });
-  it('says Usage where this Mac has one coding agent and no name is handed over', () => {
-    expect(pill({ engineWord: null })).toContain('<span class="usage-row-label">Usage</span>');
+  // Since 2026-10-24 it names the agent off its own reading even where no name is
+  // handed over (tests/the-usage-row-names-the-agent-you-used-last).
+  it('names the agent where this Mac has one coding agent and no name is handed over', () => {
+    expect(pill({ engineWord: null })).toContain('<span class="usage-row-label">Claude Code</span>');
   });
-  it('says the whole reading when pointed at', () => {
-    expect(pill()).toContain('title="Claude Code. This session: 47% used');
+  it('reads the whole reading aloud', () => {
+    expect(pill()).toContain('aria-label="Claude Code. This session: 47% used');
   });
   it('draws nothing at all before a reading lands', () => {
     expect(pill({ usage: null })).toBe('');
