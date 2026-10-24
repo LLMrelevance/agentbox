@@ -38,17 +38,12 @@ import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHe
 import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
 import { createPhoneAlerts } from './phone-alerts.mjs';
-import { saveAttachments } from './save-attachments.mjs';
-import { runOfClaim } from '../shared/cloud-kit.mjs';
+import { PHONE_FILES_MAX, phoneFilesIn, phoneFileSafeName, phoneAttachmentRel } from '../shared/phone-files.mjs';
+import { runOfClaim, cloudCard } from '../shared/cloud-kit.mjs';
 
-// A file her phone sent with a reply or a new thread: put in her storage, in
-// this computer's folder, named by what is in it (renderer/src/cloud-bridge.ts).
-const PHONE_FILE = /(!?)\[([^\]\n]*)\]\(phone-files\/([0-9a-f]{64}\.[a-z0-9]{1,8})\)/g;
-const PHONE_FILES_MAX = 10;
+// A file her phone sent with a reply or a new thread (shared/phone-files.mjs).
+export { phoneFilesIn };
 const HEARTBEAT_MS = 5 * 60_000;
-export function phoneFilesIn(text) {
-  return [...String(text ?? '').matchAll(PHONE_FILE)].map((m) => ({ link: m[0], picture: m[1] === '!', label: m[2], name: m[3] }));
-}
 class Refused extends Error {}
 
 // How long a thread started on the phone is remembered as the row it became:
@@ -334,8 +329,12 @@ export function createPhoneInbox({
       if (!data) throw new Refused('a file from your phone did not reach this computer');
       const hash = crypto.createHash('sha256').update(data).digest('hex');
       if (data.length > UPLOAD_LIMITS.fileBytes || f.name !== `${hash}${f.name.slice(64)}`) throw new Refused('a file from your phone was not the one it was sent as');
-      const [saved] = saveAttachments(dir, [{ name: f.label.trim() || f.name, dataBase64: data.toString('base64') }]);
-      out = out.replace(f.link, () => `${f.picture ? '!' : ''}[${saved.name}](${saved.rel})`);
+      // Where the cloud server puts the same file for a turn it runs, so both link one.
+      const rel = phoneAttachmentRel(f);
+      const abs = path.join(dir, rel);
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      if (!fs.existsSync(abs) || fs.statSync(abs).size !== data.length) fs.writeFileSync(abs, data);
+      out = out.replace(f.link, () => `${f.picture ? '!' : ''}[${phoneFileSafeName(f)}](${rel})`);
       // The same file the uploader would send for the thread, already there.
       if (uploads) { state.uploaded[f.name] = { bytes: data.length, named: now() }; save(); }
     }
@@ -361,6 +360,8 @@ export function createPhoneInbox({
       still();
       // The cloud started this one with the lid shut; it is joined, never done again (`adoptCloudRuns`).
       if (cmd.claimedBy) continue;
+      // Her answer to a card the cloud put on the phone is the cloud server's to give (cloud/gateway/phone.mjs).
+      if (cmd.kind === 'approve' && cloudCard(cmd.payload?.approval)) continue;
       let outcome = state.done[cmd.id];
       if (!outcome) {
         // A reply to a thread started on the phone goes to the row it became.
@@ -462,7 +463,10 @@ export function createPhoneInbox({
         if (started && adoptNew) {
           const p = started.payload ?? {};
           const title = String(p.title ?? '').trim() || String(p.body ?? '').trim().split('\n')[0].slice(0, 200);
-          try { out = await adoptNew({ project, item, runId, title, body: String(p.body ?? ''), command: started.id, replies, choices: phoneChoices('new', p) }); } catch (err) {
+          // Its files saved here where the cloud put them, so the row links them.
+          let body = String(p.body ?? '');
+          try { body = (await withPhoneFiles({ ...started, kind: 'new' })).payload.body ?? body; } catch (err) { if (err instanceof SignedOut) throw err; }
+          try { out = await adoptNew({ project, item, runId, title, body, command: started.id, replies, choices: phoneChoices('new', p) }); } catch (err) {
             out = 'failed';
             sayOnce(`adopt:${err?.message}`, `phone: could not take in the new thread the cloud started (${item}): ${err?.message ?? err}`);
           }

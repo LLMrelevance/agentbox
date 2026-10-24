@@ -234,7 +234,8 @@ describe('the cloud server and a new thread from the phone', () => {
       { effort: 'high' }, { assignee: 'p-2' }, { visibility: 'private' },
     ];
     asks.forEach((p, i) => t.db.add({ id: `n${i}`, payload: { title: 'x', body: '', ...p }, created_at: t.now() - 2 * MIN }));
-    t.db.add({ id: 'nf', payload: { title: 'x', body: 'see ![a](phone-files/abc.png)' }, created_at: t.now() - 2 * MIN });
+    // A file from the phone it cannot read (tests/a-file-sent-from-the-phone-goes-with-its-words-into-the-cloud).
+    t.db.add({ id: 'nf', payload: { title: 'x', body: `see ![a](phone-files/${'a'.repeat(64)}.png)` }, created_at: t.now() - 2 * MIN });
     await t.gw.phoneSweep();
     await t.gw.phoneSweep();
     expect(t.starts()).toHaveLength(0);
@@ -354,7 +355,8 @@ describe('the supervisor and a new thread', () => {
       relays.push(c);
       return c;
     };
-    sup._cloudReady = () => true;
+    // Claude Code only here; the Codex kit beside it is tests/a-new-codex-thread-from-the-phone-...
+    sup._cloudReady = (engine = 'claude') => engine !== 'codex';
     sup._cloudConfig = { gateway: 'https://cloud.example' };
     sup.phoneCarrying({ device: DEVICE, slugs: ['team'] });
     homecomings = [];

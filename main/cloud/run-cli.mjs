@@ -12,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
-import { NEW_THREAD } from '../../shared/cloud-kit.mjs';
+import { NEW_THREAD, NEW_THREAD_CODEX } from '../../shared/cloud-kit.mjs';
 import { cloudClients } from './clients.mjs';
 import { readCloudConfig, readCloudKey, imageCaps, noteImageCaps } from './config.mjs';
 import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom, cloudAccountFrom, cloudLoginInUse, noCloudAccountSentence } from './logins.mjs';
@@ -133,7 +133,7 @@ export function kitFrom(env) {
   const newThread = env.AGENTBOX_KIT_NEW ? newThreadAsked(env.AGENTBOX_KIT_NEW) : undefined;
   if (newThread === null) return null;
   return {
-    device, project, item: newThread ? NEW_THREAD : item, frame: { before: frame.before, after: frame.after }, copy: env.AGENTBOX_KIT_COPY || null,
+    device, project, item: newThread ? (codex ? NEW_THREAD_CODEX : NEW_THREAD) : item, frame: { before: frame.before, after: frame.after }, copy: env.AGENTBOX_KIT_COPY || null,
     ...(codex ? { codex } : {}), ...(newThread ? { newThread } : {}),
   };
 }
@@ -146,15 +146,21 @@ function newThreadAsked(file) {
   try { n = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
   fs.rmSync(file, { force: true });
   if (typeof n?.cwd !== 'string' || !path.isAbsolute(n.cwd) || typeof n.brief !== 'string') return null;
-  return { cwd: n.cwd, brief: n.brief, model: typeof n.model === 'string' ? n.model : null, effort: typeof n.effort === 'string' ? n.effort : null };
+  return {
+    cwd: n.cwd, brief: n.brief, model: typeof n.model === 'string' ? n.model : null, effort: typeof n.effort === 'string' ? n.effort : null,
+    // The engine the project gives a new thread nobody chose one for.
+    ...(n.defaultEngine === 'claude' || n.defaultEngine === 'codex' ? { defaultEngine: n.defaultEngine } : {}),
+  };
 }
 
 // A Codex thread's kit also names the thread to resume and its turn's
-// settings (Supervisor#_writeKit), in a file read once.
+// settings (Supervisor#_writeKit), in a file read once; a new thread's names
+// the thread to start instead (Supervisor#_leaveCodexNewThreadKit).
 function codexKitAsked(file) {
   let asked = null;
   try { asked = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
   fs.rmSync(file, { force: true });
+  if (asked?.start && typeof asked.start === 'object' && asked.turn && typeof asked.turn === 'object' && asked.turn.threadId === undefined) return { start: asked.start, turn: asked.turn };
   if (typeof asked?.resume?.threadId !== 'string' || typeof asked?.turn?.threadId !== 'string') return null;
   return { resume: asked.resume, turn: asked.turn };
 }

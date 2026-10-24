@@ -89,6 +89,8 @@ export function checkKit(kit, { now = Date.now() } = {}) {
   for (const f of kit.homeFiles ?? []) if (typeof f?.rel !== 'string' || f.rel.startsWith('/') || f.rel.includes('..') || !isKey(f.key)) return 'bad home file';
   for (const b of kit.bringDirs ?? []) if (typeof b?.name !== 'string' || !/^[a-z.]+$/.test(b.name) || !isPath(b.dir)) return 'bad folder to bring home';
   if (!kit.bringDirs?.length) return 'nothing to bring home';
+  if (kit.hold !== undefined && !(Array.isArray(kit.hold) && kit.hold.every((s) => typeof s === 'string'))) return 'bad held servers';
+  if (kit.handshakes !== undefined && (!kit.handshakes || typeof kit.handshakes !== 'object' || Array.isArray(kit.handshakes))) return 'bad handshakes';
   if (JSON.stringify(kit).length > KIT_BYTES) return 'the kit is too large';
   return null;
 }
@@ -98,7 +100,7 @@ export function checkKit(kit, { now = Date.now() } = {}) {
  * built as main/cloud/run.mjs builds one. `getUrl(key)` and `putUrl(key)` make
  * links; the sign-in goes by name (`loginName(key)`) for the server to swap.
  */
-export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offlineAfterMs = 90_000, kept = null, endTurn = 'claude-stream-json', refs = null }) {
+export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offlineAfterMs = 90_000, kept = null, endTurn = 'claude-stream-json', refs = null, away = false }) {
   const results = {
     bundleUrl: await putUrl(runKey(runId, 'out.bundle')),
     changesUrl: await putUrl(runKey(runId, 'changes.bundle')),
@@ -126,8 +128,33 @@ export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offl
     tails: true,
     // Null keeps the agent's input open while the computer is away, for a run
     // the server feeds more replies to (cloud/gateway/phone.mjs).
-    offline: { afterMs: offlineAfterMs, endTurn, kept },
+    offline: { afterMs: offlineAfterMs, endTurn, kept, ...heldFor(kit), ...(away ? { away: true } : {}) },
   };
+}
+
+// PERMISSION REQUESTS WITH THE COMPUTER AWAY. A kit for a run that asks names
+// the app's approvals server as held (cloud/sandbox/server.mjs): its calls
+// wait for an answer instead of being refused, and its handshake is the
+// computer's own, carried in the kit. `away`: the server starts it, so the
+// computer is not there from its first moment.
+const heldFor = (kit) => (Array.isArray(kit.hold) && kit.hold.length
+  ? { hold: kit.hold, ...(kit.handshakes && typeof kit.handshakes === 'object' ? { handshakes: kit.handshakes } : {}) }
+  : {});
+
+/** The app's approvals server, by the name a run's tools give it (`mcp__zero-approvals__approval_prompt`). */
+export const APPROVALS_SERVER = 'zero-approvals';
+
+/** A held request's card id: one the phone may send back (`^[\w-]{1,80}$`), and marked as the cloud's. */
+export const askId = (runId, conn, id) => `cloud-${String(runId)}-${String(conn)}-${String(id)}`.replace(/[^\w-]/g, '_').slice(0, 80);
+/** Whether a card's id is one the cloud put on the phone, so its answer is the cloud's to give. */
+export const cloudCard = (approval) => typeof approval === 'string' && approval.startsWith('cloud-');
+
+// What the app's approvals server answers (main/approval-prompt-core.mjs).
+export const DECLINED = 'The founder declined this action. Work with what you are already allowed to do, or park the remainder as a review.';
+/** The answer to a held approval_prompt call, as the app's own server would write it. */
+export function approvalAnswerLine(id, { allow, note = null, input = {} } = {}) {
+  const said = allow ? { behavior: 'allow', updatedInput: input ?? {} } : { behavior: 'deny', message: note || DECLINED };
+  return JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(said) }] } });
 }
 
 /** Each of Claude Code's `result` lines, in order, off a run's event log. */
@@ -182,10 +209,15 @@ export function lastAnswerIn(eventsText) {
 // rewrites them) and the turn's settings; her reply goes into a `turn/start`
 // whose input is the turn's prompt. Request ids are fixed: `resumeId` names
 // the resume's answer, and turns go from `firstTurnId` on.
+// A new thread's Codex kit starts its thread (`startId`, the `thread/start`'s
+// own id) instead, and learns the thread's id from that answer.
 function codexKitProblem(c) {
   if (!c || !strings(c.open) || c.open.length < 3) return 'a Codex kit with no lines to open its thread';
-  if (!Number.isInteger(c.resumeId) || !Number.isInteger(c.firstTurnId) || c.firstTurnId <= c.resumeId) return 'a Codex kit with no request ids';
-  if (!c.turn || typeof c.turn !== 'object' || typeof c.turn.threadId !== 'string' || !c.turn.threadId) return 'a Codex kit with no thread to resume';
+  const opens = Number.isInteger(c.startId) ? c.startId : c.resumeId;
+  if (!Number.isInteger(opens) || !Number.isInteger(c.firstTurnId) || c.firstTurnId <= opens) return 'a Codex kit with no request ids';
+  if (!c.turn || typeof c.turn !== 'object') return 'a Codex kit with no turn';
+  if (Number.isInteger(c.startId)) return c.turn.threadId === undefined ? null : 'a Codex kit that starts a thread and resumes one';
+  if (typeof c.turn.threadId !== 'string' || !c.turn.threadId) return 'a Codex kit with no thread to resume';
   return null;
 }
 
@@ -193,9 +225,12 @@ function codexKitProblem(c) {
 export const codexOpenLines = (kit) => kit.codex.open.map((l) => (l.endsWith('\n') ? l : `${l}\n`)).join('');
 
 /** Her reply as one turn of the kit's thread, with request id `id`. */
-export function codexTurnLines(kit, reply, { id }) {
-  const { threadId, ...settings } = kit.codex.turn;
-  return `${JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/start', params: { threadId, ...settings, input: [{ type: 'text', text: replyPrompt(kit.frame, reply) }] } })}\n`;
+// `raw` is a new thread's first turn, its brief as it stands; `threadId` the
+// id a new thread's start answered with.
+export function codexTurnLines(kit, reply, { id, raw = null, threadId: named = null }) {
+  const { threadId: kept, ...settings } = kit.codex.turn;
+  const text = typeof raw === 'string' ? raw : replyPrompt(kit.frame, reply);
+  return `${JSON.stringify({ jsonrpc: '2.0', id, method: 'turn/start', params: { threadId: named ?? kept, ...settings, input: [{ type: 'text', text }] } })}\n`;
 }
 
 // WHAT A CODEX RUN SAID, read as main/codex.mjs `captureCodexEvent` reads it:
@@ -213,7 +248,10 @@ export function codexReadLines(lines, state = {}) {
     if (!msg || typeof msg !== 'object') continue;
     if (msg.id !== undefined && msg.method === undefined) {
       const why = msg.error ? String(msg.error.message ?? 'refused') : null;
-      if (msg.id === state.resumeId) state.resumed = why ?? true;
+      if (msg.id === state.resumeId) {
+        state.resumed = why ?? true;
+        if (!why && typeof msg.result?.thread?.id === 'string') state.threadId = msg.result.thread.id;
+      }
       else if (why && (state.turnIds ?? []).includes(msg.id)) answers.push({ text: why, isError: true });
       continue;
     }
@@ -275,7 +313,9 @@ export const NEW_THREAD = '_new';
 export const NEW_ITEM_MARK = 'xagentboxnewitemx';
 export const NEW_TITLE_MARK = '⁣AGENTBOX-NEW-TITLE⁣';
 export const NEW_BODY_MARK = '⁣AGENTBOX-NEW-BODY⁣';
-export const newThreadKitKey = (device, project) => kitKey(device, project, NEW_THREAD);
+// A Codex one, when the computer has a Codex sign-in for the cloud, beside it.
+export const NEW_THREAD_CODEX = '_new-codex';
+export const newThreadKitKey = (device, project, engine = 'claude') => kitKey(device, project, engine === 'codex' ? NEW_THREAD_CODEX : NEW_THREAD);
 
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

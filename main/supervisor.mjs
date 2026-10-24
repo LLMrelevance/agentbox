@@ -43,7 +43,7 @@ import { cloudWorkPending, takeCloudNews, writeMarker, readMarker } from './clou
 import { cloudClients } from './cloud/clients.mjs';
 import { kitCopyPath, kitFramePath, readKitCopy, markerForCloudRun } from './cloud/kit.mjs';
 import { REPLY_MARK, replyFrame, serverJoinedKey } from '../shared/cloud-kit.mjs';
-import { NEW_THREAD, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit } from '../shared/cloud-kit.mjs';
+import { NEW_THREAD, NEW_THREAD_CODEX, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit } from '../shared/cloud-kit.mjs';
 import { execFile as execFileCb } from 'node:child_process';
 import { CLOSED_UNSHIPPED, closedBeforeItShipped } from '../shared/not-shipped.mjs';
 import { handsBack } from '../shared/cloud-hand-back.mjs';
@@ -10077,7 +10077,7 @@ export class Supervisor {
       if (!this._phoneCarries?.device || !this.leavesKitsFor(slug)) return;
       const left = (this._newThreadKits ??= new Map());
       const was = left.get(slug);
-      if (was?.child || was?.looking || (was && now - was.lookedAt < NEW_KIT_LOOK_MS)) return;
+      if (was?.child || was?.codexChild || was?.looking || (was && now - was.lookedAt < NEW_KIT_LOOK_MS)) return;
       const product = this.store.listProducts().find((p) => p.slug === slug);
       const base = product?.repoPath ? this.productFolder(product) : null;
       if (!base || !fs.existsSync(base)) return;
@@ -10096,38 +10096,102 @@ export class Supervisor {
         id: NEW_ITEM_MARK, product: slug, title: NEW_TITLE_MARK, body: NEW_BODY_MARK, kind: 'directive', status: 'open', priority: 0,
         labels: ['founder'], createdAt: now, updatedAt: now, wrote: { title: { ts: now, source: 'founder' }, body: { ts: now, source: 'founder' } },
       };
-      const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'claude' });
-      if (plan.command || plan.resumeId) return;
-      const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
-      if (!frame) return;
-      const profile = this._projectProfile(slug, 'claude') ?? 'default';
-      const launch = harnessFor('claude').cloudLaunch(this, plan, { item: stub, profile, env: this._workerEnv('claude') });
-      const dir = path.join(this.userDir, 'cloud-kits');
-      fs.mkdirSync(dir, { recursive: true });
-      const framed = kitFramePath(this.userDir, slug, NEW_THREAD);
-      fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
-      const asked = path.join(dir, `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--_new.asked.json`);
-      const cwd = path.join(real(root), '.claude', 'worktrees', NEW_ITEM_MARK);
-      fs.writeFileSync(asked, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null }), { mode: 0o600 });
-      const child = this._spawnCloudRelay(['--agentbox-kit', ...launch.args], {
-        cwd: real(root),
-        env: { ...launch.env, AGENTBOX_KIT_DEVICE: this._phoneCarries.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_NEW: asked, AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, slug, NEW_THREAD) },
-        stdio: ['ignore', 'ignore', 'pipe'],
-      });
-      const rec = { child, main, at: now, lookedAt: now };
+      // The engine a new thread here gets when she chose none, which the server reads off the kits.
+      const defaultEngine = engineOf(this._engineFor(stub)) === 'codex' ? 'codex' : 'claude';
+      const rec = { child: null, codexChild: null, main, at: now, lookedAt: now };
       left.set(slug, rec);
-      let said = '';
-      child.stderr?.on('data', (d) => { if (said.length < 2000) said += d; });
-      const done = (code) => {
-        if (rec.child !== child) return;
-        rec.child = null;
-        if (code !== 0) { this._kitTrouble(`new ${code}`, said.trim().split('\n').pop() || 'it ended without saying why'); rec.main = null; }
-      };
-      child.on('error', () => done(1));
-      child.once('exit', done);
+      const ctx = { slug, stub, product, root: real(root), defaultEngine, rec };
+      if (this._kitsPossible('claude')) this._writeClaudeNewThreadKit(ctx);
+      if (this._kitsPossible('codex')) this._writeCodexNewThreadKit(ctx);
     } catch (error) {
       this._kitTrouble('new', error.message);
     }
+  }
+
+  _writeClaudeNewThreadKit({ slug, stub, product, root, defaultEngine, rec }) {
+    const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'claude' });
+    if (plan.command || plan.resumeId) return;
+    const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
+    if (!frame) return;
+    const profile = this._projectProfile(slug, 'claude') ?? 'default';
+    const launch = harnessFor('claude').cloudLaunch(this, plan, { item: stub, profile, env: this._workerEnv('claude') });
+    const dir = path.join(this.userDir, 'cloud-kits');
+    fs.mkdirSync(dir, { recursive: true });
+    const framed = kitFramePath(this.userDir, slug, NEW_THREAD);
+    fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
+    const asked = path.join(dir, `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--_new.asked.json`);
+    const cwd = path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
+    fs.writeFileSync(asked, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine }), { mode: 0o600 });
+    const child = this._spawnCloudRelay(['--agentbox-kit', ...launch.args], {
+      cwd: root,
+      env: { ...launch.env, AGENTBOX_KIT_DEVICE: this._phoneCarries.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_NEW: asked, AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, slug, NEW_THREAD) },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    this._followNewKitWriter(rec, 'child', child);
+  }
+
+  // A NEW CODEX THREAD'S KIT: the app-server a cloud run of it starts, and, in
+  // files read once, the thread to start for the stand-in (its folder and
+  // names marked) with the turn's own settings, and its brief. Her title and
+  // body go only into the first turn, so a start that carried them is none.
+  _writeCodexNewThreadKit({ slug, stub, product, root, defaultEngine, rec }) {
+    const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'codex' });
+    if (plan.command || plan.resumeId || plan.reviewTarget) return;
+    const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
+    if (!frame) return;
+    const profile = this._projectProfile(slug, 'codex') ?? 'default';
+    const home = this._codexProfileHome(profile);
+    const cwd = path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
+    const start = this.codexThreadParamsFor(plan, cwd, [], this._codexStoreServer(stub), home, { cloud: true });
+    const { input: _said, ...turn } = this.codexTurnParamsFor(plan);
+    if ([NEW_TITLE_MARK, NEW_BODY_MARK].some((m) => JSON.stringify(start).includes(m))) { this._kitTrouble('new-codex', 'a new Codex thread\'s start would carry her words'); return; }
+    const dir = path.join(this.userDir, 'cloud-kits');
+    fs.mkdirSync(dir, { recursive: true });
+    const named = `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--${NEW_THREAD_CODEX}`;
+    const framed = kitFramePath(this.userDir, slug, NEW_THREAD_CODEX);
+    fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
+    const askedNew = path.join(dir, `${named}.asked.json`);
+    fs.writeFileSync(askedNew, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine }), { mode: 0o600 });
+    const askedCodex = path.join(dir, `${named}.codex.json`);
+    fs.writeFileSync(askedCodex, JSON.stringify({ start, turn }), { mode: 0o600 });
+    const child = this._spawnCloudRelay(['--agentbox-kit', '--agentbox-codex', 'app-server'], {
+      cwd: root,
+      env: {
+        ...this._workerEnv('codex'), CODEX_HOME: home, STORE_ACCOUNT_ID: this.config.accountId, ...storeRootEnv(this.config.storeRoot),
+        ZERO_PRODUCT: slug, ZERO_ITEM: NEW_ITEM_MARK, ...this._cloudDocsEnv(stub),
+        AGENTBOX_KIT_DEVICE: this._phoneCarries.device, AGENTBOX_KIT_FRAME: framed, AGENTBOX_KIT_NEW: askedNew, AGENTBOX_KIT_CODEX: askedCodex,
+        AGENTBOX_KIT_COPY: kitCopyPath(this.userDir, slug, NEW_THREAD_CODEX),
+      },
+      stdio: ['ignore', 'ignore', 'pipe'],
+    });
+    this._followNewKitWriter(rec, 'codexChild', child);
+  }
+
+  _followNewKitWriter(rec, field, child) {
+    rec[field] = child;
+    let said = '';
+    child.stderr?.on('data', (d) => { if (said.length < 2000) said += d; });
+    const done = (code) => {
+      if (rec[field] !== child) return;
+      rec[field] = null;
+      if (code !== 0) { this._kitTrouble(`new ${code}`, said.trim().split('\n').pop() || 'it ended without saying why'); rec.main = null; }
+    };
+    child.on('error', () => done(1));
+    child.once('exit', done);
+  }
+
+  // The copy of the new-thread kit the server would have taken: the coding
+  // agent she chose, or the one the project gives a new thread (cloud/gateway/phone.mjs).
+  _newThreadCopyFor(slug, chosen) {
+    const read = (engine) => {
+      const k = readKitCopy(kitCopyPath(this.userDir, slug, engine === 'codex' ? NEW_THREAD_CODEX : NEW_THREAD));
+      return k?.project === slug && k.engine === engine ? k : null;
+    };
+    if (chosen === 'codex') return read('codex');
+    const claude = read('claude');
+    if (chosen) return claude;
+    const codex = read('codex');
+    return ((claude ?? codex)?.newThread?.defaultEngine ?? 'claude') === 'codex' ? codex : claude;
   }
 
   /** How this computer makes a thread's task folder, off the window's thread. */
@@ -10152,8 +10216,8 @@ export class Supervisor {
       if (had) return had;
       return this.store.composeItem(slug, { id: itemId, title, body, fromPhone: command, ...choices });
     };
-    const copy = readKitCopy(kitCopyPath(this.userDir, slug, NEW_THREAD));
-    const filled = copy?.project === slug ? fillNewThreadKit(copy, { itemId, title, body }) : null;
+    const copy = this._newThreadCopyFor(slug, choices?.engine);
+    const filled = copy ? fillNewThreadKit(copy, { itemId, title, body }) : null;
     if (!filled) {
       makeRow();
       for (const reply of replies) this.store.answerItem(slug, itemId, { answer: reply, status: 'open' });
@@ -10184,10 +10248,14 @@ export class Supervisor {
       writeMarker(place, markerForCloudRun(kit, runId));
       makeRow();
       const carrying = this._answerHeard(slug, itemId, replies);
+      const codex = kit.engine === 'codex';
       const configDir = kit.marker?.configDir;
-      const profile = !configDir || configDir === this._claudeConfigDir('default') ? 'default' : configDir;
+      const codexHome = kit.env?.CODEX_HOME;
+      const profile = codex
+        ? (!codexHome || codexHome === this._codexProfileHome('default') ? 'default' : codexHome)
+        : (!configDir || configDir === this._claudeConfigDir('default') ? 'default' : configDir);
       this._liveSessions[itemId] = {
-        sessionId: null, product: slug, cwd: kit.cwd, profile, engine: 'claude', continuation: false, startedAt: Date.now(), cloud: true,
+        sessionId: null, product: slug, cwd: kit.cwd, profile, engine: codex ? 'codex' : 'claude', continuation: false, startedAt: Date.now(), cloud: true,
         ...(carrying ? { carrying } : {}),
       };
       this._saveState();

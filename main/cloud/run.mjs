@@ -72,6 +72,8 @@ import { serveApprovals } from '../approval-prompt-core.mjs';
 import { cacheKey, folderKey, sendOnce, pickBase, bundlePast, refsAt, sendConversation, sentRecordPath } from './reuse.mjs';
 import { KIT_VERSION, checkKit, kitKey } from '../../shared/cloud-kit.mjs';
 import { NEW_ITEM_MARK } from '../../shared/cloud-kit.mjs';
+import { APPROVALS_SERVER } from '../../shared/cloud-kit.mjs';
+import { asksPermission, approvalsHandshakes } from './kit.mjs';
 
 // WHAT A CLOUD RUN IS TOLD ABOUT WHERE IT IS. Without it an agent there found
 // its film's files, ffmpeg and a key missing, and asked the person to move the
@@ -472,7 +474,7 @@ function newThreadNames(n, { cwd, startSha, files, joins, bringDirs }) {
   return {
     files: files.map((f) => ({ ...f, path: rename(f.path), ...(f.untar ? { untar: rename(f.untar) } : {}) })),
     joins: { ...joins, bringDirs: dirs },
-    made: { cwd: n.cwd, bringDirs: dirs, newThread: { mainSha: startSha, brief: n.brief, model: n.model, effort: n.effort } },
+    made: { cwd: n.cwd, bringDirs: dirs, newThread: { mainSha: startSha, brief: n.brief, model: n.model, effort: n.effort, ...(n.defaultEngine ? { defaultEngine: n.defaultEngine } : {}) } },
   };
 }
 
@@ -892,7 +894,9 @@ export async function cloudRun({
         bringDirs, kept: keptWhileAway,
         // A conversation begun on the Mac is told it is in the cloud at the top of its message.
         note: untold ? (plain ? PLAIN_CLOUD_NOTE : CLOUD_NOTE) : null,
-        ...(codexOpen ? { codex: { open: codexOpen.lines, resumeId: CODEX_RESUME_ID, firstTurnId: CODEX_RESUME_ID + 1, turn: kit.codex.turn } } : {}),
+        // A run that asks permission has its cards held for her phone while the computer is shut.
+        ...(!codex && asksPermission(argv) ? { hold: [APPROVALS_SERVER], handshakes: { [APPROVALS_SERVER]: await approvalsHandshakes() } } : {}),
+        ...(codexOpen ? { codex: { open: codexOpen.lines, [kit.codex.start ? 'startId' : 'resumeId']: CODEX_RESUME_ID, firstTurnId: CODEX_RESUME_ID + 1, turn: kit.codex.turn } } : {}),
         ...(named ? named.made : {}),
       },
     });
@@ -1625,8 +1629,12 @@ export async function cloudRun({
 // rewritten here as a run's is, so the store is the sandbox's stub and the
 // rollout the resume needs goes with the pack. The ids are the kit's own.
 export const CODEX_RESUME_ID = 2;
-export function codexKitOpen({ resume }, { stubPath = STUB, codexHome, keep, note = null, findRollout = codexTranscriptFile }) {
-  const rewritten = codexLineForTheCloud(`${JSON.stringify({ jsonrpc: '2.0', id: CODEX_RESUME_ID, method: 'thread/resume', params: resume })}\n`, { stubPath, codexHome, keep, note, findRollout });
+// A new thread's kit starts its thread, as the client's `startThread` does.
+export function codexKitOpen({ resume, start }, { stubPath = STUB, codexHome, keep, note = null, findRollout = codexTranscriptFile }) {
+  const asked = start
+    ? { jsonrpc: '2.0', id: CODEX_RESUME_ID, method: 'thread/start', params: { ephemeral: false, ...start } }
+    : { jsonrpc: '2.0', id: CODEX_RESUME_ID, method: 'thread/resume', params: resume };
+  const rewritten = codexLineForTheCloud(`${JSON.stringify(asked)}\n`, { stubPath, codexHome, keep, note, findRollout });
   return {
     lines: [
       JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { clientInfo: CLIENT_INFO } }),
