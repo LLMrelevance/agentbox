@@ -181,6 +181,13 @@ export function offerIsLive(item: HasFields & { answer?: string }): boolean {
   return offered > spoke;
 }
 
+/** Option `n`, only while the strip that draws it would, so no key picks an
+ *  offer a later note has made stale. */
+export function liveOption(item: HasFields & { answer?: string }, n: number): ParsedOption | null {
+  if (!offerIsLive(item)) return null;
+  return itemOptions(item).find((o) => o.n === n) ?? null;
+}
+
 // THE OPTION THAT CLOSES THE TASK (w-1df18b337a). Once a run has shipped, the
 // one honest next move is often to close the row, and agents are told to offer
 // exactly "Close this task". A pick is a reply, and a reply on a finished row

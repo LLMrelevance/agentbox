@@ -457,10 +457,11 @@ function coerceField(field, value) {
     // A ts rather than a flag, so her NEXT answer outdates it by carrying a
     // later one, with nothing to clear and nobody who has to remember to.
     case 'answeredThrough': return Number.isFinite(value) ? Math.trunc(value) : undefined;
+    // An empty list is a real value: it is how the last label, `ship` above
+    // all, comes off.
     case 'labels': {
       if (!Array.isArray(value)) return undefined;
-      const labels = value.map((l) => str(l, MAX_SHORT)).filter(Boolean).slice(0, MAX_LABELS);
-      return labels.length ? labels : undefined;
+      return value.map((l) => str(l, MAX_SHORT)).filter(Boolean).slice(0, MAX_LABELS);
     }
     case 'assignee': case 'runner': return shortId(value) ?? undefined;
     case 'due': return calendarDay(value);
