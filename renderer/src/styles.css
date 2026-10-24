@@ -1098,6 +1098,14 @@ body {
   line-height: 1;
   font-weight: 400;
 }
+/* The same button on a keyboard with no ⌘, where the key is a word. Four
+   letters at 18px overrun a 34px button, so the word is set at the size the
+   app's other key words take. */
+.cmd-glyph.cmd-word {
+  font-size: 11px;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
 
 /* P2, the tab head). Smaller than a corner button because it is standing among
    words now, not among icons, and pulled 11px back into the row's own 26px gap.
@@ -6038,6 +6046,21 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   background-size: cover, cover, cover;
   background-blend-mode: normal, multiply, normal;
 }
+/* The walk is the one place that wears a focus ring. The app draws none
+   anywhere (see `*:focus` above): its grammar is J, K and Tab for the tabs, and
+   the browser's ring answers a traversal it does not use. Setup is not that app
+   yet. It is a form, Tab is the only way round it without a mouse, and nothing
+   on screen said where you were. One rule for every screen the walk draws, so a
+   screen that gains a button gains the ring with it. */
+.fr-screen :is(button, [role="option"], input, textarea, a):focus-visible,
+.fr-stay-scrim button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 3px;
+}
+/* A row in the folder card is full width, so its ring goes just inside the row
+   rather than over the rows either side of it. */
+.fr-screen .fr-folder:focus-visible { outline-offset: -2px; }
+
 .fr-brand {
   position: fixed; left: 64px; top: 44px; z-index: 302;
   display: flex; align-items: center; gap: 11px;

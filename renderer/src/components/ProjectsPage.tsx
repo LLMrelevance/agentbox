@@ -27,6 +27,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { landingRow, nudge, placeBefore, priorityList } from '../project-priority';
+import { chord } from '../this-keyboard';
 import { ProductMark } from './ProductMark';
 import { shortPath } from './Settings';
 import { archiveLabel, archivedLine, keepShown, selectionLine, togglePick } from '../project-archive';
@@ -329,11 +330,11 @@ export function ProjectsPage({ ranked, details, onSetOrder, onOpen, onNew, archi
                       <button type="button" className="pp-top" disabled={rank === 0}
                         onClick={() => commit(p.slug, placeBefore(full, p.slug, allSlugs[0]))}>To top</button>
                       <button type="button" className="pp-arrow" disabled={i === 0} aria-label={`Move ${p.name} up`}
-                        title="Move up (⌥↑)" onClick={() => commit(p.slug, nudge(full, shownSlugs, p.slug, -1))}>
+                        title={`Move up (${chord('⌥↑')})`} onClick={() => commit(p.slug, nudge(full, shownSlugs, p.slug, -1))}>
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 9.5 8 6l3.5 3.5" /></svg>
                       </button>
                       <button type="button" className="pp-arrow" disabled={i === shown.length - 1} aria-label={`Move ${p.name} down`}
-                        title="Move down (⌥↓)" onClick={() => commit(p.slug, nudge(full, shownSlugs, p.slug, 1))}>
+                        title={`Move down (${chord('⌥↓')})`} onClick={() => commit(p.slug, nudge(full, shownSlugs, p.slug, 1))}>
                         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 6.5 8 10l3.5-3.5" /></svg>
                       </button>
                     </span>

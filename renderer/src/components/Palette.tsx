@@ -2,6 +2,7 @@
 // and keywords (../palette-rows), so a row is found only by words it contains.
 
 import { cloudCommands, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { chord } from '../this-keyboard';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { Product, View } from '../types';
 import { commandKeys } from '../palette-keys';
@@ -177,7 +178,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     ...(staleFiles.length ? [{
       id: 'stale',
       label: `Restart ${NAME} to pick up main-process changes`,
-      hint: `${staleFiles.length} file${staleFiles.length === 1 ? '' : 's'} changed since this one started · ⌘R will not pick them up`,
+      hint: `${staleFiles.length} file${staleFiles.length === 1 ? '' : 's'} changed since this one started · ${chord('⌘R')} will not pick them up`,
       run: () => {},
     }] : []),
     {

@@ -97,6 +97,7 @@ import { searchThreads, threadSearchDetails } from './threads/search';
 import { applyTheme, machineTheme, onMachineTheme, resolvePick, resolveTheme, THEME_KEY, type ThemePick } from './theme';
 import { hintScheduler, type HintScheduler } from './hint-timing';
 import { HINTS } from './hint-plate';
+import { MAC, chord, sayKeys } from './this-keyboard';
 import { HintPlate } from './components/HintPlate';
 import { applySkin, applySkinDetail, applyTune, DEFAULT_SKIN, idleSkin, lookMeans, lookOf, resolveSkin, resolveSkinDetail, resolveTune, seedFirstRunLook, SKINS, storeTune, walkSkin, wornSkin, SKIN_KEY, TUNE_DEFAULT, TUNE_KEY, type Look, type SkinChoice, type SkinId, type SkinTune } from './skins';
 // THE SHAPE OF AN OPENED TASK IS STILL AN OPEN QUESTION. Six of them,
@@ -139,7 +140,7 @@ import {
   waitingId, waitingIndex,
   finishFirstRun, finishedTheFirstRun, setupStepCount, forcedStep, readFirstRun, walkRows,
   saveFirstRun, START as RUN_START, stepTo, TASK_BODY, TASK_TITLE, whyNotMade, type FirstRun,
-  replyAnswered, replyWritten, skipStep, walkMayOpen,
+  replyAnswered, replyWritten, skipStep, tabStop, walkCoversTheApp, walkMayOpen,
 } from './onboarding';
 import { priorityCommands, priorityIdOf, priorityLabelOf, type PriorityId } from './priority';
 import { runNowCommands } from './run-now';
@@ -287,6 +288,9 @@ function Booting() {
     ? <div className="boot boot-stuck"><p>{said}</p></div>
     : <div className="boot"><span>{NAME}</span></div>;
 }
+
+/** What Tab reaches inside a walk screen that is holding its own focus. */
+const FOCUSABLE = 'button, [role="option"], input, textarea, select, a[href], [tabindex]';
 
 export default function App() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
@@ -976,6 +980,10 @@ export default function App() {
   const [heldAnswer, setHeldAnswer] = useState<string | null>(null);
 
   const [run, setRun] = useState<FirstRun | null>(null);
+  // For the key handler, which is bound once and reads this rather than
+  // carrying the walk in its deps.
+  const walkScreenRef = useRef(false);
+  walkScreenRef.current = walkCoversTheApp(run);
   // THE FIRST SECOND OF HER OWN PROJECT. Null except for the five seconds after
   // the walk ends; see `Landed` in components/Onboarding.tsx for why the
   // confetti is here rather than on the card before it.
@@ -5102,7 +5110,12 @@ export default function App() {
       // also a shortcut: E closes the task, S schedules it.
       const target = e.target as HTMLElement;
       const inInput = target?.tagName === 'TEXTAREA' || target?.tagName === 'INPUT' || !!target?.isContentEditable;
+      // Not under the walk's own screens: they are opaque and cover the
+      // window, so the palette this opened was drawn where nobody could see it,
+      // and the Escape after it closed that rather than anything visible. The
+      // beat that teaches ⌘K is the last one, standing on the real app.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        if (walkScreenRef.current) return;
         e.preventDefault();
         setModal((m) => (m === 'palette' ? null : 'palette'));
         return;
@@ -5144,9 +5157,25 @@ export default function App() {
       // which draw no tabs.
       // Everywhere else Tab goes on walking browser focus as it has since
       // 2026-09-14, and a field-level editor still eats its own first.
+      // And not under the walk, which was why Tab did nothing on the setup
+      // screens: the rotation ran on tabs nobody could see, blurring whatever
+      // the walk's own Tab had just reached. The walk is a form.
       if (e.key === 'Tab') {
+        // A walk screen holds its own focus: it is fixed over an app still in
+        // the document, so the browser walked Tab into the sidebar behind it.
+        if (walkScreenRef.current) {
+          const screen = document.querySelector('.fr-screen');
+          const inside = screen ? [...screen.querySelectorAll<HTMLElement>(FOCUSABLE)]
+            .filter((el) => el.tabIndex >= 0 && !el.hasAttribute('disabled')) : [];
+          const to = tabStop(inside.length, inside.indexOf(document.activeElement as HTMLElement), e.shiftKey);
+          if (to < 0) return;
+          e.preventDefault();
+          inside[to].focus();
+          return;
+        }
         const onTheTabs = !inInput && !modal && !focused && !focusedRepeat && !inFullScreen
           && !settingsOpen && !teamShown && !openCard && !roomsUi.dialogOpen
+          && !walkScreenRef.current
           && search === null && inboxDisplay.view === 'list' && !roomShown;
         if (!onTheTabs) return;
         // Built, not left alone: the browser's own focus walk would otherwise
@@ -6367,7 +6396,9 @@ export default function App() {
             aria-label="Commands"
             onClick={() => setModal('palette')}
           >
-            <span className="cmd-glyph" aria-hidden="true">⌘</span>
+            {/* The glyph is the key, so on a keyboard with no ⌘ it is the word
+                Ctrl: this is the one button whose whole job is to name it. */}
+            <span className={MAC ? 'cmd-glyph' : 'cmd-glyph cmd-word'} aria-hidden="true">{MAC ? '⌘' : 'Ctrl'}</span>
           </button>}
           {/* A corner button was built here as layer one for a keyboard-only toggle; she has
              the key, and a third permanent control beside the plus and the cog costs more
@@ -7658,7 +7689,7 @@ export default function App() {
             // tester's call; it also needed the word to type after it.
             rememberOffered(localStorage);
             setOffer(null);
-            showToast(WALK_COPY.offerLater);
+            showToast(sayKeys(WALK_COPY.offerLater));
           }}
         />
       )}
@@ -7817,7 +7848,7 @@ export default function App() {
                       back, so the click and the chord land on one behaviour. */}
                   <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
                   <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
-                  <span className="approval-hint">⌘Y / ⌘N · {a.tool}</span>
+                  <span className="approval-hint">{chord('⌘Y')} / {chord('⌘N')} · {a.tool}</span>
                 </div>
               </div>
             </div>

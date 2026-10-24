@@ -1,4 +1,5 @@
 import { RemoteControl } from './RemoteControl';
+import { SEND } from '../this-keyboard';
 import { onPhone } from '../phone-screen';
 import { pollEvery } from '../phone-polls';
 import {DirectReview} from './DirectReview';
@@ -3241,8 +3242,8 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           className="dock-send"
           onClick={() => send()}
           disabled={!hasDraft || !!chat.block || saving}
-          title={chat.block ?? 'Send · ⌘↵'}
-        >{saving ? 'Sending…' : <>Send <kbd>⌘↵</kbd></>}</button>
+          title={chat.block ?? `Send · ${SEND}`}
+        >{saving ? 'Sending…' : <>Send <kbd>{SEND}</kbd></>}</button>
         )}
       </div>
     </>

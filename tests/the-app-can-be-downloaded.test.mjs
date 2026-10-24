@@ -24,9 +24,11 @@ describe('the app a stranger downloads is called Powerup', () => {
     expect(pkg.build.productName).toBe(NAME);
     // The window's own title bar. It said the app until the first rename landed,
     // so the app shipped under the internal name for as long as there was a
-    // build. It reads the name now rather than holding one.
+    // build. It reads the name now rather than holding one, and since a
+    // throwaway copy's window says so in its own title (main/new-user-window.mjs)
+    // the name is handed there rather than written on the window.
     const main = fs.readFileSync(path.join(repo, 'main', 'main.mjs'), 'utf8');
-    expect(main).toMatch(/title: NAME,/);
+    expect(main).toMatch(/name: NAME,/);
     expect(main).not.toMatch(/title: 'Zero'/);
     for (const was of WAS) expect(main).not.toContain(`title: '${was}'`);
   });
