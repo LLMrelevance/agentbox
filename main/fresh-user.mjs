@@ -94,7 +94,7 @@ export function openFreshUser({
   // be missing without looking broken, and a test that quietly cannot run an
   // agent is a test that lies. They are said rather than assumed.
   const notes = [];
-  if (withTools && !prepared.claudeBin) notes.push('Claude Code is not at ~/.local/bin/claude, so agents will not run in it.');
+  if (withTools && !prepared.claudeBin) notes.push('That copy has no Claude Code of its own, so its setup offers to set one up or to use ChatGPT.');
   if (!prepared.keychain) notes.push('There is no ~/Library/Keychains here, so Claude Code will say it is not logged in.');
   if (withAgents && !prepared.agents) notes.push('There is no ~/.claude on this computer, so it will have no agents to offer.');
 

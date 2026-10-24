@@ -132,7 +132,7 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
-import { codexAccount, codexPlanEnded } from './codex-account.mjs';
+import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mjs';
 import { accountName } from '../shared/account-names.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
@@ -8464,6 +8464,9 @@ export class Supervisor {
     this._codexServers = this._codexServers ?? new Map();
     const live = this._codexServers.get(home);
     if (live && !live.client.isClosed()) return live;
+    // On a computer that has never run Codex, `~/.codex` does not exist, and
+    // codex-cli refuses the variable rather than making the folder.
+    ensureCodexHome(home);
     const client = createCodexAppServer({
       spawn: () => spawn(this.config.codexBin, ['app-server'], {
         // HER HOME, NEVER THE APP'S OWN FOLDER. In an installed build that is

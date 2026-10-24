@@ -111,6 +111,9 @@ export function createEngineSetup({ find, spawn = realSpawn, wait = sleep, env =
     const live = () => j.run === run;
     let hit = await find(j.engine);
     if (!live()) return;
+    // The card's first row says Found or Install off this, because it ticks
+    // that row either way.
+    j.already = !!hit?.found;
     if (!hit?.found) {
       j.phase = 'installing';
       const { file, args } = installCommand(j.engine);
@@ -181,7 +184,7 @@ export function createEngineSetup({ find, spawn = realSpawn, wait = sleep, env =
     },
     status(engine) {
       const j = job(engine);
-      return { engine, phase: j.phase, error: j.error, log: j.log };
+      return { engine, phase: j.phase, error: j.error, log: j.log, bin: j.bin ?? null, already: !!j.already };
     },
     /**
      * WHETHER THIS TOOL CAN RUN AN AGENT RIGHT NOW: found, and signed in by its
