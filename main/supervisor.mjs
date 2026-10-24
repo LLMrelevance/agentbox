@@ -1622,11 +1622,13 @@ export class Supervisor {
    * (`_theOneAccount`). A chat already sitting there is kept whatever is wrong
    * with it, because dropping it would lose the thread and buy nothing.
    *
-   * A USAGE LIMIT USED TO COUNT HERE (w-dac993a554), so a chat on a capped
-   * login was moved to a login with room. That is the app rotating accounts to
-   * get past a usage limit, which is what Anthropic's Usage Policy means by
-   * circumventing a guardrail. A limit is waited out now and the row says the
-   * hour it resets.
+   * A USAGE LIMIT USED TO COUNT HERE ON ITS OWN (w-dac993a554), so the app
+   * moved a chat off a capped login by itself. It does not decide that for a
+   * person any more: on the account in use, a limit is waited out and the row
+   * says the hour it resets. SWITCHING TO YOUR OTHER PLAN AT A LIMIT IS
+   * ALLOWED (the founder, 2026-10-23: "It is 100% acceptable to switch to work
+   * plan when you've hit your limit"). Pick it in Settings and the capped
+   * login's chats come here, by the last paragraph below.
    *
    * A CHAT ON ANOTHER OF THIS PERSON'S LOGINS IS LEFT ALONE while that login
    * can still run: it is there because they imported a conversation of their
@@ -3874,16 +3876,13 @@ export class Supervisor {
    *
    * Every login signed in on the computer used to take a share of the work by
    * round-robin, so adding a second subscription roughly doubled what the app
-   * would spend. Anthropic's own pages say the limits it was spending assume
-   * "ordinary, individual usage of Claude Code and the Agent SDK", and their
-   * Usage Policy forbids several accounts used to "circumvent product
-   * guardrails". An app that spreads one person's work over two subscriptions
-   * is doing exactly that, whatever it is called, so it does not.
+   * would spend, and nobody had chosen that. Now the work runs on one account.
    *
    * The account is the one picked, and the primary login when nobody has
-   * picked. A person who genuinely holds two plans -- their own and an
-   * employer's -- still chooses between them here, and still ties a single
-   * project to the other one (`_projectProfile`, which beats this).
+   * picked. A person with a personal and a work plan chooses between them here,
+   * may switch whenever they like, including when one has hit its limit, and
+   * may tie a single project to the other one (`_projectProfile`, which beats
+   * this).
    *
    * A PICK THAT NAMES NOTHING REAL IS THE PRIMARY LOGIN, not every account.
    * A setting left over from a login since removed must neither empty the pool
