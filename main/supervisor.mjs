@@ -133,7 +133,7 @@ import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
 import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
-import { codexAccount, codexPlanEnded } from './codex-account.mjs';
+import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mjs';
 import { accountName } from '../shared/account-names.mjs';
 import { nameRow, wantsName } from './row-label.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
@@ -4421,9 +4421,12 @@ export class Supervisor {
   // main/cloud/run-cli.mjs, when cloud runs are on (`cloudRuns`), set up
   // (~/.agentbox/cloud.json) and under their own cap (`maxCloudSessions`).
 
+  // Picked-back-up runs count: they hold a cloud slot, and their rows show
+  // them working there.
   _cloudLoad() {
     let n = 0;
     for (const s of this.sessions.values()) if (s.cloud) n += 1;
+    for (const v of this._comingHome?.values() ?? []) if (!this.sessions.has(v.itemId)) n += 1;
     return n;
   }
 
@@ -8652,6 +8655,9 @@ export class Supervisor {
     this._codexServers = this._codexServers ?? new Map();
     const live = this._codexServers.get(home);
     if (live && !live.client.isClosed()) return live;
+    // On a computer that has never run Codex, `~/.codex` does not exist, and
+    // codex-cli refuses the variable rather than making the folder.
+    ensureCodexHome(home);
     const client = createCodexAppServer({
       spawn: () => spawn(this.config.codexBin, ['app-server'], {
         // HER HOME, NEVER THE APP'S OWN FOLDER. In an installed build that is
@@ -8760,6 +8766,11 @@ export class Supervisor {
    *  Codex worker, and the corner draws nothing rather than a bar at zero. */
   codexUsage() {
     return this._codexUsage().read();
+  }
+
+  /** The same, read again rather than off the cache (`CodexUsage.refreshNow`). */
+  refreshCodexUsage() {
+    return this._codexUsage().refreshNow();
   }
 
   /**

@@ -174,7 +174,9 @@ describe('the screen itself', () => {
   it('is handed what was found by the walk, not left to find out after drawing', () => {
     const walk = read('renderer/src/components/Onboarding.tsx');
     expect(walk).toMatch(/found=\{/);
-    expect(walk).toMatch(/needsPlan\(/);
+    // The walk sorts the reading with the screen's own `afterCheck`, so the two
+    // cannot disagree about which half of this screen a computer meets.
+    expect(walk).toMatch(/afterCheck\(/);
     // And everybody meets the step now, so the walk no longer steps around it.
     expect(walk).not.toMatch(/else onEvent\(\{ t: 'start' \}\)/);
   });

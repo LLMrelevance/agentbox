@@ -117,6 +117,9 @@ export interface Product {
   name: string;
   oneLiner: string;
   repoPath: string | null;
+  /** When it was made (epoch ms), or null on one made before that was written
+   *  down. It places an unplaced project under the ones already here. */
+  createdAt?: number | null;
   // THE MARK SHE PICKED FOR THIS PROJECT, already a url this window can draw.
   // Null on a project that has never been given one, and that is what makes
   // `ProductMark` draw its burst instead. Resolved by `listProducts` against the
@@ -1269,7 +1272,7 @@ declare global {
   interface Window {
     zero?: {
       snapshot(): Promise<Snapshot>;
-      refreshUsage?(): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
+      refreshUsage?(p?: { engine?: 'claude' | 'codex' }): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
       accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel

@@ -6547,7 +6547,10 @@ a.set-ghost { text-decoration: none; display: inline-block; }
 .fr-folder-other { margin-top: 4px; }
 .fr-folder-other .fr-folder-name { grid-column: 2 / 5; color: var(--text-dim); }
 .fr-folder-other.lit .fr-folder-name { color: var(--text); }
-.fr-folders-label + .fr-folder-other, .fr-folder + .fr-folder-other { box-shadow: inset 0 1px 0 var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+/* One rule under the plans, however many ways out sit below it: a hairline
+   between two rows of the same group separates nothing. */
+.fr-folders-label + .fr-folder-other, .fr-folder:not(.fr-folder-other) + .fr-folder-other { box-shadow: inset 0 1px 0 var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+.fr-folder-other + .fr-folder-other { margin-top: 0; }
 /* --- WHICH PLAN, AND SETTING IT UP (w-9f6975906c, picked 2026-10-05) -------
    The plan rows are folder rows with a letter where the folder glyph sits. The
    setup card is three steps on the same glass; the step underway is lit the way
@@ -6582,11 +6585,20 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   text-decoration: underline dotted var(--line-strong); text-underline-offset: 3px;
 }
 .ps-link:hover { color: var(--text-dim); }
+/* What is happening, in sentences rather than the tool's own stdout. The link
+   is the one part of it still worth monospace. */
 .ps-log {
   width: 620px; max-width: calc(100vw - 96px); max-height: 220px; overflow: hidden; margin: 14px 0 0;
-  padding: 12px 14px; font: 12px/1.55 var(--mono); color: var(--text-dim); white-space: pre-wrap;
+  padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--text-dim); text-align: left;
   background: var(--film-strong); border: 1px solid var(--line); border-radius: var(--radius);
 }
+.ps-log p { margin: 0; }
+.ps-log p + p { margin-top: 5px; }
+.ps-log-link {
+  display: block; margin-top: 9px; font: 12px/1.5 var(--mono); color: var(--text-faint);
+  word-break: break-all; text-decoration: none;
+}
+.ps-log-link:hover { color: var(--text-dim); text-decoration: underline; }
 /* The fallback bar on the inbox, the only setup surface outside the walk. */
 .ps-bar {
   display: flex; align-items: center; gap: 14px; padding: 12px 18px;
