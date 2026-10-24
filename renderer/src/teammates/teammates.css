@@ -153,8 +153,9 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .ob-btn { height: 43px; padding: 0 18px; border: 1px solid var(--line-strong); background: none; display: inline-flex; align-items: center; font: inherit; font-size: 15px; color: var(--text); box-sizing: border-box; cursor: default; flex: none; }
 .ob-btn:disabled { color: var(--text-faint); }
 .ob-foot-start .ob-foot { margin: 0; flex: 1; }
-.tq-go { height: 43px; padding: 0 20px; font-size: 15px; flex: none; }
-.tq-go:disabled { opacity: .5; }
+.ob-btn.tq-go { color: var(--text); border-color: var(--text-faint); background: var(--wash); }
+.ob-btn.tq-go:hover { background: var(--wash-strong); }
+.ob-btn.tq-go:disabled { color: var(--text-faint); border-color: var(--line-strong); background: none; }
 
 /* An inbox row a teammate sent you, led by its mark */
 .tq-from { display: inline-flex; align-items: center; gap: 7px; flex: none; color: var(--text-dim); }
@@ -169,3 +170,8 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .tq-roster-foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; }
 .tq-roster-foot .ob-foot { flex: 1; margin-top: 0; }
 .tq-heads { display: inline-flex; gap: 16px; }
+/* With Groups on the page's text edge is 44 points in (rooms.css .gt-inset). */
+.gt-inset .tq-lines { padding-left: 44px; }
+.gt-inset .rm-compose.tq-compose { margin-left: 44px; }
+.gt-inset .tq-error { margin-left: 44px; }
+.gt-inset .tp-body { padding-left: 44px; }

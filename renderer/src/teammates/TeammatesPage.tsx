@@ -142,14 +142,14 @@ function Activity({ e, team, only, call, onOpenThread }: { e: ChatEntry; team: T
         {r.waiting ? <span className="tq-st need">Waiting on you</span> : r.answered ? <span className="tq-st">Answered</span> : null}</div>;
     }
     if (r.verb === 'answered') {
-      return <div className="tq-act">{ICON.reply}<span><span className="v">{only ? 'You answered' : `You answered ${nameOf(r.teammate, team)} on`}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button>{r.text ? <span className="v">: “{r.text}”</span> : null}</span>{time}</div>;
+      return <div className="tq-act">{ICON.reply}<span><span className="v">{only ? 'You answered' : `You answered ${nameOf(r.teammate, team)}`}</span> <button type="button" className="tq-link" onClick={open}>“{r.text ?? r.title}”</button></span>{time}</div>;
     }
     if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">{who}{only ? 'Finished' : 'finished'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
     return <div className="tq-act">{ICON.dots}<span><span className="v">{who}{only ? 'Picked up' : 'picked up'}</span> <button type="button" className="tq-link" onClick={open}>{r.title}</button></span>{time}</div>;
   }
   const c = e as TeamChatLine;
   if (c.kind === 'pass') {
-    return <div className="tq-act">{ICON.arrow}<span><span className="v">{nameOf(c.from, team)} passed</span> {c.title} <span className="v">to {nameOf(typeof c.to === 'string' ? c.to : c.to?.[0], team)}</span></span>{time}</div>;
+    return <div className="tq-act">{ICON.arrow}<span><span className="v">{only?.id === c.from ? 'Passed' : `${nameOf(c.from, team)} passed`}</span> {c.title} <span className="v">to {nameOf(typeof c.to === 'string' ? c.to : c.to?.[0], team)}</span></span>{time}</div>;
   }
   if (c.verb === 'learned') {
     const owner = c.from;
@@ -314,7 +314,7 @@ function Starters({ products, call, error, onOpen }: { products: Product[]; call
     {error && <p className="tq-error" role="alert">{error}</p>}
     <div className="ob-foot ob-foot-start">
       <Describe call={call} onOpen={onOpen} product={where.product} />
-      <button type="button" className="th-new tq-go" disabled={!picked.size || busy || !hasProject} onClick={() => void start()}>{picked.size ? `Start ${picked.size} teammate${picked.size === 1 ? '' : 's'}` : 'Pick one or more'}</button>
+      <button type="button" className="ob-btn tq-go" disabled={!picked.size || busy || !hasProject} onClick={() => void start()}>{picked.size ? `Start ${picked.size} teammate${picked.size === 1 ? '' : 's'}` : 'Pick one or more'}</button>
     </div>
   </div>;
 }

@@ -508,7 +508,8 @@ export function offerFrom({ items = [], offered = new Set(), now = Date.now() } 
     return {
       key, product, count: group.length,
       titles: group.slice(0, 5).map((i) => i.label || i.title),
-      title: `You've asked for things like “${clip(lead.label || lead.title, 70)}” ${group.length} times this month. Want a teammate for it?`,
+      title: `Want a teammate for things like “${clip(lead.label || lead.title, 60)}”?`,
+      said: `You've asked for this ${group.length} times this month.`,
     };
   }
   return null;

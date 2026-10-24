@@ -268,16 +268,16 @@ export class Teammates {
     if (!offer) return null;
     const dir = this.store.productDir(offer.product);
     if (!dir) return null;
-    const body = [`You've asked for this ${offer.count} times this month:`, '', ...offer.titles.map((t) => `- ${t}`)].join('\n');
+    const body = [`${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`)].join('\n');
     const result = [
       `**${offer.title}**`, '', body, '',
-      'A teammate would take this kind of work on: it does it on its own, on a schedule if you like, and comes to you only when it needs you. It asks you a few questions first.',
+      'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It asks you a few questions first.',
       '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
     ].join('\n');
     // Recorded first, so a crash after it can never offer the same job twice.
     writeChat(this.dir(), { kind: 'act', from: YOU, verb: 'offered', ref: offer.key, text: offer.title }, now);
     await lock.withProjectLock(dir, async () => {
-      const made = workItemsDisk.createWorkItem(dir, { title: offer.title, body, kind: 'question', priority: 5, labels: [OFFER_LABEL] }, { source: 'system', now });
+      const made = workItemsDisk.createWorkItem(dir, { title: offer.title, body, problem: `${offer.said} A teammate could take this kind of work on.`, kind: 'question', priority: 5, labels: [OFFER_LABEL] }, { source: 'system', now });
       workItemsDisk.updateWorkItem(dir, made.id, { result }, { source: 'agent', now });
     });
     return offer;

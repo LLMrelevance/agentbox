@@ -21,7 +21,8 @@ describe('when the app offers a teammate', () => {
     const offer = offerFrom({ items: [...CHANGELOG, ask('Fix the login button')], now: NOW });
     expect(offer).toMatchObject({ count: 3, product: 'site' });
     expect(offer.key).toContain('changelog');
-    expect(offer.title).toMatch(/3 times this month\. Want a teammate for it\?$/);
+    expect(offer.title).toMatch(/^Want a teammate for things like “.+”\?$/);
+    expect(offer.said).toBe("You've asked for this 3 times this month.");
   });
 
   it('does not offer for two alike asks, or three unalike ones', () => {
