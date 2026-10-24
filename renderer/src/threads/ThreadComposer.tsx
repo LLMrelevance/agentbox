@@ -987,7 +987,7 @@ export function ThreadComposer({
             card is now in. */}
         {listed.length > 1 && (
           <div className="tc-note">
-            This reads as {listed.length} tasks. <button type="button" onClick={() => void sendTask({ asList: true })}>Send as {listed.length} threads</button>
+            <button type="button" onClick={() => void sendTask({ asList: true })}>Send as {listed.length} separate threads</button>
           </div>
         )}
         {dropped > 0 && (

@@ -99,12 +99,25 @@ describe('the card, and what the send says afterwards', () => {
   const card = read('renderer/src/threads/ThreadComposer.tsx');
   const app = read('renderer/src/App.tsx');
 
-  it('says what it read and offers the other reading, without changing Send', () => {
-    expect(card).toMatch(/This reads as \{listed\.length\} tasks\./);
-    expect(card).toMatch(/Send as \{listed\.length\} threads/);
+  it('offers the other reading in one plain line, without changing Send', () => {
+    // ONE LINE, NOT TWO. It read "This reads as 3 tasks. Send as 3 threads",
+    // which called the same thing two names and spent a sentence saying what
+    // the action says. The action is the whole offer.
+    expect(card).toMatch(/Send as \{listed\.length\} separate threads/);
+    expect(card).not.toMatch(/This reads as/);
     expect(card).toMatch(/sendTask\(\{ asList: true \}\)/);
     // Send itself still makes the one thread it has always made.
     expect(card).toMatch(/const send = \(\) => \(person && sendAs === 'message' \? sendMessage\(\) : sendTask\(\)\);/);
+  });
+
+  it('draws that offer as a word in the note, not as the browser\'s white slab', () => {
+    // An unstyled <button> in a dark window reads as a broken app. The note
+    // that offers a conversation to open had the same slab and now shares this.
+    const css = read('renderer/src/threads/thread-composer.css');
+    const rule = css.match(/\.tc-note button \{[^}]*\}/)?.[0] ?? '';
+    expect(rule).toMatch(/background:\s*none/);
+    expect(rule).toMatch(/border:\s*0/);
+    expect(rule).toMatch(/text-decoration:\s*underline/);
   });
 
   it('stands the offer down wherever one thread is the only honest reading', () => {
