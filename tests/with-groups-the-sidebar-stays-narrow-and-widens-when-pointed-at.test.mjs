@@ -71,7 +71,9 @@ describe('in the app', () => {
     expect(app).toContain('const sideFolded = narrowSidebar ? !railOpen : workspaceCollapsed;');
     expect(app).toContain('{workspaceNavigation && <WorkspaceNavigation');
     expect(app).toMatch(/rail=\{narrowSidebar\} onHover=\{setRailOpen\}/);
-    expect(css).toContain('.app.workspace-layout.gt-rail:not(.workspace-settings) { --workspace-left: calc(44px + 38px); }');
+    // Narrow, the page starts 44 points past the 38-point strip; wide, it moves over
+    // (tests/the-narrow-sidebar-opens-by-moving-the-page-over).
+    expect(read('../renderer/src/workspace-navigation.css')).toContain('.app.workspace-collapsed { --workspace-width: 38px; }');
   });
   it('the Inbox is titled over its tabs, and a group has no row of chips', () => {
     expect(app).toContain('narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1>');

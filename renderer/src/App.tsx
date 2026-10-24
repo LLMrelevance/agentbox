@@ -5138,7 +5138,12 @@ export default function App() {
       if (roomShown && e.key !== 'Tab' && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
-        if ((e.key === 'g' || e.key === 'G') && roomsUi.goToGroup) { e.preventDefault(); roomsUi.goToGroup(); }
+        if ((e.key === 'g' || e.key === 'G') && roomsUi.findGroup) { e.preventDefault(); roomsUi.findGroup(); }
+        return;
+      }
+      // G FINDS A GROUP from any page, as ⌘K finds a command.
+      if ((e.key === 'g' || e.key === 'G') && roomsUi.findGroup && !roomsUi.dialogOpen && !modal && !inInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); roomsUi.findGroup();
         return;
       }
       // ⌘J SHOWS AND HIDES THIS TASK'S TERMINAL.It is the chord VS Code,
