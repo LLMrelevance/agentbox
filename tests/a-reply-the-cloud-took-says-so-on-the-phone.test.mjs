@@ -139,7 +139,7 @@ describe('on the phone website', () => {
   });
   it('the thread says Working in Agentbox Cloud for it, and waits for the computer otherwise', () => {
     const thread = read('renderer/src/components/Thread.tsx');
-    expect(thread).toMatch(/onCloudPhone\(\) \? \(e\.cloud \? 'Working in Agentbox Cloud' : 'Waiting for your computer'\)/);
+    expect(thread).toMatch(/onCloudPhone\(\) \? \(e\.cloud \? `Working in \$\{Name\} Cloud` : 'Waiting for your computer'\)/);
     expect(read('renderer/src/App.tsx')).toMatch(/\.\.\.\(w\.cloud \? \{ cloud: true \} : \{\}\)/);
   });
 });

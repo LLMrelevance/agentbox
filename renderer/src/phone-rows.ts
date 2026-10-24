@@ -6,6 +6,7 @@
 import { REQUEST_CHANNELS } from '../../shared/bridge-map.mjs';
 import { madeHere, phoneChoices } from '../../shared/phone-snapshot.mjs';
 import { runOfClaim } from '../../shared/cloud-kit.mjs';
+import { Name } from '../../shared/product-name.mjs';
 import { statusForReply } from './list-rules';
 import { cloudPlaces } from './cloud-files';
 
@@ -275,7 +276,7 @@ const MAC_AWAY_MS = 15 * 60_000;
 /** The line over her inbox when what it shows may be out of date, or null. */
 export function phoneStatusLine({ error, fetchedAt, macSeen, cloud = false }: { error: string | null; fetchedAt: number; macSeen: number; cloud?: boolean }, now = Date.now()): string | null {
   if (error) return `Can't reach your inbox online.${fetchedAt ? ` This is how it was ${ago(now - fetchedAt)}.` : ''}`;
-  if (macSeen && now - macSeen > MAC_AWAY_MS) return cloud ? 'Your computer is off. Replies carry on in Agentbox Cloud.' : `Your Mac was last online ${ago(now - macSeen)}. What you send waits for it.`;
+  if (macSeen && now - macSeen > MAC_AWAY_MS) return cloud ? `Your computer is off. Replies carry on in ${Name} Cloud.` : `Your Mac was last online ${ago(now - macSeen)}. What you send waits for it.`;
   return null;
 }
 /** Whether a computer of hers leaves its threads ready for Agentbox Cloud. */

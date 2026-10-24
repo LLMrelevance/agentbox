@@ -41,6 +41,8 @@ const seg = (s) => String(s ?? '').replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.
 export const kitKey = (device, project, item) => `runs/kits/${seg(device)}/${seg(project)}/${seg(item)}.json`;
 /** What the server keeps about a run it started, for the moment it ends. */
 export const serverRunKey = (runId) => `runs/server/${seg(runId)}.json`;
+/** Written by a computer that has joined a run the server started: the server feeds and closes it no more. */
+export const serverJoinedKey = (runId) => `runs/server/${seg(runId)}.joined.json`;
 /** The objects a run writes as it ends, named as main/cloud/run.mjs names them. */
 export const runKey = (runId, name) => `runs/${runId}/${name}`;
 
@@ -95,7 +97,7 @@ export function checkKit(kit, { now = Date.now() } = {}) {
  * built as main/cloud/run.mjs builds one. `getUrl(key)` and `putUrl(key)` make
  * links; the sign-in goes by name (`loginName(key)`) for the server to swap.
  */
-export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offlineAfterMs = 90_000, kept = null }) {
+export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offlineAfterMs = 90_000, kept = null, endTurn = 'claude-stream-json' }) {
   const results = {
     bundleUrl: await putUrl(runKey(runId, 'out.bundle')),
     changesUrl: await putUrl(runKey(runId, 'changes.bundle')),
@@ -119,8 +121,34 @@ export async function startPayload(kit, { runId, getUrl, putUrl, loginName, offl
     login: { engine: kit.login.engine, id: kit.login.id ?? null, url: loginName(kit.login.key) },
     results,
     tails: true,
-    offline: { afterMs: offlineAfterMs, endTurn: 'claude-stream-json', kept },
+    // Null keeps the agent's input open while the computer is away, for a run
+    // the server feeds more replies to (cloud/gateway/phone.mjs).
+    offline: { afterMs: offlineAfterMs, endTurn, kept },
   };
+}
+
+/** Each of Claude Code's `result` lines, in order, off a run's event log. */
+export function answersIn(eventsText) {
+  let out = '';
+  for (const raw of String(eventsText ?? '').split('\n')) {
+    if (!raw.trim()) continue;
+    let e;
+    try { e = JSON.parse(raw); } catch { continue; }
+    if (e?.kind === 'stdout' && typeof e.data === 'string') out += Buffer.from(e.data, 'base64').toString('utf8');
+  }
+  return resultsInLines(out.split('\n'));
+}
+
+/** The `result`s among stream-json lines: { text, isError } each. */
+export function resultsInLines(lines) {
+  const found = [];
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let msg;
+    try { msg = JSON.parse(line); } catch { continue; }
+    if (msg?.type === 'result') found.push({ text: String(msg.result ?? ''), isError: msg.is_error === true });
+  }
+  return found;
 }
 
 // WHAT THE AGENT LAST SAID, off a run's event log (one JSON event a line, its
