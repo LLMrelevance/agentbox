@@ -205,8 +205,6 @@ async function actAsTeammate(brief, prompt, answer) {
       return;
     }
     await session.call('team_post', { text: answer });
-    const rule = prompt.split(/(?<=[.!?])\s+|\n/).map((x) => x.trim()).find((x) => /\b(always|never|prefer|don't|do not)\b/i.test(x) && x.length < 200);
-    if (rule) await session.call('team_remember', { text: rule });
   } finally {
     session.close();
   }

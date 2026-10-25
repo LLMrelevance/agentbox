@@ -140,7 +140,7 @@ export function TeammatesPage({ view, open, products, engines, onOpen, onOpenThr
   const t = shown.kind === 'new' ? null : team.find((x) => x.id === shown.id) ?? null;
   let main: ReactNode;
   if (shown.kind === 'new' || !t) main = <NewTeammate team={team} products={products} call={call} error={error} onOpen={onOpen} />;
-  else if (shown.kind === 'about') main = <About t={t} call={call} error={error} />;
+  else if (shown.kind === 'about') main = <About t={t} call={call} error={error} onOpen={onOpen} />;
   else if (shown.kind === 'book') main = <PlaybookPage t={t} book={view?.playbooks?.find((p) => p.id === shown.book) ?? null} team={team} onOpen={onOpen} onOpenThread={onOpenThread} />;
   else {
     main = <>
@@ -401,7 +401,7 @@ function Details({ t, view, products, engines, models, call, onOpen }: { t: Team
 /* ----------------------------------------------------------------- about */
 // What it does, in its own words, and everything it knows about you. Its
 // name is in the bar above, and how it is set is beside its chat.
-function About({ t, call, error }: { t: Teammate; call: Call; error: string | null }) {
+function About({ t, call, error, onOpen }: { t: Teammate; call: Call; error: string | null; onOpen: (open: string) => void }) {
   return <div className="tq-doc"><div className="tq-doc-in">
     {t.status === 'draft' && <p className="tq-doc-note">It is still setting itself up, and asks you in the chat before it starts.</p>}
     <div className="tq-desc">{t.job ? <ReactMarkdown remarkPlugins={MD}>{t.status === 'draft' ? jobLine(t) : t.job}</ReactMarkdown> : <p className="dim">No description yet. Tell it what you need below.</p>}
@@ -411,7 +411,12 @@ function About({ t, call, error }: { t: Teammate; call: Call; error: string | nu
         <ul className="tq-known">{t.memory.map((m) => <li key={m.id}><span>{m.text}</span><button type="button" className="tq-x" aria-label={`Forget ${m.text}`} title="Forget" onClick={() => { void call('forget', { id: t.id, memory: m.id }); }}>×</button></li>)}</ul></>}
     </div>
     {error && <p className="tq-error" role="alert">{error}</p>}
-    <Composer placeholder={`Tell ${t.name} what to change about its job`} onSend={async (text) => (await call('post', { text, to: [t.id] })) !== false} />
+    {/* What you send here is a message to it, so you are taken to the chat where it answers. */}
+    <Composer placeholder={`Tell ${t.name} what to change about its job`} onSend={async (text) => {
+      const sent = (await call('post', { text, to: [t.id] })) !== false;
+      if (sent) onOpen(t.id);
+      return sent;
+    }} />
   </div></div>;
 }
 
