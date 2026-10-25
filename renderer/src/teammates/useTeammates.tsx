@@ -3,11 +3,12 @@
 // useRooms, whose every field App reads is pinned by its own tests.
 import { useMemo, useState, type ReactNode } from 'react';
 import type { Product, RunningSession, TeammatesView } from '../types';
-import { TeammatesPage, TeammatesTitle , type TeammateModels } from './TeammatesPage';
-import { TeammatesRail } from './TeammatesRail';
+import { TeammateMenu, TeammatesPage, TeammatesTitle, shownOf, type TeammateModels } from './TeammatesPage';
+import { SidebarGroups } from '../team/rooms/GroupsSidebar';
+import { api } from '../api';
 import { asksYou, heldFor } from './chat-lines';
 
-/** 'team' is the team chat, 'roster' the Teammates tab, 'new' makes one, anything else a teammate's id. */
+/** `new`, a teammate's id, or `log:`, `about:` or `book:` one of its pages; 'team' opens the first chat. */
 export type TeammatesOpen = string | null;
 
 export function useTeammates({ view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, onChanged }: {
@@ -45,22 +46,27 @@ export function useTeammates({ view: stored, asking = [], running = [], products
   const sessions = useMemo(() => new Map(running.map((r) => [r.itemId, r])), [running]);
   const go = (which: string) => { onEnter(); setOpen(which); };
   const leave = () => setOpen(null);
-  const known = open === 'team' || open === 'roster' || open === 'new' || !!view?.list.some((t) => t.id === open);
-  const shownOpen = live && open && known ? open : null;
-  const railLit = shownOpen === 'roster' ? 'team' : shownOpen;
+  // 'team' and 'roster' were pages of their own; they open the first chat now.
+  const shownOpen = live && open ? open : null;
+  const team = view?.list ?? [];
+  const shown = shownOpen ? shownOf(shownOpen, team) : null;
+  const mate = shown && shown.kind !== 'new' ? team.find((t) => t.id === shown.id) ?? null : null;
   const page: ReactNode = shownOpen && view
     ? <TeammatesPage view={view} open={shownOpen} products={products} engines={engines} me={me}
-        onTab={(tab) => setOpen(tab)} onOpenTeammate={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} models={models} mePic={mePic} />
+        onOpen={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} models={models} mePic={mePic} />
     : null;
+  const call = async (op: string, args: Record<string, unknown>) => { const r = await api.teammates(op, args); if (r.ok) onChanged(); return r.ok; };
   return {
     live,
     open: shownOpen,
     go,
     leave,
-    rail: (lit: boolean) => (live ? <TeammatesRail team={view!.list} open={lit ? railLit : null} onOpen={go} /> : null),
+    list: team,
+    onNew: () => go('new'),
+    /** The wide sidebar's one Chats row; with Groups on, the Groups row is it. */
+    rail: (lit: boolean) => (live ? <SidebarGroups label="Chats" onGroupsPage={lit} onGroups={() => go(open === 'new' || !open ? (team[0]?.id ?? 'new') : open)} /> : null),
     title: shownOpen ? <TeammatesTitle view={view ?? null} open={shownOpen} /> : null,
-    right: shownOpen && shownOpen !== 'new' && view?.list.length ? <div className="th-right"><button type="button" className="th-new" onClick={() => go('new')}>
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New teammate</button></div> : null,
+    right: mate && shown ? <div className="th-right"><TeammateMenu t={mate} shown={shown} onOpen={go} call={call} /></div> : null,
     page,
   };
 }
