@@ -38,9 +38,8 @@ import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, ty
 import { type PaidPlan } from '../cloud-upgrade';
 import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
-import { cloudAccountState, cloudPlaceLine, meterPair } from '../account-words';
-import { accountReadingFor, accountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
-import { limitRows } from '../../../shared/usage.mjs';
+import { cloudAccountState, meterPair } from '../account-words';
+import { accountReadingFor, accountsOnce, codexAccountsOnce, type HereLogin, type OneAccount } from '../accounts-once';
 import { LOOKS, lookMeans, SKINS, TUNE_DEFAULT, TUNE_LIMITS, type Look, type SkinId, type SkinTune } from '../skins';
 import { readySkin } from '../look-switch';
 import { MatchMark } from './MatchMark';
@@ -341,29 +340,6 @@ export function newerReading(a: Usage | null, b: Usage | null): Usage | null {
   return (b.at ?? 0) > (a.at ?? 0) ? b : a;
 }
 
-/**
- * THE METERS, one row each: the window's name, when it resets, and how much of
- *  it is spent. Same `usage-meter` markup the sidebar's usage corner draws. */
-function UsageRows({ reading, now, trouble = null }: { reading: Usage | null; now: number; trouble?: string | null }) {
-  const rows = reading?.limits?.length ? limitRows(reading.limits, now) : [];
-  // Codex reports its limits as it works and the app never asks OpenAI for them
-  // (main/codex-usage.mjs), so before a run there is genuinely nothing, and
-  // "No usage reading yet" read as something broken.
-  if (!rows.length) return trouble ? null : <Row label="Codex reports what is left as it works, so there is nothing here yet" />;
-  return (
-    <>
-      {rows.map((r) => (
-        <Row key={r.key} label={r.name} desc={r.when || undefined}>
-          <span className="set-usage">
-            <span className="usage-meter wide" aria-hidden="true"><i style={{ width: `${r.used}%` }} /></span>
-            <span className="set-usage-pct">{r.used}% used</span>
-          </span>
-        </Row>
-      ))}
-    </>
-  );
-}
-
 export function usageCheckedAt(at: number | null | undefined, now: number): string {
   if (at == null || !Number.isFinite(at)) return '';
   const minutes = Math.max(0, Math.floor((now - at) / 60_000));
@@ -371,67 +347,6 @@ export function usageCheckedAt(at: number | null | undefined, now: number): stri
   if (minutes < 60) return `Checked ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
   const hours = Math.floor(minutes / 60);
   return `Checked ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
-}
-
-/**
- * THE ACCOUNTS, one row each.
- *
- *  ONE OF THEM IS IN USE AND IT SAYS SO (w-dac993a554). Nothing used to be
- *  marked until somebody picked, because until then every account took a share
- *  of the work; one account runs it now, so one row always carries In use and
- *  the others offer themselves.
- *
- *  A TROUBLED ACCOUNT IS NOT SOMETHING TO PICK, IT IS SOMETHING TO FIX. It says
- *  what is wrong in main's own words and carries the command that puts it
- *  right (w-3da36a45e5). */
-export function AccountRows({ agent, onChoose, onAdd }: {
-  agent: Agent;
-  onChoose: (engine: string, profile: string) => void;
-  onAdd: (agent: Agent) => void;
-}) {
-  const accounts = agent.accounts;
-  return (
-    <>
-      {accounts.map((a) => <Fragment key={a.profile}>{accountRow(a)}</Fragment>)}
-      {/* BOTH AGENTS OFFER IT SINCE 2026-09-22 (w-3498e0cad2): a work login and
-          a personal login, both live on one Mac. A DOOR, NOT A PITCH: the row
-          says what it does and nothing about what a second one would add. */}
-      <Row label="Add account">
-        <button type="button" className="set-ghost" onClick={() => onAdd(agent)}>Add</button>
-      </Row>
-    </>
-  );
-
-  function accountRow(a: CardAccount) {
-        const live = a.chosen;
-        const label = a.email ?? 'Not signed in';
-        if (a.trouble) {
-          return (
-            <Row key={a.profile} label={label} desc={a.trouble}>
-              {a.dir && <CopyCmd cmd={`CLAUDE_CONFIG_DIR=${a.dir} claude`} />}
-            </Row>
-          );
-        }
-        return (
-          <div className={`set-row set-acct-row${live ? ' on' : ''}`} key={a.profile}>
-            <div className="set-row-text">
-              <div className="set-row-label">
-                {label}
-                {live && <span className="set-badge">In use</span>}
-              </div>
-              <div className="set-row-desc">{a.signedIn ? (a.plan ?? 'Signed in') : 'Finish signing in to use it'}</div>
-            </div>
-            {/* One account has nothing to choose between. */}
-            {!live && accounts.length > 1 && (
-              <div className="set-row-ctl">
-                <button type="button" className="set-ghost" onClick={() => onChoose(agent.engine, a.profile)}>
-                  Use this one
-                </button>
-              </div>
-            )}
-          </div>
-        );
-  }
 }
 
 /** One account as a place card draws it, whether it lives here or in the cloud. */
@@ -457,12 +372,14 @@ export type PlaceAccount = {
   cmd?: string | null;
   /** False where no usage can be read at all, so no "no reading yet" is promised. */
   meters?: boolean;
+  /** What the meters say before there is a reading. */
+  none?: string;
 };
 
 /** SESSION, WEEK AND FABLE, the same meters for every account, each ending with when it resets. */
-export function MiniMeters({ limits, now = Date.now() }: { limits?: UsageLimit[] | null; now?: number }) {
+export function MiniMeters({ limits, now = Date.now(), none = 'No usage reading yet' }: { limits?: UsageLimit[] | null; now?: number; none?: string }) {
   const meters = meterPair(limits, now);
-  if (!meters.length) return <div className="acct-meters-none">No usage reading yet</div>;
+  if (!meters.length) return <div className="acct-meters-none">{none}</div>;
   return (
     <span className="acct-meters">
       {meters.map((m) => (
@@ -515,7 +432,7 @@ export function PlaceTiles({ accounts, onAdd, now = Date.now() }: { accounts: Pl
               {a.cmd && <div className="acct-tile-cmd"><CopyCmd cmd={a.cmd} /></div>}
             </>
           ) : a.meters !== false && <>
-            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} now={now} />}
+            {(!a.usageError || a.limits?.length) && <MiniMeters limits={a.limits} now={now} none={a.none} />}
             {a.usageError && <div className="acct-tile-trouble" role="status">{a.usageError}</div>}
           </>}
           {!!a.checkedAt && (a.usageError || now - a.checkedAt >= OWN_TIME_AFTER_MS) && <div className="acct-reading-time">{usageCheckedAt(a.checkedAt, now)}</div>}
@@ -1068,6 +985,7 @@ const CLAUDE = {
   name: 'Claude Code',
   connected: 'Claude Code is connected',
   connectedSay: `${Name} can see it on this computer, so your agents have something to run on. There is nothing for you to set up.`,
+  trouble: 'Claude Code is here but not working',
   missing: 'Claude Code is not on this computer',
   // Not "your agents run on it": with Codex here they run on Codex instead.
   missingSay: `${Name} could not find Claude Code on this computer. Install it, then check again.`,
@@ -1119,6 +1037,7 @@ const CODEX = {
   name: 'Codex',
   connected: 'Codex is connected',
   connectedSay: `${Name} can see it on this computer, so you can put a task on Codex instead of Claude Code. There is nothing for you to set up.`,
+  trouble: 'Codex is here but not working',
   missing: 'Codex is not on this computer',
   missingSay: `${Name} could not find Codex on this computer, so every task runs on Claude Code. Install it, then check again.`,
   missingLink: 'Get Codex',
@@ -1177,6 +1096,16 @@ function accountSay(account: EngineAccount): string {
   if (!parts.length) return 'This is the Codex login your tasks run on.';
   return parts.join('. ').replace(/\.\./g, '.');
 }
+
+type ConnectionState = 'connected' | 'trouble' | 'missing' | 'unsure';
+
+/** Found but failing is its own state: "connected" over "its sessions die" said two things. */
+export function connectionState({ found, certain, trouble }: { found: boolean; certain: boolean; trouble?: string | null }): ConnectionState {
+  if (found) return trouble ? 'trouble' : 'connected';
+  return certain ? 'missing' : 'unsure';
+}
+
+const STATE_WORD: Record<ConnectionState, string> = { connected: 'connected', trouble: 'not working', missing: 'not found', unsure: 'not sure' };
 
 /*
  * ONE COMPONENT, TWO CODING AGENTS. The copy tables above are the whole of the
@@ -1258,12 +1187,13 @@ function Connection({ copy, check, engine, found, certain, bin, chosen = false, 
     }
   };
 
-  const label = found ? copy.connected : certain ? copy.missing : copy.unsure;
+  const state = connectionState({ found, certain, trouble });
+  const label = copy[state];
   /* * THE TROUBLE REPLACES THE LINE IT CONTRADICTS, rather than sitting under it. It
      is only ever read when the engine was FOUND, because a trouble about an engine that is
      not here has nothing to add to "it is not here".
   */
-  const say = trouble && found ? trouble
+  const say = state === 'trouble' ? trouble
     : found ? copy.connectedSay
       : again ? (certain ? copy.still : copy.stillUnsure)
         : certain ? copy.missingSay : copy.unsureSay;
@@ -1275,8 +1205,8 @@ function Connection({ copy, check, engine, found, certain, bin, chosen = false, 
             in English, so neither has to be learned from the other. There is
             no red anywhere in it: the standing rule is that Agentbox does not
             shout in colour, and this screen is not an emergency. */}
-        <span className={`set-dot ${found ? 'live' : ''}`} />
-        <span className="set-mono">{found ? 'connected' : certain ? 'not found' : 'not sure'}</span>
+        <span className={`set-dot ${state === 'connected' ? 'live' : ''}`} />
+        <span className="set-mono">{STATE_WORD[state]}</span>
         <button type="button" className="set-ghost" disabled={checking} onClick={() => void look()}>
           {checking ? copy.checking : copy.check}
         </button>
@@ -1819,24 +1749,26 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     // The one the cloud runs on, by `pickCloudLogin`'s rule (cloud-menu.ts).
     const cloudInUse = cloudHere ? cloudAccountInUse(cloudHere.accounts ?? [], engine) : null;
     // Each login's own reading, never another's, and the cloud's when it is the same subscription and newer.
-    const tiles = accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading })
-      .map((a) => accountTile(a, {
+    // Codex's is the newer of the snapshot's and what Refresh just fetched.
+    const accounts = engine === 'codex'
+      ? codexAccountsOnce({ here: agent.accounts, cloud: cloudLogins, current: newerReading(agent.reading, codexReading) })
+      : accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading });
+    const tiles = accounts.map((a) => {
+      const tile = accountTile(a, {
         many: agent.accounts.length > 1, now,
         onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
-        cloud: !!cloud?.setUp, onCloudSignIn,
-      }));
+        // Signing in to the cloud from a tile is Claude's alone.
+        cloud: !!cloud?.setUp, onCloudSignIn: engine === 'claude' ? onCloudSignIn : undefined,
+      });
+      if (engine !== 'codex' || a.limits?.length) return tile;
+      // Codex reads only the account in use, and only once it has worked, so
+      // another has no reading to promise and this one says why it has none.
+      return tile.inUse ? { ...tile, none: 'Codex reports usage as it works' } : { ...tile, meters: false };
+    });
     const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';
-    // The newer of what the snapshot carries and what Refresh just fetched.
-    const codexShown = newerReading(agent.reading, codexReading);
-    const codexChecked = codexShown?.at ? usageCheckedAt(codexShown.at, now) : '';
-    // Codex still draws its cloud logins as a place of their own.
-    const cloudFirst = !!cloudHere && cloudHere.mode !== 'mac';
-    const cloudAccounts = cloudHere && engine === 'codex' ? cloudPlaceAccounts(cloudHere, engine, now) : [];
-    const cloudCard = cloudHere && engine === 'codex' && (
-      <Place id="cloud-accounts" name="Cloud" state={cloudHere.mode === 'mac' ? 'Off' : 'On'}
-        line={cloudPlaceLine(cloudHere, cloudAccounts.length)} accounts={cloudAccounts} now={now} />
-    );
+    const busy = engine === 'codex' ? codexRefreshing : refreshing;
+    const refresh = () => void (engine === 'codex' ? refreshCodex() : readAccounts(true));
     const addAccount = async (a: Agent) => {
       const r = a.engine === 'codex' ? await api.addCodexAccount() : await api.addClaudeAccount();
       setAdding(r.ok ? { engine: a.engine, name: a.name, command: r.command } : { engine: a.engine, name: a.name, error: r.error });
@@ -1856,70 +1788,40 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
           && (engine === 'codex' ? <CodexCli {...status} /> : <ClaudeCode {...status} />)}
         {agent.found && (
           <>
-            {cloudFirst && cloudCard}
-            {engine === 'codex' && (
-              <Group
-                id="usage"
-                label="Usage"
-                /* Refresh and how old the reading is, the way Claude Code's
-                   Signed in place has them. */
-                action={(
-                  <span className="acct-place-act">
-                    {!codexRefreshing && codexChecked && <span className="acct-checked">{codexChecked}</span>}
-                    <button type="button" className="set-ghost" disabled={codexRefreshing} onClick={() => void refreshCodex()}>{codexRefreshing ? 'Refreshing…' : 'Refresh'}</button>
-                  </span>
-                )}
-              >
-                <UsageRows reading={codexShown} now={now} />
-              </Group>
-            )}
             {/* "SIGNED IN", NOT "ACCOUNTS": a heading that works at any
                 number, so one account is never shown a plural to fill. Refresh
                 heads it because it reads every account on it, here and in the
                 cloud. */}
-            {engine === 'claude' ? (
-              <>
-                <Place
-                  id="usage"
-                  name="Signed in"
-                  action={(
-                    <span className="acct-place-act">
-                      {!refreshing && checked && <span className="acct-checked">{checked}</span>}
-                      <button type="button" className="set-ghost" disabled={refreshing} onClick={() => void readAccounts(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>
-                    </span>
-                  )}
-                  /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
-                     (w-f2a5c9894e). Main's sentence, about the pair. */
-                  warn={w.accountsNote}
-                  /* WHY A SECOND ACCOUNT BUYS NO MORE AGENTS, said only where
-                     somebody can see two of their own (w-dac993a554). */
-                  line={tiles.length > 1 ? 'Your agents run on one account at a time.' : null}
-                  accounts={tiles}
-                  now={now}
-                  onAdd={() => void addAccount(agent)}
-                />
-                {cloudHere && (
-                  <Group id="cloud-accounts" label="Cloud">
-                    <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudInUse ? accountLabel(cloudInUse, cloudLogins) : null)}>
-                      <Switch
-                        on={cloudHere.mode !== 'mac'}
-                        label="Use the cloud"
-                        onChange={() => void write(api.setWorkspaceSetting({ key: 'cloudRuns', value: cloudToggleTarget(cloudHere) }))}
-                      />
-                    </Row>
-                  </Group>
-                )}
-              </>
-            ) : (
-              <Group id="accounts" label={cloudHere ? 'This computer' : 'Signed in'}>
-                <AccountRows
-                  agent={agent}
-                  onChoose={(e, profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine: e, profile } }))}
-                  onAdd={(a) => void addAccount(a)}
-                />
+            <Place
+              id="usage"
+              name="Signed in"
+              action={(
+                <span className="acct-place-act">
+                  {!busy && checked && <span className="acct-checked">{checked}</span>}
+                  <button type="button" className="set-ghost" disabled={busy} onClick={refresh}>{busy ? 'Refreshing…' : 'Refresh'}</button>
+                </span>
+              )}
+              /* TWO FOLDERS, ONE SUBSCRIPTION, SAID ABOVE THE ROWS
+                 (w-f2a5c9894e). Main's sentence, about Claude's pair. */
+              warn={engine === 'claude' ? w.accountsNote : null}
+              /* WHY A SECOND ACCOUNT BUYS NO MORE AGENTS, said only where
+                 somebody can see two of their own (w-dac993a554). */
+              line={tiles.length > 1 ? 'Your agents run on one account at a time.' : null}
+              accounts={tiles}
+              now={now}
+              onAdd={() => void addAccount(agent)}
+            />
+            {cloudHere && (
+              <Group id="cloud-accounts" label="Cloud">
+                <Row label="Use the cloud" desc={cloudRunsLine(cloudHere.mode, cloudInUse ? accountLabel(cloudInUse, cloudLogins) : null)}>
+                  <Switch
+                    on={cloudHere.mode !== 'mac'}
+                    label="Use the cloud"
+                    onChange={() => void write(api.setWorkspaceSetting({ key: 'cloudRuns', value: cloudToggleTarget(cloudHere) }))}
+                  />
+                </Row>
               </Group>
             )}
-            {!cloudFirst && cloudCard}
             {/* SIGNING A SECOND ACCOUNT IN, IN THE APP (w-c2904cc8d9). Main
                 makes the folder and registers the login, and the shell below
                 is left with the one part that is genuinely hers, signing in to
