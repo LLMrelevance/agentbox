@@ -112,6 +112,7 @@ import { useTeammates } from './teammates/useTeammates';
 import { TeammatesContext } from './teammates/row-lead';
 import { ChatsContext, LAST_CHAT_KEY, type ChatsValue } from './teammates/ChatsColumn';
 import { queuedTeammateRun } from './teammates/chat-lines';
+import { teammateIdOf } from '../../shared/teammates.mjs';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
@@ -5790,6 +5791,7 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
+    if (teammateIdOf(item)) { showToast('A teammate keeps its own times. Tell it when in its chat.'); return; }
     const ruleId = ruleIdOf(item);
     try {
       if (ruleId) {
@@ -6767,7 +6769,7 @@ export default function App() {
                     // words. Applying the rule instead of delivering them would
                     // be the system swallowing something the user wrote, which is the
                     // failure this app cares about most.
-                    if (repeat) applyRepeat(focused, repeat);
+                    if (repeat && !teammateIdOf(focused)) applyRepeat(focused, repeat);
                     answerWith(focused, text, priority, sent, mode, runningEngine, pick);
                   }}
                   onReplyClose={() => setModal(null)}
