@@ -16,7 +16,7 @@ import { chromeIsUp, CHROME_HOLD, CHROME_REACH } from './full-screen-chrome';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, RunningSession, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
@@ -3264,6 +3264,9 @@ export default function App() {
     if (at >= 0) setSelected(at);
   }, [list, markSeen]);
   const queueSpot = spotIn(shownInbox, focused);
+  // And every thread with an agent is drawn on that page, Needs you or not; a
+  // conversation between people keeps its chat.
+  const onePage = !!focused && !directSlugs.has(focused.product);
   const stepQueue = useCallback((dir: 1 | -1) => {
     const to = focused && stepIn(shownInbox, focused, dir);
     if (to) openInQueue(to);
@@ -6136,7 +6139,7 @@ export default function App() {
     <ChatsContext.Provider value={chatsValue}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
-    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${queueSpot && focused ? ' one-at-a-time' : ''}`}>
+    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${(queueSpot || onePage) && focused ? ' one-at-a-time' : ''}`}>
 
       {signInGate && <SignInPage onSkip={onCloudPhone() ? undefined : skipSignIn} signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
@@ -6676,6 +6679,7 @@ export default function App() {
                   onHandToAgent={handToAgent}
                   onAddPeople={addPeopleToConversation}
                   queue={queueSpot ? { spot: queueSpot, onStep: stepQueue } : null}
+                  onePage={onePage}
                   headerTarget={workspaceNavigation ? taskHeader : null}
                   cornerHeaderTarget={cornerHeaderTarget}
                   // WHERE IT WAS OPENED FROM, in the tab strip's own words (so
@@ -8036,6 +8040,8 @@ export default function App() {
         // (toastOpens): a reply that kept her there names it for after she leaves.
         const here = focused ? { product: focused.product, id: focused.id } : null;
         const opens = toastOpens(toast, here);
+        // On a thread's page it sits in the bar's empty middle, off the reply box.
+        const toastInBar = !!cornerHeaderTarget && (!!queueSpot || onePage) && !onPhone();
         const face = (
           <>
             {about && <span className="toast-title">{about.label || about.title}</span>}
@@ -8057,9 +8063,10 @@ export default function App() {
             {toast.goes && <span className="toast-clock" aria-hidden="true" style={{ animationDuration: `${TOAST_GOES_MS}ms` }} />}
           </>
         );
-        return toast.goes
-          ? <button key={toastShown.current} type="button" className={`toast toast-goes${about ? '' : ' toast-plain'}`} onClick={() => openToastRow(toast.goes!)}>{face}</button>
-          : <div key={toastShown.current} className="toast toast-plain">{face}</div>;
+        const card = toast.goes
+          ? <button key={toastShown.current} type="button" className={`toast toast-goes${about ? '' : ' toast-plain'}${toastInBar ? ' toast-in-bar' : ''}`} onClick={() => openToastRow(toast.goes!)}>{face}</button>
+          : <div key={toastShown.current} className={`toast toast-plain${toastInBar ? ' toast-in-bar' : ''}`}>{face}</div>;
+        return toastInBar && cornerHeaderTarget ? createPortal(card, cornerHeaderTarget) : card;
       })()}
       {/* AND NO TOAST FOR A NEW VERSION. It was the third of the four drawn for
           w-86452550e5 and the argument against it is the one she agreed with: a
