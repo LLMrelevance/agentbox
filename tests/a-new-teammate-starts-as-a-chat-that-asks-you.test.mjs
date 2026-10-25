@@ -20,7 +20,7 @@ describe('what a new teammate offers to take on', () => {
   it('is each starter as a short ask, leaving out one already on your team', () => {
     expect(starterAsks([]).map((a) => a.ask)).toEqual(STARTERS.map((s) => s.ask));
     expect(starterAsks([]).find((a) => a.starter === 'support').ask).toBe('Answer user emails');
-    const asks = starterAsks([{ starter: 'quality', name: 'Ada' }, { starter: null, name: 'June' }]).map((a) => a.starter);
+    const asks = starterAsks([{ starter: 'quality', name: 'Quality lead' }, { starter: null, name: 'Support lead' }]).map((a) => a.starter);
     expect(asks).not.toContain('quality');
     expect(asks).not.toContain('support');
     expect(asks).toContain('maintainer');
@@ -54,7 +54,7 @@ describe('making one from the chat', () => {
 
   it('a tapped starter is a draft with its name and guesses, after the greeting and your answer', () => {
     const { teammate } = team.describe({ starter: 'support', greeted: true });
-    expect(teammate).toMatchObject({ name: 'June', role: 'Support lead', status: 'draft', starter: 'support' });
+    expect(teammate).toMatchObject({ name: 'Support lead', role: 'Support lead', status: 'draft', starter: 'support' });
     const lines = team.chat().messages.filter((m) => m.kind === 'msg');
     expect(lines.map((m) => [m.from, m.text])).toEqual([[teammate.id, GREETING], ['you', 'Answer user emails']]);
     expect(lines[0].options).toContain('Answer user emails');
@@ -71,7 +71,7 @@ describe('making one from the chat', () => {
   });
 
   it('a starter whose name is taken leaves the naming to the teammate', () => {
-    team.create({ name: 'June', role: 'Office manager' });
+    team.create({ name: 'Support lead', role: 'Support lead' });
     expect(team.describe({ starter: 'support', greeted: true }).teammate.name).toBe('New teammate');
   });
 
