@@ -38,9 +38,11 @@ import type { ParsedOption } from '../format';
 
 export function OptionsOffer({
   ask, askAll, options, peekOption, askPeek,
-  selectedOption, selRef, onPick, onOptionEnter, onAskEnter, setPeek, setAskPeek, keep, stripRef,
+  selectedOption, selRef, onPick, onOptionEnter, onAskEnter, setPeek, setAskPeek, keep, stripRef, bare = false,
 }: {
   stripRef?: React.RefObject<HTMLDivElement>;
+  /** No heading: on the one-at-a-time page the question is already the page's headline. */
+  bare?: boolean;
   /** A last row keyed esc that answers by doing nothing: the question a close
    *  asks when tasks are still waiting (../close-asks-first.ts). */
   keep?: { label: string; onKeep: () => void };
@@ -72,16 +74,18 @@ export function OptionsOffer({
           padding before it crosses the words, and a card that opens
           only on the glyphs themselves blinks shut in the gaps between
           the two lines. */}
-      <div
-        className={`opt-head ${ask ? 'opt-head-ask' : ''}`}
-        onMouseEnter={(e) => onAskEnter(e.currentTarget)}
-        onMouseLeave={() => setAskPeek(false)}
-      >
-        {/* The heading is drawn in capitals, where the old fallback's "THEIR"
-            named nobody on the screen and its middot joined a noun to an
-            instruction. */}
-        <span>{ask || 'Pick one, or write your own answer'}</span>
-      </div>
+      {!bare && (
+        <div
+          className={`opt-head ${ask ? 'opt-head-ask' : ''}`}
+          onMouseEnter={(e) => onAskEnter(e.currentTarget)}
+          onMouseLeave={() => setAskPeek(false)}
+        >
+          {/* The heading is drawn in capitals, where the old fallback's "THEIR"
+              named nobody on the screen and its middot joined a noun to an
+              instruction. */}
+          <span>{ask || 'Pick one, or write your own answer'}</span>
+        </div>
+      )}
       {/* The card, drawn FIRST so it is the strip's first child: appended
           last it stole the last row's 4px of bottom padding and the
           strip measured 4px short. It is out of the flow entirely

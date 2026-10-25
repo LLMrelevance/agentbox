@@ -52,7 +52,8 @@ describe('the Search button wears no word', () => {
 describe('it sits at the right end of the tabs row', () => {
   it('the tabs draw it after the last tab', () => {
     const tabs = fn('StateTabs');
-    expect(tabs).toMatch(/<\/div>\s*\{onSearch && <SearchButton/);
+    // Still the last thing on the row; One at a time (w-65bcefb857) sits just before it on Needs you.
+    expect(tabs).toMatch(/<\/div>(\{onOneAtATime && <button[^\n]*<\/button>\})?\s*\{onSearch && <SearchButton/);
   });
   it('the inbox hands the tabs its search', () => {
     expect(element('StateTabs')).toMatch(/onSearch=\{openSearch\}/);
