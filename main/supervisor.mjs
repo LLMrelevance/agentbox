@@ -3231,6 +3231,7 @@ export class Supervisor {
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
+        retryAt: gaveUp ? null : this.restingUntil(item),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3518,6 +3519,7 @@ export class Supervisor {
             resetsAt,
             worked: trace.worked,
             account: spent,
+            retryAt: this.restingUntil(item),
           }),
           status: 'open',
         });
