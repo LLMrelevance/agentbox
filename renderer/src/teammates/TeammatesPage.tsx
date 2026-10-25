@@ -363,7 +363,7 @@ function Details({ t, view, products, engines, models, call, onOpen }: { t: Team
   const books = (view?.playbooks ?? []).filter((p) => (t.playbooks ?? []).includes(p.id));
   const product = real.find((p) => p.slug === t.product);
   const about = () => onOpen(`about:${t.id}`);
-  const now = nowLine(t);
+  const now = nowLine(t) === 'Paused' ? 'Paused. It still answers you, and does nothing on its own.' : nowLine(t);
   const knows = t.memory.slice(-3);
   return <aside className="gr-side tq-side tq-details" aria-label={`About ${t.name}`}>
     <dl>

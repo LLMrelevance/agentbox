@@ -23,6 +23,12 @@ describe('a paused teammate', () => {
     expect(titleAside('chat', 'Support lead', { paused: false })).toBe('Support lead');
   });
 
+  // "Messaging a paused teammate starts work right away, nothing mentions
+  // it's paused ... don't know what pause actually stops."
+  it('says beside its chat what pausing stops: it still answers you, and does nothing on its own', () => {
+    expect(read('renderer/src/teammates/TeammatesPage.tsx')).toMatch(/const now = nowLine\(t\) === 'Paused' \? 'Paused\. It still answers you, and does nothing on its own\.' : nowLine\(t\);/);
+  });
+
   it('says Paused on its row in the Chats list, unless something waits on you there', () => {
     expect(read('renderer/src/teammates/ChatsColumn.tsx')).toMatch(/waitsOnYou\(t\) \? <i className="cx-need"[^>]*\/> : t\.paused \? <span className="cx-st">Paused<\/span> : null/);
   });
