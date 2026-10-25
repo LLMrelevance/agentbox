@@ -43,6 +43,20 @@
 .workspace-navigation .sb-update-row:hover { color: var(--text-dim); }
 .workspace-navigation .sb-update-row[data-installing] { cursor: default; }
 .workspace-navigation .sb-update-row[data-installing] svg { animation: sb-update-spin 1.4s linear infinite; }
+
+/* IN THE SIDEBAR THAT WIDENS UNDER THE POINTER the card rises out of the
+   restart row (`RailCard`): the row keeps its place in the foot list and wide
+   becomes the card's button, and the card stands on the slot's floor and grows
+   upward, so nothing under the pointer moves. The slot's 9 of floor is there
+   in both widths, as the air under the button. 52 = 9 + 3 + 30 + the card's
+   own 10 between its words and its button. */
+.sb-update-slot { position: relative; padding-bottom: 9px; }
+.workspace-navigation .sb-update-rise { position: absolute; left: 0; right: 0; bottom: 0; margin: 0; padding: 12px 12px 52px; opacity: 1; transition: opacity .14s .08s; }
+.workspace-collapsed .sb-update-rise { opacity: 0; visibility: hidden; transition: none; }
+.sb-update-slot:hover .sb-update-close { opacity: 1; }
+.gt-rail:not(.workspace-collapsed) .sb-update-slot > .sb-update-row { position: relative; z-index: 1; margin: 3px 12px; width: calc(100% - 24px); height: 30px; padding: 0; justify-content: center; border: 1px solid var(--line-strong); background: var(--wash); color: var(--text); }
+.gt-rail:not(.workspace-collapsed) .sb-update-slot > .sb-update-row:hover { background: var(--wash-strong); }
+.gt-rail:not(.workspace-collapsed) .sb-update-slot > .sb-update-row svg { display: none; }
 .th-me { display: flex; align-items: center; gap: 9px; height: 46px; padding: 8px 0 0 8px; margin-top: 8px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--text); min-width: 0; box-sizing: border-box; }
 .th-me .tm-av { width: 22px; height: 22px; line-height: 20px; font-size: 9px; flex: none; }
 .workspace-collapsed .th-me > span:nth-child(2), .workspace-collapsed .th-me-signin { display: none; }

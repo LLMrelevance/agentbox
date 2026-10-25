@@ -85,12 +85,12 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   const [updateClosed, setUpdateClosed] = useState(() => readUpdateClosed());
   const closeUpdate = () => { const version = update?.version ?? ''; setUpdateClosed(version); writeUpdateClosed(globalThis.localStorage, version); };
   const showUpdate = !!update && !!onUpdate && !closedHere(update, updateClosed);
-  // The rail widens under the pointer, so a row that turned into a card there
-  // would move out from under it and put Feedback where it was.
+  // The rail widens under the pointer, so the card there stays in the row's
+  // place in the foot list and grows upward (SidebarUpdate.tsx, `RailCard`).
   const asRow = collapsed || rail;
   const updateCard = showUpdate && !asRow;
   const updateView = showUpdate && update && onUpdate && <SidebarUpdate installing={update.installing} changes={changeLines(update)} error={update.error ?? null}
-    collapsed={asRow} onRestart={onUpdate} onClose={closeUpdate} />;
+    collapsed={collapsed} rail={rail} onRestart={onUpdate} onClose={closeUpdate} />;
   // THE MOVE CARD STANDS WHERE THE UPDATE CARD WOULD, and never both: a
   // version on the disk is the news, and a copy that cannot update itself
   // never has one. The place whose card was closed is kept under its own key.
@@ -99,7 +99,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   const showMove = !showUpdate && !!move && !!onMove && moveClosed !== (move.place ?? '');
   const moveCard = showMove && !asRow;
   const moveView = showMove && move && onMove && <SidebarMove place={move.place} error={move.error ?? null}
-    collapsed={asRow} onMove={onMove} onClose={closeMove} />;
+    collapsed={collapsed} rail={rail} onMove={onMove} onClose={closeMove} />;
   const waiting = Number.isFinite(inboxCount) ? Math.max(0, Math.floor(inboxCount)) : 0;
   const waitingDescription = `${waiting} ${waiting === 1 ? 'thread' : 'threads'} waiting`;
   // ONE PAGE OF YOUR THREADS (approved 2026-10-01). In progress, Scheduled and
