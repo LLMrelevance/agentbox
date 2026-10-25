@@ -375,8 +375,10 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   const mine = queue ? yourLast(events, me) : null;
   const queueHead = queue && (
     <QueueSummary
+      key={`${item.product}:${item.id}`}
+      title={rowTitle(item)}
       context={queue.context}
-      // Left out when it is the title the bar already shows.
+      // Left out when it is the title, already said above it.
       you={mine && !repeatsTitle(mine.text, rowTitle(item)) ? mine : null}
       earlier={newest ? earlierCount(events, outcome) : 0}
       steps={!!newest && (events.some((e) => e.kind === 'work') || after.length > 0)}

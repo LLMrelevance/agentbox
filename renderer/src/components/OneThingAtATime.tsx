@@ -1,7 +1,8 @@
-// The one-at-a-time page's own pieces (w-65bcefb857). The page is the thread page
-// in a mode; these are the parts it adds: the summary on top, the answer under
-// its headline, and the place in the queue with the arrows beside the menu.
-import { useEffect, useState, type ReactNode } from 'react';
+// The one-at-a-time page's own pieces (w-65bcefb857). The page is how the thread
+// page draws a thread in Needs you; these are the parts it adds: the name and
+// summary on top, the answer under its headline, and the place in the queue
+// with the arrows beside the menu.
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { onPhone } from '../phone-screen';
 import { clock, dayHeading } from '../thread-history';
@@ -13,7 +14,8 @@ export const readsInPlace = (path: string) => /\.(html?|md|markdown)$/i.test(pat
 
 const when = (at: number) => `${dayHeading(at)} ${clock(at)}`;
 
-export function QueueSummary({ context, you, earlier, steps = false, open, onToggle }: {
+export function QueueSummary({ title, context, you, earlier, steps = false, open, onToggle }: {
+  title?: string;
   context: string | null | undefined;
   you: { at: number; text: string } | null;
   /** Messages behind the fold. */
@@ -27,10 +29,33 @@ export function QueueSummary({ context, you, earlier, steps = false, open, onTog
   const toggle = earlier > 0
     ? (open ? 'Hide earlier messages' : `Show ${earlier} earlier ${earlier === 1 ? 'message' : 'messages'}`)
     : steps ? (open ? 'Hide what the agent did' : 'Show what the agent did') : null;
+  // Cut is only known once laid out, at this width.
+  const cols = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  const [whole, setWhole] = useState(false);
+  useLayoutEffect(() => {
+    const el = cols.current;
+    if (!el || whole) return undefined;
+    const measure = () => setCut([...el.querySelectorAll('.one-col')].some((c) => c.scrollHeight > c.clientHeight + 1));
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [context, you?.text, whole]);
+  const opens = cut || whole;
+  const flip = () => setWhole((w) => !w);
   return (
     <div className="one-sum">
+      {title && <h2 className="one-title">{title}</h2>}
       {(context || you) && (
-        <div className={both ? 'one-cols' : 'one-cols one-single'}>
+        <div
+          ref={cols}
+          className={`${both ? 'one-cols' : 'one-cols one-single'}${whole ? ' one-whole' : cut ? ' one-cut' : ''}`}
+          role={opens ? 'button' : undefined}
+          tabIndex={opens ? 0 : undefined}
+          aria-expanded={opens ? whole : undefined}
+          onClick={opens ? flip : undefined}
+          onKeyDown={opens ? (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); flip(); } } : undefined}
+        >
           {context && <div className="one-col"><span className="one-lab">Context</span>{context}</div>}
           {you && <div className="one-col one-you"><span className="one-lab">You, {when(you.at)}</span>{you.text}</div>}
         </div>
@@ -75,15 +100,18 @@ export function QueueFile({ product, path, md, onOpen }: { product: string; path
     }
     return () => { live = false; };
   }, [product, path, page]);
+  const [folded, setFolded] = useState(false);
   if (text === null) return null;
   return (
-    <section className={page ? 'one-file one-page' : 'one-file one-note'}>
+    <section className={`${page ? 'one-file one-page' : 'one-file one-note'}${folded ? ' one-folded' : ''}`}>
       <div className="one-filehead">
-        <span className="one-filename">{path.split('/').pop()}</span>
+        <button type="button" className="one-filefold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)}>
+          {chevron(!folded)}<span className="one-filename">{path.split('/').pop()}</span>
+        </button>
         <button type="button" className="one-fileopen" onClick={onOpen}>Open full screen</button>
       </div>
-      {page && url && <iframe className="one-frame" src={url} title={path} sandbox={onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'} />}
-      {!page && text != null && <div className="markdown one-notebody">{md(text)}</div>}
+      {!folded && page && url && <iframe className="one-frame" src={url} title={path} sandbox={onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'} />}
+      {!folded && !page && text != null && <div className="markdown one-notebody">{md(text)}</div>}
     </section>
   );
 }
@@ -98,8 +126,8 @@ export function QueueNav({ spot, onStep }: { spot: Spot; onStep: (dir: 1 | -1) =
   return (
     <span className="one-nav">
       <span className="one-pos">{spot.pos} of {spot.total}</span>
-      <button type="button" className="ts-more one-step" aria-label="Previous thread (K)" title="Previous thread (K)" disabled={spot.index <= 0} onClick={() => onStep(-1)}>{chevron(true)}</button>
-      <button type="button" className="ts-more one-step" aria-label="Next thread (J)" title="Next thread (J)" disabled={spot.pos >= spot.total} onClick={() => onStep(1)}>{chevron(false)}</button>
+      <button type="button" className="ts-more one-step" data-hint="previous-thread" data-hint-align="right" aria-label="Previous thread (K)" disabled={spot.index <= 0} onClick={() => onStep(-1)}>{chevron(true)}</button>
+      <button type="button" className="ts-more one-step" data-hint="next-thread" data-hint-align="right" aria-label="Next thread (J)" disabled={spot.pos >= spot.total} onClick={() => onStep(1)}>{chevron(false)}</button>
     </span>
   );
 }
