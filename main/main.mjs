@@ -19,6 +19,7 @@ import { copySelection } from './copy-selection.mjs';
 import { screenDetailFor } from './screen-detail.mjs';
 import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
+import { keepAnswerModesIn } from './answer-modes.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
 import { watchNewChatsFor } from './new-chats-watch.mjs';
@@ -325,6 +326,9 @@ async function createWindow() {
   // Written under every name this app has had, because a store server or a
   // script from before a rename is still out there reading the old one.
   Object.assign(process.env, storeRootEnv(config.storeRoot));
+  // What a reply may do is kept in her own folder, not that home, which every
+  // worker is granted (main/answer-modes.mjs).
+  keepAnswerModesIn({ userDir, storeRoot: config.storeRoot });
 
   // Menu needs the config (approval hotkeys answer the oldest pending card),
   // so it installs here rather than at whenReady. The spool watcher in ipc

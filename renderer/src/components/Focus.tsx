@@ -2020,7 +2020,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         so the folded box and the open composer cannot drift into two stops. */}
     <div className="focus-dock">
       <div className="focus-dock-inner">
-        {queue && stripShown && !closeAsk && (
+        {/* Under a full screen page they come up with the box instead, below. */}
+        {queue && stripShown && !fullScreenDoc && !closeAsk && (
           <div className="one-choices">
             <OptionsOffer
               ask={ask} askAll={askAll} options={options}
@@ -2059,7 +2060,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               stripRef={closeAskRef}
             />
           )}
-          {offerInDock && (queue || closeAsk ? null : (
+          {offerInDock && (closeAsk ? null : (
             <OptionsOffer
               ask={ask} askAll={askAll} options={options}
               peekOption={peekOption} askPeek={askPeek}

@@ -109,6 +109,8 @@ import { troubleCause, refineCause, needsHerHands, troubleSentence, troubleRemed
 import { readDeadRunTrace, traceShowsASilentDeath, tracesAToolCall, STOPPED_ON_REQUEST } from '../shared/dead-run-trace.mjs';
 import { commandPrompt } from '../shared/claude-commands.mjs';
 import { machineryPath, storeRootEnv } from './store/home.mjs';
+import { answerModesFile } from './answer-modes.mjs';
+import { isInside } from './doc-file.mjs';
 import { setModelArg } from './settings.mjs';
 import { isEffort, isEffortWord } from '../shared/effort-levels.mjs';
 // THE SECOND ENGINE, AND THIS FILE IS NOW THE ONE PLACE THAT HOLDS THE GATE.
@@ -10757,8 +10759,15 @@ export class Supervisor {
     let rules;
     try { rules = JSON.parse(fs.readFileSync(shipped, 'utf8')); } catch { return null; }
     const dirs = [];
+    // No granted folder may hold what a reply may do (main/answer-modes.mjs):
+    // a file edit inside one needs no card.
+    const modes = answerModesFile();
     const add = (d) => {
       if (!d || typeof d !== 'string') return;
+      if (modes && isInside(d, modes)) {
+        console.warn(`zero: not granting ${d} to workers, because it holds ${modes}`);
+        return;
+      }
       if (!dirs.some((seen) => d === seen || d.startsWith(`${seen}${path.sep}`))) dirs.push(d);
     };
     add(this.config.storeRoot);
