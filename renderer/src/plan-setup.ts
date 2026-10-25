@@ -85,6 +85,9 @@ export const COPY = {
   /** The same screen with nothing signed in: no plan to claim yet, and the
    *  next press opens a browser, which it has to say before one opens. */
   foundOut: 'Pick the plan you pay for. Signing in opens a page in your browser.',
+  /** And its own heading: this screen drew "Found on this computer." over that
+   *  lede, which is the two halves of one screen contradicting each other. */
+  foundOutHead: 'No plan is signed in yet.',
 
   setupHead: (name: string) => `Setting up ${name}.`,
   setupLedeWait: 'One step needs you: approve the sign-in in your browser.',
@@ -254,6 +257,14 @@ export function readyEngines(readings: Reading[]): Engine[] {
     const r = readings.find((x) => x.engine === e);
     return !!r?.found && !!r?.signedIn;
   });
+}
+
+/**
+ * THE HEADING, WHICH ONLY CLAIMS A FIND WHEN THERE IS ONE. Beside `foundLede`
+ *  so one reading decides both lines of this screen.
+ */
+export function foundHead(ready: Engine[]): string {
+  return ready.length ? COPY.foundHead : COPY.foundOutHead;
 }
 
 /**

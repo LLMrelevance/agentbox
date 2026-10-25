@@ -342,11 +342,11 @@ async function createWindow() {
   // themselves with `approvals.answer`, and on a Codex card a file is not an
   // answer at all: the thing waiting is Agentbox itself, in this process, so
   // nothing on that path ever reads one. Her click on Allow landed as a
-  // FORGERY -- the file appeared for a request still waiting, `sweepForgery`
-  // deleted it inside two seconds, the log said "an answer file appeared for
-  // approval <id> that the founder did not write", her card came back and the
-  // worker was denied fifteen minutes later by the deadline. It also spent the
-  // one warning that is supposed to mean a worker attacked the spool.
+  // FORGERY -- the file appeared for a request still waiting, the card's own
+  // poll deleted it inside two seconds, the log said "an answer file appeared
+  // for approval <id> that the founder did not write", and her card came back
+  // with the worker still parked on it. It also spent the one warning that is
+  // supposed to mean a worker attacked the spool.
   //
   // The variable is filled in the moment `registerIpc` returns, a few hundred
   // lines down. Until then there is nothing to answer with and nothing that

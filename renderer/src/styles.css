@@ -1051,6 +1051,16 @@ body {
    rather than floating in the middle of the window, because the thing it is
    explaining is still on screen above it. Right-aligned to the bar's own end,
    so it never crosses the window edge.
+
+   OPENED BY A HOVER IT TAKES NO POINTER (w-7b7182ef61). In the sidebar it opens
+   upwards over Feedback and Settings, and a panel that appeared because the
+   pointer passed over the row may not stand in the way of where that pointer
+   was going. There is nothing in it to press.
+
+   PINNED IT DOES TAKE THE PRESS, AND CLOSES ON IT. The press stops here rather
+   than reaching a control it is covering: the update card's Restart sits under
+   this corner, and installing an update nobody could see is worse than spending
+   a click.
 */
 .usage-panel {
   position: absolute; top: calc(100% + 6px); right: -8px; z-index: 40;
@@ -1059,8 +1069,9 @@ body {
   /* --shadow-lg is what every other thing that opens over this app wears, and
      it is the token pair rather than a colour, so light answers it too. */
   border-radius: 5px; box-shadow: var(--shadow-lg);
-  cursor: default;
+  cursor: default; pointer-events: none;
 }
+.usage-panel.is-pinned { pointer-events: auto; }
 .usage-panel h3 {
   margin: 0 0 11px; font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
   text-transform: uppercase; color: var(--agent-ink);

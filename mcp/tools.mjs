@@ -216,7 +216,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
         closeBecause: z.string().optional().describe('only with status done on a row the founder wrote: their own words, quoted exactly from the row, asking you to close it'),
         deferBecause: z.string().optional().describe('only with runAt on a row the founder wrote: their own words, quoted exactly from the row, asking for it to be put off or to be reminded later. Without them the row stays in their inbox'),
         problem: z.string().optional().describe(`the summary's CONTEXT: a few plain sentences, ${CONTEXT_WORDS} words at most, that bring the thread back to someone who has forgotten it: what was asked, what was found, the facts needed to decide`),
-        progress: z.string().optional().describe(`the summary's DONE list: the steps taken so far, one per line, oldest first and newest last, ${DONE_STEPS} lines at most of ${DONE_STEP_WORDS} words each. Send the whole list each time; it replaces the last one`),
+        progress: z.string().optional().describe(`the summary's DONE list: the steps taken so far, one per line, oldest first and newest last, ${DONE_STEPS} lines at most of ${DONE_STEP_WORDS} words each. Send the whole list each time; it replaces the last one. Every line is a step that FINISHED: one you are about to take goes on after it happens, never before`),
         solution: z.string().optional().describe(`no longer shown; leave it out (older threads may still carry one, ${SUMMARY_WORDS} words at most)`),
         blockedBy: z.array(z.string()).optional().describe('ids of threads this one waits on'),
         blocks: z.array(z.string()).optional().describe('ids of threads that wait on this one'),
