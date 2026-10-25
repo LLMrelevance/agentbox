@@ -61,17 +61,9 @@ async function threadThatShipped(cwd, sha, upstream) {
 const oneLine = (text) => String(text ?? '').replace(/\s+/g, ' ').trim();
 const clip = (text, n) => (text.length > n ? `${text.slice(0, n - 1).trimEnd()}…` : text);
 
-/**
- * The brief, or null when the failure was not a merge conflict.
- *
- * @param {{ cwd: string, output: string, upstream?: string, readThread?: (id: string) => object|null }} opts
- */
-export async function conflictBrief({ cwd, output, upstream = 'origin/main', readThread = () => null }) {
-  if (!isMergeConflict(output)) return null;
-  const fromGit = cwd ? await filesThatConflict(cwd, 'HEAD', upstream) : null;
-  const files = fromGit?.length ? fromGit : conflictedFilesIn(output);
-  const lines = ['The other side of the conflict:', '', `Files: ${files.map((f) => `\`${f}\``).join(', ') || 'see the output below'}.`];
-
+// The conflicting files, then what changed them on `upstream`, by thread.
+async function otherSide({ cwd, files, upstream, readThread }) {
+  const lines = [`Files: ${files.map((f) => `\`${f}\``).join(', ') || 'see the output below'}.`];
   const since = cwd ? (await git(cwd, ['merge-base', 'HEAD', upstream])).out.trim() : '';
   const log = since && files.length
     ? await git(cwd, ['log', '--no-merges', `-n${MAX_COMMITS}`, '--format=%h %H%x09%s', `${since}..${upstream}`, '--', ...files])
@@ -85,20 +77,43 @@ export async function conflictBrief({ cwd, output, upstream = 'origin/main', rea
     byThread.get(id).push(`${short} ${oneLine(subject)}`);
   }
 
-  if (byThread.size) {
-    lines.push('', `What changed them on ${upstream} since this branch began:`);
-    for (const [id, commits] of [...byThread].sort(([a], [b]) => (a === null) - (b === null))) {
-      if (!id) {
-        lines.push(`- From no thread: ${commits.join('; ')}`);
-        continue;
-      }
-      let thread = null;
-      try { thread = readThread(id); } catch {}
-      const title = oneLine(thread?.title);
-      const about = clip(oneLine(thread?.progress || thread?.problem), SUMMARY_CHARS);
-      lines.push(`- Thread ${title ? `"${title}" ` : ''}(${id})${about ? `: ${about}` : ''}`, `  Commits: ${commits.join('; ')}`);
+  if (!byThread.size) return lines;
+  lines.push('', `What changed them on ${upstream} since this branch began:`);
+  for (const [id, commits] of [...byThread].sort(([a], [b]) => (a === null) - (b === null))) {
+    if (!id) {
+      lines.push(`- From no thread: ${commits.join('; ')}`);
+      continue;
     }
+    let thread = null;
+    try { thread = readThread(id); } catch {}
+    const title = oneLine(thread?.title);
+    const about = clip(oneLine(thread?.progress || thread?.problem), SUMMARY_CHARS);
+    lines.push(`- Thread ${title ? `"${title}" ` : ''}(${id})${about ? `: ${about}` : ''}`, `  Commits: ${commits.join('; ')}`);
   }
-  lines.push('', KEEP_BOTH);
-  return lines.join('\n');
+  return lines;
+}
+
+/**
+ * The brief for a ship that failed, or null when it was not a merge conflict.
+ *
+ * @param {{ cwd: string, output: string, upstream?: string, readThread?: (id: string) => object|null }} opts
+ */
+export async function conflictBrief({ cwd, output, upstream = 'origin/main', readThread = () => null }) {
+  if (!isMergeConflict(output)) return null;
+  const fromGit = cwd ? await filesThatConflict(cwd, 'HEAD', upstream) : null;
+  const files = fromGit?.length ? fromGit : conflictedFilesIn(output);
+  return ['The other side of the conflict:', '', ...await otherSide({ cwd, files, upstream, readThread }), '', KEEP_BOTH].join('\n');
+}
+
+/** For a branch that has not shipped yet: null unless `upstream` now conflicts with it. */
+export async function earlyConflictNote({ cwd, upstream = 'origin/main', readThread = () => null }) {
+  const files = await filesThatConflict(cwd, 'HEAD', upstream);
+  if (!files?.length) return null;
+  return [
+    `${upstream} moved while this thread waited, and this branch no longer merges cleanly with it. Merge ${upstream} into it before you mark it ready to ship.`,
+    '',
+    ...await otherSide({ cwd, files, upstream, readThread }),
+    '',
+    KEEP_BOTH,
+  ].join('\n');
 }

@@ -27,7 +27,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Name } from '../shared/product-name.mjs';
 import { SHIP_FAILED } from '../shared/not-shipped.mjs';
-import { conflictBrief } from './ship-conflict-brief.mjs';
+import { conflictBrief, earlyConflictNote } from './ship-conflict-brief.mjs';
 
 export const SHIP_LABEL = 'ship';
 const SHIP_MS = 20 * 60 * 1000;
@@ -287,6 +287,7 @@ export class ShipQueue {
   constructor({ store, userDir, folderFor, isLive, liveSince = () => null, handBack = () => {}, run = runScript, afterShip = () => {}, log = console }) {
     Object.assign(this, { store, userDir, folderFor, isLive, liveSince, handBack, run, afterShip, log });
     this.busy = null;
+    this.earlyConflicts = new Map();
   }
 
   tick(items, products) {
@@ -302,7 +303,7 @@ export class ShipQueue {
     // (w-f37a34def6, 2026-10-04). Within one app, `busy` already stops a
     // second start; across a restart, trying again is the point.
     const done = () => writeHandled(this.userDir, { ...readHandled(this.userDir), [keyOf(next.item)]: markedAt(next.item) });
-    this.busy = this.ship(next, products).then(done, done).finally(() => { this.busy = null; });
+    this.busy = this.ship(next, products, items).then(done, done).finally(() => { this.busy = null; });
     return this.busy;
   }
 
@@ -333,7 +334,32 @@ export class ShipQueue {
     return null;
   }
 
-  async ship({ item, product, script, cwd }, products = []) {
+  // After a ship lands, every other open branch of a project that ships is
+  // checked against the new main with `git merge-tree`, which reads commits and
+  // touches no task folder. A conflict waits here for that thread's next run.
+  async _findNewConflicts(shipped, items, products) {
+    const settings = readShipSettings(this.userDir);
+    const bySlug = new Map((products ?? []).map((p) => [p.slug, p]));
+    for (const other of items ?? []) {
+      const product = bySlug.get(other.product);
+      if (other.id === shipped.id || other.status === 'done' || !product || !settings[product.slug]) continue;
+      const cwd = this.folderFor(other, product);
+      if (!cwd || !fs.existsSync(cwd)) continue;
+      try {
+        const note = await earlyConflictNote({ cwd, readThread: (id) => this._readThread(id, product, products) });
+        if (note) this.earlyConflicts.set(keyOf(other), note); else this.earlyConflicts.delete(keyOf(other));
+      } catch (e) { this.log.warn?.(`zero: could not check ${other.id} against main:`, e.message); }
+    }
+  }
+
+  /** What main's last ship means for this thread's branch, once, or null. */
+  takeEarlyConflict(item) {
+    const note = this.earlyConflicts.get(keyOf(item)) ?? null;
+    this.earlyConflicts.delete(keyOf(item));
+    return note;
+  }
+
+  async ship({ item, product, script, cwd }, products = [], items = []) {
     this.log.info?.(`zero: shipping ${item.id} from ${cwd}`);
     const { code, out } = await this.run(script, cwd);
     try {
@@ -347,6 +373,7 @@ export class ShipQueue {
         // commit's test run on GitHub, because nothing else is still running
         // five minutes after the agent ended.
         this.afterShip({ item, product, sha });
+        await this._findNewConflicts(item, items, products);
       } else {
         this.store.shipFailed(product.slug, item.id, { note: failureNote(out), labels: withoutShipLabel(item) });
         let brief = null;

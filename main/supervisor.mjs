@@ -7314,6 +7314,10 @@ export class Supervisor {
     // session that wrote it, and that is all it is told: it has everything
     // else already. A fresh session gets its brief first.
     if (shipFailure) prompt = resumeId || rowChat ? shipFailure : `${prompt}\n\n${shipFailure}`;
+    // Another thread's ship left this branch in conflict with main
+    // (`_findNewConflicts`), heard now rather than at this thread's own ship.
+    const earlyConflict = shipFailure ? null : this.shipQueue?.takeEarlyConflict?.(item);
+    if (earlyConflict) prompt = `${prompt}\n\n${earlyConflict}`;
     // WHAT HAPPENS TO WHAT IT LEAVES RUNNING, when that switch is on
     // (main/leftovers.mjs): the rule, and the programs of this task still
     // shutting down, which it must not reuse.

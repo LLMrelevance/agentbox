@@ -9,75 +9,23 @@
 // reply: before this it named the files and no thread, no commit, no purpose.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ShipQueue, SHIP_LABEL } from '../main/ship-queue.mjs';
+import { conflictingBranches, threads as someThreads } from './helpers/conflicting-branches.mjs';
 
 const SHIP_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'ship.mjs');
 
-let tmp; let base; let task; let userDir;
-const git = (cwd, ...args) => execFileSync('git', args, { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } }).trim();
-const write = (dir, file, text) => fs.writeFileSync(path.join(dir, file), text);
-
-function startAnotherThread(id, file, text, subject) {
-  git(base, 'checkout', '-q', '-b', `agentbox/${id}`, 'main');
-  write(base, file, text);
-  git(base, 'commit', '-q', '-am', subject);
-  git(base, 'checkout', '-q', 'main');
-}
-
-// The way `npm run ship` lands a branch: main is merged into it if main moved,
-// then main moves to the branch.
-function shipAnotherThread(id) {
-  git(base, 'checkout', '-q', `agentbox/${id}`);
-  git(base, 'merge', '-q', '--no-ff', 'main', '-m', `Merge origin/main into agentbox/${id}`);
-  git(base, 'checkout', '-q', 'main');
-  git(base, 'merge', '-q', '--ff-only', `agentbox/${id}`);
-}
-
+let repo; let userDir; let threads;
 beforeEach(() => {
-  tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ship-conflict-'));
-  userDir = path.join(tmp, 'user');
+  repo = conflictingBranches();
+  userDir = path.join(repo.tmp, 'user');
   fs.mkdirSync(userDir);
-  git(tmp, 'init', '-q', '--bare', '-b', 'main', 'origin.git');
-  base = path.join(tmp, 'base');
-  git(tmp, 'init', '-q', '-b', 'main', 'base');
-  git(base, 'config', 'user.email', 'test@example.com');
-  git(base, 'config', 'user.name', 'Test');
-  git(base, 'remote', 'add', 'origin', path.join(tmp, 'origin.git'));
-  write(base, 'sidebar.css', 'width: 200px;\n');
-  write(base, 'list.mjs', 'export const rows = 10;\n');
-  write(base, 'readme.txt', 'hello\n');
-  git(base, 'add', '.');
-  git(base, 'commit', '-q', '-m', 'init');
-  git(base, 'push', '-q', 'origin', 'main');
-
-  // This thread's own change, in its own task folder.
-  task = path.join(tmp, 'w-mine');
-  git(base, 'worktree', 'add', '-q', '-b', 'agentbox/w-mine', task, 'main');
-  write(task, 'sidebar.css', 'width: 240px;\n');
-  write(task, 'list.mjs', 'export const rows = 20;\n');
-  git(task, 'commit', '-q', '-am', 'Wider sidebar and more rows');
-
-  // Meanwhile main moved: two threads touched the same files, one did not.
-  startAnotherThread('w-narrow', 'sidebar.css', 'width: 160px;\n', 'Narrow the sidebar on small screens');
-  startAnotherThread('w-unrelated', 'readme.txt', 'hello there\n', 'Say hello properly');
-  shipAnotherThread('w-unrelated');
-  shipAnotherThread('w-narrow');
-  write(base, 'list.mjs', 'export const rows = 5;\n');
-  git(base, 'commit', '-q', '-am', 'Fewer rows by hand');
-  git(base, 'push', '-q', 'origin', 'main');
+  threads = someThreads();
 });
-afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+afterEach(() => repo.cleanUp());
 
-const threads = {
-  'w-narrow': { id: 'w-narrow', title: 'Sidebar crowds the phone', progress: 'Narrowed the sidebar to 160px below 600px wide.' },
-  'w-unrelated': { id: 'w-unrelated', title: 'Readme greeting', progress: 'Changed the greeting.' },
-};
-const product = { slug: 'team', repoPath: base };
 const item = { id: 'w-mine', product: 'team', labels: [SHIP_LABEL], updatedAt: 1 };
 
 async function shipAndReadTheReply(run) {
@@ -87,8 +35,9 @@ async function shipAndReadTheReply(run) {
     shipFailed: () => {},
     readItem: (slug, id) => (slug === 'team' ? threads[id] ?? null : null),
   };
+  const task = repo.folders['w-mine'];
   const q = new ShipQueue({ store, userDir, folderFor: () => task, isLive: () => false, handBack: (_, reply) => handed.push(reply), ...(run ? { run } : {}) });
-  await q.ship({ item, product, script: SHIP_SCRIPT, cwd: task });
+  await q.ship({ item, product: { slug: 'team', repoPath: repo.base }, script: SHIP_SCRIPT, cwd: task });
   expect(handed).toHaveLength(1);
   return handed[0];
 }
@@ -124,13 +73,9 @@ describe('a ship that fails on a merge conflict', () => {
 
   it('names a thread the store no longer has by its id alone', async () => {
     delete threads['w-narrow'];
-    try {
-      const reply = await shipAndReadTheReply();
-      expect(reply).toContain('w-narrow');
-      expect(reply).toContain('Narrow the sidebar on small screens');
-    } finally {
-      threads['w-narrow'] = { id: 'w-narrow', title: 'Sidebar crowds the phone', progress: 'Narrowed the sidebar to 160px below 600px wide.' };
-    }
+    const reply = await shipAndReadTheReply();
+    expect(reply).toContain('w-narrow');
+    expect(reply).toContain('Narrow the sidebar on small screens');
   });
 });
 
