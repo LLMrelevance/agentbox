@@ -2881,6 +2881,9 @@ export class Supervisor {
     // Steering it in marks it delivered (live-replies.mjs), and a mark nothing
     // releases is a word no worker will ever be sent to carry.
     this.releaseLiveReply(session);
+    // The second hang said on the row that nothing restarts it; her next
+    // reply does.
+    if (session?.hungForGood) return 'stopped';
     // NOT THIS ITEM'S FAILURE, SO NOT THIS ITEM'S ATTEMPT. Three facts with one
     // meaning: the child died on a signal, we killed it, or the shared
     // `codex app-server` went down underneath it. The third is new and is the
@@ -3164,6 +3167,7 @@ export class Supervisor {
             status: 'blocked',
           });
         } catch (e) { console.warn('zero: could not say the session hung:', e.message); }
+        session.hungForGood = true;
       }
       session.hung = true;
       this._kill(session);
