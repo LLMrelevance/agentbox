@@ -229,7 +229,7 @@
   /* Ember's mono on every theme (w-3fc39983be): Ember's type on the small
      right-side details while the original font stays everywhere else. The body stays Avenir Next; only what reads var(--mono)
      takes Geist Mono. Its @font-face sits with Ember's block below. */
-  --mono: 'Geist Mono', ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: 'Geist Mono', ui-monospace, "SF Mono", Menlo, 'DejaVu Sans Mono', monospace;
   /* Before this there were TEN different corner sizes on one opened task at the
      same time (13, 9, 8, 7, 6, 4, 20, two two-corner shapes and 50%), measured
      in the running app, not counted off the file. Now there is one number and a
@@ -749,9 +749,9 @@
      the new-task card reading as one more row rather than a card on top. */
   --scrim: rgba(0, 0, 0, 0.72);
   --radius: 0px;
-  --mono: 'Geist Mono', ui-monospace, "SF Mono", Menlo, monospace;
+  --mono: 'Geist Mono', ui-monospace, "SF Mono", Menlo, 'DejaVu Sans Mono', monospace;
 }
-:root[data-skin="ember-grid"] body { font-family: 'Geist', 'Avenir Next', -apple-system, BlinkMacSystemFont, sans-serif; }
+:root[data-skin="ember-grid"] body { font-family: 'Geist', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'DejaVu Sans', sans-serif; }
 .look-swatch.ember-grid { background: radial-gradient(ellipse 70% 60% at 72% 28%, rgba(238, 96, 24, 0.14), rgba(238, 96, 24, 0) 70%), #1a1817; }
 .look-swatch.ember-grid::after { background: rgba(40, 38, 37, 0.96); border: 1px solid #464443; border-bottom: none; }
 
@@ -802,8 +802,12 @@ body {
   /* EMBER GRID'S TYPE IN BOTH THEMES (w-9e434e8671): the launch film's Geist,
      with Ember's own fallbacks, so Light and Dark set every word the same. It
      was Avenir Next outside Ember Grid. The weights and spacing Ember set on
-     titles, tabs and rows apply to both too (foot of workspace-navigation.css). */
-  font-family: 'Geist', 'Avenir Next', -apple-system, BlinkMacSystemFont, sans-serif;
+     titles, tabs and rows apply to both too (foot of workspace-navigation.css).
+     DejaVu Sans is last before the generic because Geist carries no ✓, ✕ or ⌘
+     and the two names in front of it are macOS only, so on Linux those marks
+     fell through to whatever fontconfig picked and could be drawn as a box
+     (F-43, tests/a-mark-the-app-draws-has-a-font-on-every-machine). */
+  font-family: 'Geist', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'DejaVu Sans', sans-serif;
   font-size: 15.5px;
   background: var(--bg);
   color: var(--text);

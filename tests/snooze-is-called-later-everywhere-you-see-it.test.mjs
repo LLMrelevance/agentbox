@@ -100,7 +100,8 @@ describe('the rest of what you see', () => {
   });
 
   it('says Later on the toast, the undo and the failure', () => {
-    expect(app).toContain('`${picked.length} moved to Later. Back ${label.toLowerCase()}` : `Moved to Later. Back ${label.toLowerCase()}`');
+    // The toast names Z as well now (tests/every-undo-you-can-press-z-for-says-so).
+    expect(app).toContain('`${picked.length} moved to Later. Back ${label.toLowerCase()}${SAYS_UNDO}` : `Moved to Later. Back ${label.toLowerCase()}${SAYS_UNDO}`');
     expect(app).toContain("pushUndo({ label: 'Back in your inbox', undoes: 'undo moving it to Later'");
     expect(app).toContain("words: 'Undid moving it to Later'");
     expect(app).toContain('`Could not move it to Later: ');

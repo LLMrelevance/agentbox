@@ -78,7 +78,10 @@
 }
 
 html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; height: 100%; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: default; color: var(--ct-ink); }
+/* DejaVu Sans before the generic because this window names only macOS faces,
+   so on Linux every character in it came from whatever fontconfig picked, and
+   the marks the app draws are not in every sans (F-43). Never reached on a Mac. */
+body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'DejaVu Sans', sans-serif; -webkit-font-smoothing: antialiased; user-select: none; cursor: default; color: var(--ct-ink); }
 
 /* THE CLEAR BAND AROUND THE GLASS. The window is the tag plus this, so the
    resize arrows can sit ON its corners, half over the glass and half outside

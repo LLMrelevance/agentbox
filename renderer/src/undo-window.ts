@@ -126,14 +126,21 @@ export function graceUndoneLine(p: { said?: string; restored: boolean }): string
  * new task card), and it wins, because her words are in it. Otherwise `brings`
  * is the row the entry put back, and that is opened. An entry that names no row
  * (a schedule, the update row) opens nothing and leaves her where she is.
+ *
+ * AND ONLY WHILE A TASK IS OPEN (F-50). Both cases above were met from inside
+ * one, where the row she wanted back was behind the task. Reading a list it is
+ * already in front of her, and a Z in the Later tab landed her in the thread
+ * with the breadcrumb still saying LATER. `restored` moves her either way:
+ * there is nowhere else her own words are on screen.
  */
 export function shownAfterUndo<I>(
   restored: { item: I } | { compose: true } | null | undefined,
   brings: I | undefined,
+  where: { onATask: boolean },
 ): { open: I | null; compose: boolean } {
   if (restored && 'item' in restored) return { open: restored.item, compose: false };
   if (restored) return { open: null, compose: true };
-  return { open: brings ?? null, compose: false };
+  return { open: (where.onATask && brings) || null, compose: false };
 }
 
 /**
