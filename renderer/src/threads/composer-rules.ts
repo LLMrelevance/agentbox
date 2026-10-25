@@ -465,6 +465,42 @@ export function taskFields({ personId, due }: { personId: string; due: string | 
   return { assignee: personId, ...(due ? { due } : {}) };
 }
 
+/* ------------------------------ the keyboard ------------------------------ */
+
+/** What has the keyboard while the card is open. */
+export type Keyboard = 'a field' | 'the card' | 'nothing' | 'away';
+
+/**
+ * TYPING ON THIS CARD IS TYPING, NEVER A PRESS (w-abed8ae491).
+ *
+ * The card sent tasks half-written. Measured on the real card: four Tabs out of
+ * the message box land on Send, and Space there sends whatever is in the box —
+ * one thread's entire brief was the word "Make". A click on the card's own
+ * padding puts the keyboard on BODY, where every character typed afterwards is
+ * dropped in silence. Escape out of a menu puts it on the chip that opened the
+ * menu, where a space opens the menu again and a letter can land on a row.
+ *
+ * So a character with no chord on it goes to the message wherever the keyboard
+ * happens to be sitting, and the control under it never hears it. Two
+ * exceptions, both of them somebody typing on purpose: a caret already in a
+ * field, and an open menu, whose rows are picked with Enter and whose find box
+ * takes letters.
+ *
+ * The cost is Enter and Space opening a menu from a focused trigger. The arrow
+ * keys do that (`triggerKeys` in ./ThreadComposer.tsx) and ⌘↵ is printed on
+ * Send, so nothing on the card is out of the keyboard's reach.
+ */
+export function keyOnTheNewThreadCard(
+  { key, meta, ctrl, alt, menuOpen, on }: {
+    key: string; meta?: boolean; ctrl?: boolean; alt?: boolean; menuOpen: boolean; on: Keyboard;
+  },
+): 'the message' | 'leave it' {
+  if (meta || ctrl || alt) return 'leave it';
+  if (key.length !== 1 && key !== 'Enter') return 'leave it';
+  if (menuOpen || on === 'a field' || on === 'away') return 'leave it';
+  return 'the message';
+}
+
 /**
  * Which rows the head draws. To an agent it is still To and Model, untouched.
  * To a person it is To and Send As, and the day appears only once it is a

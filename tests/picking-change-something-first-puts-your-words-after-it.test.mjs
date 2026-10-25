@@ -54,6 +54,8 @@ it('a box that is not there yet is left alone', () => {
 
 it("the thread's reply box opens through it", () => {
   const focus = fs.readFileSync(new URL('../renderer/src/components/Focus.tsx', import.meta.url), 'utf8');
-  expect(focus).toMatch(/useEffect\(\(\) => \{ focusAtEnd\(ref\.current\); \}, \[\]\);/);
+  // A layout effect since w-abed8ae491; what this pins is the caret landing
+  // after the words, not which kind of effect puts it there.
+  expect(focus).toMatch(/use(Layout)?Effect\(\(\) => \{ focusAtEnd\(ref\.current\); \}, \[\]\);/);
   expect(focus).not.toMatch(/useEffect\(\(\) => \{ ref\.current\?\.focus\(\); \}, \[\]\);/);
 });

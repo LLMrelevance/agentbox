@@ -8,10 +8,12 @@
 // transport and routing only. The transport is injected so the tests run
 // without `codex` installed.
 //
-// A request nobody answers parks a worker forever with nothing on its row. So
-// deny is the default in every failure mode, and silence is not a refusal:
-// - A card nobody answers denies itself after APPROVAL_TIMEOUT_MS, and a late
-//   answer is dropped, because one request id cannot be answered twice.
+// Deny is the default in every failure mode, and silence is not a refusal:
+// - A card waits for the person it is addressed to and is never denied on a
+//   clock; main/codex-approvals.mjs holds the whole argument. It is settled by
+//   their answer, by the worker that raised it stopping, or by the app closing,
+//   and a late answer is dropped, because one request id cannot be answered
+//   twice.
 // - A write that fails, at once or in its callback, is a broken connection.
 //   Every waiter is settled and the child is killed.
 // - A stdout line that will not parse may have been an approval request, so it
@@ -65,9 +67,6 @@ export const ELICITATION_ACTIONS = Object.freeze(['accept', 'decline', 'cancel']
  * `cancel` also interrupts the whole turn.
  */
 export const REFUSAL_DECISION = 'decline';
-
-/** How long a card waits for an answer. Matches main/approval-prompt-server.mjs. */
-export const APPROVAL_TIMEOUT_MS = 15 * 60_000;
 
 /**
  * The longest frame allowed before the connection is called corrupt. Large,
@@ -243,7 +242,6 @@ export function createCodexAppServer({
   // logged here, because what to do with it -- a line on the row, a report --
   // belongs to the caller.
   onUnknownRequest = null,
-  approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
   requestTimeoutMs = REQUEST_TIMEOUT_MS,
   maxFrameLength = MAX_FRAME_LENGTH,
   stderrLimit = 64 * 1024,
@@ -253,7 +251,7 @@ export function createCodexAppServer({
 
   const pending = new Map();    // OUR request id -> { resolve, reject, method, onResult }
   const threads = new Map();    // thread id -> handlers
-  const openCards = new Map();  // THEIR request id -> the deadline timer
+  const openCards = new Set();  // THEIR request ids, each waiting on a person
   const decoder = new StringDecoder('utf8');
   let nextId = 1;
   let buffer = '';
@@ -387,8 +385,8 @@ export function createCodexAppServer({
   }
 
   /**
-   * Answer a server request. Never awaits the handler, because one card may
-   * wait fifteen minutes and every thread reads through this loop.
+   * Answer a server request. Never awaits the handler, because one card waits
+   * for a person and every thread reads through this loop.
    */
   function serverRequest(msg) {
     // Two open requests on one id cannot both be answered, so treat it like an
@@ -419,30 +417,19 @@ export function createCodexAppServer({
     // Nobody to ask, so refuse now rather than at the deadline.
     if (typeof handler !== 'function') return write({ jsonrpc: '2.0', id: msg.id, ...refusal(shape) });
 
-    openCard(msg.id, shape);
+    openCards.add(msg.id);
     Promise.resolve()
       .then(() => handler(msg.method, msg.params))
       .then((answered) => answerCard(msg.id, translate(shape, answered) ?? refusal(shape)))
       .catch(() => answerCard(msg.id, refusal(shape)));
   }
 
-  /** Start the card's deadline. Expiry denies once and closes the card. */
-  function openCard(id, shape) {
-    const timer = setTimeout(() => {
-      if (openCards.delete(id)) write({ jsonrpc: '2.0', id, ...refusal(shape) });
-    }, approvalTimeoutMs);
-    timer?.unref?.();
-    openCards.set(id, timer);
-  }
-
   /**
-   * The only answer a card gets. A card already denied by its deadline, or on a
-   * dead connection, is closed, so a late answer is dropped.
+   * The only answer a card gets. A card on a dead connection is already closed,
+   * so a late answer is dropped.
    */
   function answerCard(id, body) {
-    if (!openCards.has(id)) return;
-    clearTimeout(openCards.get(id));
-    openCards.delete(id);
+    if (!openCards.delete(id)) return;
     write({ jsonrpc: '2.0', id, ...body });
   }
 
@@ -591,7 +578,6 @@ export function createCodexAppServer({
     gone.why = cause({ withTail: false });
     const why = cause();
 
-    for (const timer of openCards.values()) clearTimeout(timer);
     openCards.clear();
 
     for (const [id, waiting] of pending) {

@@ -44,6 +44,10 @@ export function meterPair(limits: UsageLimit[] | undefined | null, now = Date.no
     ...(session && Number.isFinite(session.percent) ? [{ key: 'session', word: 'Session', percent: percent(session), resets: resetWords(session, now) }] : []),
     ...(week && Number.isFinite(week.percent) ? [{ key: 'week', word: 'Week', percent: percent(week), resets: resetWords(week, now) }] : []),
     ...models.map((l) => ({ key: `week:${l.qualifier}`, word: l.qualifier!, percent: percent(l), resets: resetWords(l, now) })),
+    // Codex's other windows (shared/codex-usage.mjs `windowSpan`), which the
+    // type does not list: a free plan's month, or one named by its length.
+    ...all.filter((l) => ['month', 'window'].includes(l.span) && Number.isFinite(l.percent))
+      .map((l) => ({ key: l.span as string, word: (l.span as string) === 'month' ? 'Month' : l.name, percent: percent(l), resets: resetWords(l, now) })),
   ];
 }
 

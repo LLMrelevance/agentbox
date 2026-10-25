@@ -69,12 +69,13 @@ describe('asking Codex for its figure again', () => {
 
 describe('the control the page offers', () => {
   const settings = read('renderer/src/components/Settings.tsx');
-  const group = settings.slice(settings.indexOf("engine === 'codex' && ("), settings.indexOf('<UsageRows reading={codexShown}'));
+  const page = settings.slice(settings.indexOf('const enginePage = (engine'), settings.indexOf('<div className="set-nav">'));
 
-  it('puts Refresh and how old the reading is on the Codex Usage group', () => {
-    expect(group).toContain("codexRefreshing ? 'Refreshing…' : 'Refresh'");
-    expect(group).toContain('onClick={() => void refreshCodex()}');
-    expect(group).toContain('codexChecked');
+  // On the Signed in card's head since 2026-10-25, the one Claude Code's has.
+  it('puts Refresh and how old the reading is at the head of the Codex accounts', () => {
+    expect(page).toContain("const busy = engine === 'codex' ? codexRefreshing : refreshing;");
+    expect(page).toContain("engine === 'codex' ? refreshCodex() : readAccounts(true)");
+    expect(page).toContain('{!busy && checked && <span className="acct-checked">{checked}</span>}');
   });
 
   // The press reaches the Codex reader and not Claude Code's.
@@ -87,8 +88,6 @@ describe('the control the page offers', () => {
   // was wrong: "No usage reading yet" alone reads as something broken. One
   // line, with no caption under it, because a caption goes unread.
   it('says why there is nothing yet, in one line', () => {
-    const rows = settings.slice(settings.indexOf('function UsageRows('), settings.indexOf('export function usageCheckedAt'));
-    expect(rows).toContain('<Row label="Codex reports what is left as it works, so there is nothing here yet" />');
-    expect(rows).not.toContain('<Row label="No usage reading yet"');
+    expect(page).toContain("none: tile.inUse ? 'Codex reports usage as it works'");
   });
 });

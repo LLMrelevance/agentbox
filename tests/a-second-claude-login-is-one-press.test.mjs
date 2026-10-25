@@ -146,8 +146,8 @@ describe('the door on the screen', () => {
 
   it('is one Add account row drawn for whichever agent the card is', () => {
     expect(settings).not.toContain("{agent.engine === 'codex' && (");
-    // A row of the agent's own page since the redraw (w-ccadd13c46).
-    expect(settings).toContain('<button type="button" className="set-ghost" onClick={() => onAdd(agent)}>Add</button>');
+    // The Add account tile of the Signed in card, on either agent's page.
+    expect(settings).toContain('onAdd={() => void addAccount(agent)}');
   });
 
   it('asks main for the right kind of account', () => {

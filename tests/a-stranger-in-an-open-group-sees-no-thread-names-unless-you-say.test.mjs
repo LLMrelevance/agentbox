@@ -60,12 +60,13 @@ describe('a new card', () => {
     expect(rowOf(w)).toMatchObject({ agents_running: 1, working_on: null, activity: [] });
   });
 
+  // Never a list of threads, even then (tests/a-persons-page-shows-none-of-their-threads).
   it('names your thread to everyone once you turn that on', async () => {
     const w = solo();
     await w.rooms.tick();
     await w.rooms.saveProfile({ show_working: 'everyone' });
     expect(rowOf(w).working_on).toBe('Import bank CSVs');
-    expect(rowOf(w).activity.map((a) => a.title)).toEqual(['Import bank CSVs']);
+    expect(rowOf(w).activity).toEqual([]);
   });
 
   it('leaves a card that already shows its work the way its owner set it', async () => {

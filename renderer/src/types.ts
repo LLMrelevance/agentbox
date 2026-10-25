@@ -1332,7 +1332,7 @@ declare global {
     zero?: {
       snapshot(): Promise<Snapshot>;
       refreshUsage?(p?: { engine?: 'claude' | 'codex' }): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
-      accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
+      accountUsage?(p: { refresh?: boolean; engine?: 'claude' | 'codex' }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel
       // existed has no such function, and `api.assistiveTech` reads that as no.

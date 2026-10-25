@@ -135,7 +135,7 @@ import {
 } from '../shared/engines.mjs';
 import { createCodexAppServer } from './codex-app-server.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
-import { CodexUsage } from './codex-usage.mjs';
+import { CodexUsage, codexAccountReadings } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { cloudCodexMode } from './cloud-permission.mjs';
@@ -8367,8 +8367,8 @@ export class Supervisor {
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
-      // do its job at all. Same spool, same shape, same fifteen minutes as a
-      // Claude Code worker's (main/codex-approvals.mjs).
+      // do its job at all. Same spool, same shape, and the same wait as a
+      // Claude Code worker's: for her, not for a clock (main/codex-approvals.mjs).
       onApproval: cards.handle,
       // A worker that cannot write to her store does not run.
       requireMcpServer: storeServer?.name ?? null,
@@ -8390,9 +8390,10 @@ export class Supervisor {
     // app-server dying underneath it -- so this is the one hook that covers a
     // stopped run, a preempted one, an archived row and a lost connection
     // without four separate call sites. Without it the question sits on her
-    // screen for fifteen minutes about a command nothing is waiting to run, and
-    // because the front card is always the oldest, it sits in front of every
-    // real card until it expires.
+    // screen about a command nothing is waiting to run, and because the front
+    // card is always the oldest, it sits in front of every real card. No clock
+    // takes it away any more (w-4b00022acb), so this hook is the whole of how a
+    // dead run's card leaves.
     worker.once('exit', () => {
       try { cards.close('the run that asked this has stopped'); } catch (e) { console.warn('zero: could not close a codex worker cards:', e?.message ?? e); }
     });
@@ -8918,6 +8919,16 @@ export class Supervisor {
   /** The same, read again rather than off the cache (`CodexUsage.refreshNow`). */
   refreshCodexUsage() {
     return this._codexUsage().refreshNow();
+  }
+
+  /** Every Codex login's own reading, for the Settings page. */
+  codexAccountUsage() {
+    return codexAccountReadings({
+      profiles: this._codexProfiles(),
+      homeOf: (profile) => this._codexProfileHome(profile),
+      current: this.refreshCodexUsage(),
+      currentHome: this._codexUsageHome(),
+    });
   }
 
   /**
