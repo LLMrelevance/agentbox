@@ -23,7 +23,7 @@ import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
-import { queueMovesOn, queueStartsHere, spotIn, stepIn } from './one-thing-at-a-time';
+import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
@@ -165,6 +165,7 @@ import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { NOT_ANSWERING, NOT_ANSWERING_MS, RESTART_IT, RESTART_IT_MS, SEND_NOT_TAKEN } from './not-answering';
 import { TEAM_WAIT_MS } from './boot-waits';
+import { signInAsk, SIGN_IN_SKIPPED } from './sign-in-ask';
 import { isNew } from '../../shared/notify-rules.mjs';
 import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../shared/team-rules.mjs';
 import { Face, TeamContext, firstName, teamView } from './team/people';
@@ -416,8 +417,6 @@ export default function App() {
     if (!v) { setHoveredId(null); setPointedHint(null); hints.current?.stop(); }
   }, []);
   const [focused, setFocused] = useState<WorkItem | null>(null);
-  // Walking Needs you one thread at a time (w-65bcefb857, ./one-thing-at-a-time).
-  const [oneAtATime, setOneAtATime] = useState(false);
   // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
   // page reports it draws (Focus `onShown`), which is when those rows are offered.
   const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
@@ -669,21 +668,25 @@ export default function App() {
   // Drawn when it is open and nothing sits over it: an opened task or Settings
   // takes the page, and closing them returns to the Team page.
   const teamShown = teamOpen && !focused && !settingsOpen;
-  // THE SIGN-IN PAGE STANDS OVER EVERYTHING when a team build has nobody
-  // signed in, once the saved sign-in has been looked for (team/SignInPage.tsx).
-  // Signing out lands on it, and it says so.
-  const signInGate = !api.isFixtures && !!snap?.team?.configured && snap.team.started === true && !snap.team.signedIn;
+  // THE SIGN-IN PAGE STANDS OVER EVERYTHING when a build that can sign in has
+  // nobody signed in, once the saved sign-in has been looked for, until it is
+  // skipped (./sign-in-ask). Signing out lands on it, and it says so.
+  const [signInSkipped, setSignInSkipped] = useState(() => localStorage.getItem(SIGN_IN_SKIPPED) === '1');
+  const signInAsked = signInAsk({ team: snap?.team, fixtures: api.isFixtures, skipped: signInSkipped, canSkip: !onCloudPhone() });
+  const signInGate = signInAsked.page;
   // AND THE FIRST-RUN WALK WAITS FOR SOMEBODY TO BE SIGNED IN (2026-10-04).
   // It used to run underneath the sign-in page, invisible but live: on its
   // guided steps it holds every press not on what it points at, so Continue
   // with Google did nothing at all for the first teammate to install this, and
   // Return in the sign-in form went to the walk instead. It neither starts nor
-  // draws until someone is signed in, and picks up where it was after.
-  const walkWaitsForSignIn = !api.isFixtures && !!snap?.team?.configured && !snap.team.signedIn;
+  // draws until someone is signed in or skips, and picks up where it was after.
+  const walkWaitsForSignIn = signInAsked.walkWaits;
+  const skipSignIn = useCallback(() => { localStorage.setItem(SIGN_IN_SKIPPED, '1'); setSignInSkipped(true); }, []);
+  const askToSignIn = useCallback(() => { localStorage.removeItem(SIGN_IN_SKIPPED); setSignInSkipped(false); }, []);
   const wasSignedIn = useRef(false);
   const [signedOutHere, setSignedOutHere] = useState(false);
   useEffect(() => {
-    if (snap?.team?.signedIn) { wasSignedIn.current = true; setSignedOutHere(false); }
+    if (snap?.team?.signedIn) { wasSignedIn.current = true; setSignedOutHere(false); localStorage.removeItem(SIGN_IN_SKIPPED); setSignInSkipped(false); }
     else if (wasSignedIn.current && snap?.team?.started) setSignedOutHere(true);
   }, [snap?.team?.signedIn, snap?.team?.started]);
   const signInGateRef = useRef(false);
@@ -3250,20 +3253,15 @@ export default function App() {
   // Where the keyboard is in the walk: their row, or your last one.
   const walkPlace = keyCard ? stops.findIndex((s) => s.card && stopKey(s) === cardSel) : stops.findIndex((s) => s.item === current);
 
-  // One thing at a time (w-65bcefb857): its place and its arrows are counted in
-  // the list you are looking at, not in J and K's walk, which takes in teammates' rows.
+  // One thing at a time (w-65bcefb857): every thread in Needs you opens on it,
+  // however it was opened. Its place and its arrows are counted in Needs you,
+  // not in J and K's walk, which takes in teammates' rows.
   const openInQueue = useCallback((item: WorkItem) => {
     setFocused(item); markSeen(item);
     const at = list.indexOf(item);
     if (at >= 0) setSelected(at);
   }, [list, markSeen]);
-  const startOneAtATime = useCallback(() => {
-    const first = shownInbox[0];
-    if (!first) return;
-    setOneAtATime(true);
-    openInQueue(first);
-  }, [shownInbox, openInQueue]);
-  const queueSpot = oneAtATime && !onBoard && view === 'inbox' && search === null ? spotIn(shownInbox, focused) : null;
+  const queueSpot = spotIn(shownInbox, focused);
   const stepQueue = useCallback((dir: 1 | -1) => {
     const to = focused && stepIn(shownInbox, focused, dir);
     if (to) openInQueue(to);
@@ -3814,13 +3812,9 @@ export default function App() {
   }, [noteAdvance]);
 
   // Whether a reply from inside this thread moves her on to the next (./advance).
-  // One at a time moves on from the last one too, which is how it ends on the empty inbox.
-  const movesOn = useCallback((item: WorkItem) => {
-    const index = shownInbox.findIndex((i) => i.id === item.id);
-    return oneAtATime
-      ? queueMovesOn({ index, searching: search !== null })
-      : replyMovesOn({ view, onBoard, index, inboxSize: shownInbox.length, searching: search !== null });
-  }, [view, onBoard, shownInbox, search, oneAtATime]);
+  const movesOn = useCallback((item: WorkItem) => replyMovesOn({
+    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), searching: search !== null,
+  }), [view, onBoard, shownInbox, search]);
 
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
@@ -5499,8 +5493,6 @@ export default function App() {
           break;
         // On a teammate's row, Enter opens their card.
         case 'Enter': if (!multiSel.size && pointed) { setFocused(pointed); markSeen(pointed); } else if (!multiSel.size && keyCard) openTeammateCard(keyCard); break;
-        // SPACE ANSWERS NEEDS YOU ONE THREAD AT A TIME, from the top (w-65bcefb857).
-        case ' ': if (!multiSel.size && !onBoard && queueStartsHere({ view, searching: search !== null, waiting: shownInbox.length })) { e.preventDefault(); startOneAtATime(); } break;
         case 'e': case 'E':
           e.preventDefault();
           // In the snoozed view E wakes things: getting an item back is that
@@ -5551,7 +5543,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow, onBoard, shownInbox, startOneAtATime]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -5701,19 +5693,13 @@ export default function App() {
   // grace window, so it may still be in the fold for a few seconds).
   // On the board the keyboard counts places in the board's reading order, so
   // the opened card's place there is found by its id.
-  // One at a time ends when you leave the thread, and not on the beat between
-  // one thread and the next, when an advance is still pending. Before the
-  // advance below, which clears it.
-  useEffect(() => {
-    if (!focused && !advanceRef.current) setOneAtATime(false);
-  }, [focused]);
   useEffect(() => {
     const pending = advanceRef.current;
     if (!pending || !advanceLandsHere({ view, onBoard }) || focused) return;
     advanceRef.current = null;
     const next = nextAfterAdvance(shownInbox, pending);
     // Nothing left: the empty inbox is where one at a time ends.
-    if (!next) { setOneAtATime(false); return; }
+    if (!next) return;
     // THE APP MOVED YOU, SO THE KEY THAT SENDS WAITS A MOMENT (./pick-settles).
     // The one place a thread is put in front of you without your asking, and so
     // the one place a number already on its way can answer a thread unread.
@@ -6111,7 +6097,7 @@ export default function App() {
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${queueSpot && focused ? ' one-at-a-time' : ''}`}>
 
-      {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
+      {signInGate && <SignInPage onSkip={onCloudPhone() ? undefined : skipSignIn} signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
           `.workspace-layout::after` is the window's drag strip. */}
       {workspaceNavigation && <div className="panel-marks" aria-hidden="true" />}
@@ -6157,7 +6143,7 @@ export default function App() {
           all={snap.usageByEngine ?? []}
           recent={lastUsedEngine(snap)}
         />}
-        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onSignIn={signInAsked.sidebar ? askToSignIn : undefined} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
@@ -6844,7 +6830,6 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
-                    onOneAtATime={queueStartsHere({ view, searching: search !== null, waiting: shownInbox.length }) ? startOneAtATime : undefined}
                   />
                 )}
                 {roomShown ? roomsUi.page : <>

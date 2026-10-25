@@ -338,7 +338,7 @@ export const DRIVES = {
     },
   },
   'one-at-a-time': {
-    what: 'Space on Needs you answers it one thread at a time: the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox',
+    what: 'Every thread in Needs you opens one thing at a time: Enter or a click opens the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox, and a thread in In progress keeps the full page',
     notInstalled: 'it rewrites the stand-in world, which only the browser copy reads',
     async run({ tab, state, claim, capture }) {
       // Every answer ends with choices; replies are held back once the three
@@ -376,15 +376,18 @@ export const DRIVES = {
         setWorld({ options: 1, pace: { minMs: 120_000, maxMs: 120_000 } });
 
         await clickTab(tab, /^needs you/i);
-        const offered = await tab.until(`document.querySelector('.th-one')?.textContent`, { why: 'the One at a time button on Needs you', ms: 10_000 }).catch(() => null);
-        claim(offered, 'Needs you offers One at a time, naming its key', offered ?? '');
+        await tab.until(`!!document.querySelector('.list-pane .row')`, { why: 'Needs you to list the threads', ms: 10_000 }).catch(() => false);
         await capture('needs-you');
+        claim(!(await tab.evaluate(`!!document.querySelector('.th-one')`)), 'Needs you has no separate way in to switch on');
 
-        await tab.press(' ');
-        const opened = await tab.until(`!!(document.querySelector('.app.one-at-a-time') && document.querySelector('.one-answer'))`, { why: 'Space to open the top of Needs you', ms: 10_000 }).catch(() => false);
-        claim(opened, 'Space opens the top of Needs you on the one-at-a-time page');
+        const order = await tab.evaluate(`[...document.querySelectorAll('.list-pane .row:not(.th-head)')].map((r) => r.textContent)`);
+        await tab.press('Enter');
+        const opened = await tab.until(`!!(document.querySelector('.app.one-at-a-time') && document.querySelector('.one-answer'))`, { why: 'Enter to open the pointed row', ms: 10_000 }).catch(() => false);
+        claim(opened, 'Enter on a row opens it on the one-at-a-time page');
         const first = await page();
-        claim(first.pos === '1 of 4', 'the corner says where you are', first.pos ?? 'no position');
+        // Enter opens the pointed row, which need not be the top one.
+        const at = order.findIndex((t) => first.name && t.includes(first.name.replace(/…$/, '').slice(0, 20)));
+        claim(at >= 0 && first.pos === `${at + 1} of 4`, 'the corner says where you are', first.pos ?? 'no position');
         claim(titles.some((t) => first.name && t.startsWith(first.name.replace(/…$/, '').slice(0, 20))), 'the top bar names the thread', first.name ?? '');
         claim(first.summary && first.answer, 'the summary on top and the newest answer under it');
         claim(first.choices === 3 && !first.heading, 'the three choices at the foot, without a heading', `${first.choices} choices`);
@@ -419,11 +422,13 @@ export const DRIVES = {
         await capture('earlier');
 
         await tab.press('Escape');
-        const left = await tab.until(`!document.querySelector('.app.one-at-a-time') && !!document.querySelector('.th-one')`, { why: 'esc to leave for Needs you', ms: 8000 }).catch(() => false);
+        const left = await tab.until(`!document.querySelector('.app.one-at-a-time') && !!document.querySelector('.list-pane .row')`, { why: 'esc to leave for Needs you', ms: 8000 }).catch(() => false);
         claim(left, 'esc leaves for Needs you');
 
-        await tab.press(' ');
-        await tab.until(`!!document.querySelector('.app.one-at-a-time')`, { why: 'Space to come back', ms: 8000 }).catch(() => false);
+        const ourRow = `[...document.querySelectorAll('.list-pane .row')].find((r) => ${JSON.stringify(titles.map((t) => t.slice(0, 20)))}.some((t) => r.textContent.includes(t)))`;
+        await tab.evaluate(`${ourRow}?.click()`);
+        const clicked = await tab.until(`!!document.querySelector('.app.one-at-a-time')`, { why: 'a click to open a thread', ms: 8000 }).catch(() => false);
+        claim(clicked, 'a click on a row opens it on the one-at-a-time page too');
         // A typed reply moves on too.
         const typed = await page();
         await tab.wait(1000);
@@ -463,6 +468,15 @@ export const DRIVES = {
         await capture('empty');
         const all = await until(() => { const r = ours(); return r.every((x) => x.status === 'done' || /^Option 1:|Keep it for 30 days/.test(String(x.answer ?? ''))) ? r : null; }, 15_000);
         claim(all, 'every thread holds what was done to it: a pick, a reply or a close');
+
+        // Out of Needs you, a thread keeps the full page.
+        await clickTab(tab, /^in progress/i);
+        await tab.until(`!!(${ourRow})`, { why: 'In progress to list a picked thread', ms: 10_000 }).catch(() => false);
+        await tab.evaluate(`${ourRow}?.click()`);
+        const full = await tab.until(`!!document.querySelector('.thread-crumb-name') && !document.querySelector('.app.one-at-a-time')`, { why: 'an In progress thread to open', ms: 8000 }).catch(() => false);
+        claim(full, 'a thread in In progress opens on the full page, not this one');
+        await capture('in-progress');
+        await tab.press('Escape');
       } finally {
         fs.writeFileSync(worldFile, JSON.stringify(prior));
       }
