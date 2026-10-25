@@ -131,9 +131,21 @@ describe('a teammate\'s page', () => {
     expect(page).toMatch(/See it/);
   });
 
+  it('says in its header that it is an AI teammate, unless it has a role to show', () => {
+    expect(page).toMatch(/\{!book && !t\.role && <span className="tq-role">AI teammate<\/span>\}/);
+  });
+
   it('describes it in words beside a square list of facts', () => {
     for (const k of ['Model', 'Works in', 'On its own', 'Playbooks', 'This week']) expect(page).toContain(`<dt>${k}</dt>`);
     expect(page).toMatch(/Tell \$\{t\.name\} what to change about its job/);
+  });
+
+  // The first build offered "Direct", a person's direct-message record, as a
+  // project to work in.
+  it('offers projects to work in, never a chat with a person', () => {
+    const offers = page.match(/const real = products\.filter\(\(p\) => [^;]+;/g);
+    expect(offers).toHaveLength(2);
+    for (const o of offers) expect(o).toMatch(/!p\.team\?\.direct/);
   });
 
   it('opens a playbook with where each lesson came from in a table', () => {

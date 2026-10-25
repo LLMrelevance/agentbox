@@ -64,6 +64,8 @@
 
 /* The panel beside a teammate's chat */
 .gr-side.tq-side { padding: 18px 24px 24px; }
+/* The Log has no faces, so its lines start at its title. */
+.tq-log .tq-act { padding-left: 0; }
 .tq-sec { margin-bottom: 26px; }
 .tq-sh { display: flex; align-items: baseline; justify-content: space-between; font-size: 14.5px; color: var(--text); margin-bottom: 8px; }
 .tq-sh b { font-weight: 400; font-size: 13px; color: var(--text-faint); }

@@ -59,7 +59,7 @@ export function TeammatesTitle({ view, open }: { view: TeammatesView | null; ope
     <div className="gc-head-col"><span className="workspace-title gc-col-title">Chats</span></div>
     {open === 'new' || !t
       ? <h1 className="workspace-title gc-head-group tq-title"><i className="tq tq-hd tq-hash" aria-hidden="true">+</i><span>New teammate</span></h1>
-      : <h1 className="workspace-title gc-head-group tq-title"><TeammateMark t={t} size="hd" /><span>{book ? book.title : t.name}</span>{!book && t.role && <span className="tq-role">{roleLabel(t.role)}</span>}</h1>}
+      : <h1 className="workspace-title gc-head-group tq-title"><TeammateMark t={t} size="hd" /><span>{book ? book.title : t.name}</span>{!book && t.role && <span className="tq-role">{roleLabel(t.role)}</span>}{!book && !t.role && <span className="tq-role">AI teammate</span>}</h1>}
   </div>;
 }
 
@@ -237,7 +237,7 @@ function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; v
     return <div className="tq-act">{ICON.arrow}<span><span className="v">{only?.id === c.from ? 'Passed' : `${nameOf(c.from, team)} passed`}</span> {c.title} <span className="v">to {nameOf(typeof c.to === 'string' ? c.to : c.to?.[0], team)}</span></span>{time}</div>;
   }
   if (c.kind === 'msg') {
-    const to = (Array.isArray(c.to) ? c.to : []).filter((x) => x !== only?.id).map((x) => nameOf(x, team));
+    const to = (Array.isArray(c.to) ? c.to : []).map((x) => nameOf(x, team));
     const said = c.from === only?.id ? `To ${to.join(', ') || 'the team'}` : `From ${nameOf(c.from, team)}`;
     return <div className="tq-act">{ICON.reply}<span><span className="v">{said}</span> {clipLine(c.text ?? '', 140)}</span>{time}</div>;
   }
@@ -294,7 +294,8 @@ function About({ t, view, products, engines, models, call, error, onOpen }: { t:
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (!saved) return undefined; const timer = setTimeout(() => setSaved(false), 2000); return () => clearTimeout(timer); }, [saved]);
   const keep = (patch: Record<string, unknown>) => { void call('update', { id: t.id, patch }).then((ok) => { if (ok !== false) setSaved(true); }); };
-  const real = products.filter((p) => !p.practice);
+  // A person's direct record is a project in the store, but no place to work.
+  const real = products.filter((p) => !p.practice && !p.team?.direct);
   const books = (view?.playbooks ?? []).filter((p) => (t.playbooks ?? []).includes(p.id));
   const product = real.find((p) => p.slug === t.product);
   return <>
@@ -358,7 +359,7 @@ function PlaybookPage({ t, book, team, onOpen, onOpenThread }: { t: Teammate; bo
 // A new teammate starts as a chat: it asks what to take on, with the starters
 // as answers to tap, and the draft your answer makes asks you the rest.
 function NewTeammate({ team, products, call, error, onOpen }: { team: Teammate[]; products: Product[]; call: Call; error: string | null; onOpen: (id: string) => void }) {
-  const real = products.filter((p) => !p.practice);
+  const real = products.filter((p) => !p.practice && !p.team?.direct);
   const [slug, setSlug] = useState<string | null>(() => {
     const last = rememberedProject();
     return real.find((p) => p.slug === last)?.slug ?? real.find((p) => p.repoPath)?.slug ?? null;

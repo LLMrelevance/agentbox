@@ -96,26 +96,26 @@ describe('the page for a new teammate', () => {
     expect(page).not.toMatch(/function Starters\(|function StarterCard\(|function useWorkIn\(/);
   });
 
-  // Option B's panel: what it will do, when, what it asks first and where,
-  // each waiting on your answer until it is set up.
-  it('beside a teammate still being set up, says what is settled and what waits on you', () => {
-    const panel = fn('SidePanel');
-    expect(panel).toMatch(/t\.status === 'draft' && <>/);
-    for (const head of ['Job', 'When it works', 'Asks you before', 'Works in']) expect(panel).toContain(`<div className="tq-sh">${head}</div>`);
-    expect(panel).toMatch(/Waiting on your answer/);
+  // Option B's panel became the teammate's About on the Chats page (round 6):
+  // a teammate still setting itself up says so there, and its job reads as
+  // what it will do for you.
+  it('a teammate still being set up says so, and its job reads as what it will do for you', () => {
+    const about = fn('About');
+    expect(about).toMatch(/It is still setting itself up, and asks you in the chat before it starts/);
     // A starter's job is written to the agent ("Ask the person before..."); its outcome is written to you.
-    expect(panel).toMatch(/jobLine\(t\)/);
+    expect(about).toMatch(/t\.status === 'draft' \? jobLine\(t\) : t\.job/);
     expect(page).toMatch(/s && t\.job === s\.job \? s\.outcome/);
-    expect(panel).toMatch(/\{t\.status !== 'draft' && <div className="tq-sec"><div className="tq-sh">Goal/);
   });
 
   it('is what an empty team shows, and where New teammate goes, on every teammates page', () => {
-    expect(page).toMatch(/if \(open === 'new' \|\| \(!t && !team\.length\)\) return <NewTeammate /);
-    expect(page).toMatch(/if \(open === 'new' \|\| !view\?\.list\.length\) return <h1 className="workspace-title tq-title">/);
+    // An empty team, or New teammate, is the new teammate's chat; anything else opens a chat.
+    expect(page).toMatch(/if \(open !== 'new' && team\.length\) return \{ kind: 'chat', id: team\[0\]\.id \};\n\s*return \{ kind: 'new' \};/);
+    expect(page).toMatch(/if \(shown\.kind === 'new' \|\| !t\) main = <NewTeammate /);
+    expect(page).toMatch(/\{open === 'new' \|\| !t\n?\s*\? <h1 className="workspace-title gc-head-group tq-title">/);
     const hook = read('teammates/useTeammates.tsx');
     expect(hook).toMatch(/open === 'new'/);
-    expect(hook).toMatch(/onClick=\{\(\) => go\('new'\)\}/);
-    expect(hook).not.toMatch(/shownOpen !== 'roster' &&/);
+    expect(hook).toMatch(/onNew: \(\) => go\('new'\)/);
+    expect(read('teammates/ChatsColumn.tsx')).toMatch(/aria-label="New teammate" title="New teammate" onClick=\{c\.onNew\}/);
     expect(read('components/Palette.tsx')).toMatch(/run: \(\) => onTeammates\('new'\)/);
   });
 });
