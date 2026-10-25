@@ -46,6 +46,13 @@ export declare const toMinute: (at: number) => number;
 export declare function resetDay(at: number, now?: number): string | null;
 export declare function untilReset(ms: number): string;
 
+/** The windows a reading can still answer for: one whose reset has gone past
+ *  measures a window nobody is in any more. */
+export declare function limitsStillRunning(
+  limits: UsageLimit[] | null | undefined,
+  now?: number,
+): UsageLimit[];
+
 export declare function limitRows(
   limits: UsageLimit[] | null | undefined,
   now?: number,

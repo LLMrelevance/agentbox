@@ -38,9 +38,12 @@ import type { ParsedOption } from '../format';
 
 export function OptionsOffer({
   ask, askAll, options, peekOption, askPeek,
-  selectedOption, selRef, onPick, onOptionEnter, onAskEnter, setPeek, setAskPeek, keep, stripRef, bare = false,
+  selectedOption, selRef, onPick, onOptionEnter, onAskEnter, setPeek, setAskPeek, keep, stripRef, onOver, bare = false,
 }: {
   stripRef?: React.RefObject<HTMLDivElement>;
+  /** Whether the pointer is standing on the strip. A click is refused while
+   *  the rows have just moved under it (../pick-settles.ts). */
+  onOver?: (over: boolean) => void;
   /** No heading: on the one-at-a-time page the question is already the page's headline. */
   bare?: boolean;
   /** A last row keyed esc that answers by doing nothing: the question a close
@@ -61,7 +64,12 @@ export function OptionsOffer({
   setAskPeek: (open: boolean) => void;
 }) {
   return (
-    <div className="opt-strip" ref={stripRef}>
+    <div
+      className="opt-strip"
+      ref={stripRef}
+      onMouseEnter={() => onOver?.(true)}
+      onMouseLeave={() => onOver?.(false)}
+    >
       {/* THE HEADING IS THE QUESTION, NOT THE NAME OF THE CONTROL. It comes off
           the same field the options came off, so the two can never be from
           different rounds (ask-line.ts).

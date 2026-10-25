@@ -117,16 +117,15 @@ describe('work reaches everyone in your rooms', () => {
     expect(await of(MAYA)).toBe('none');
   });
 
-  it('a Mac writes its activity on its own presence row, and a room-mate reads it', async () => {
+  // Since 2026-10-25 the cloud keeps no list of threads on a presence row
+  // (tests/a-persons-page-shows-none-of-their-threads).
+  it('a room-mate reads no thread list off a Mac’s presence row, whatever it writes', async () => {
     const activity = [{ title: 'Ship the room wall', project: 'Agentbox', state: 'running', at: 1 }];
-    await as(MAYA, `insert into public.room_presence (person_id, device) values ($1, $2)`, [MAYA, DEVICE]);
-    await as(MAYA, `update public.room_presence set activity = $3 where person_id = $1 and device = $2`, [MAYA, DEVICE, JSON.stringify(activity)]);
-    expect((await rows(ANA, `select activity from public.room_presence where person_id = $1`, [MAYA]))[0].activity).toEqual(activity);
-  });
-
-  it('refuses an activity list longer than the wall can use', async () => {
     const long = JSON.stringify(Array.from({ length: 37 }, (_, i) => ({ title: `t${i}`, state: 'done', at: i })));
-    expect(await refused(MAYA, `update public.room_presence set activity = $3 where person_id = $1 and device = $2`, [MAYA, DEVICE, long])).toBe(true);
-    expect(await refused(MAYA, `update public.room_presence set activity = '{}'::jsonb where person_id = $1 and device = $2`, [MAYA, DEVICE])).toBe(true);
+    await as(MAYA, `insert into public.room_presence (person_id, device) values ($1, $2)`, [MAYA, DEVICE]);
+    for (const list of [JSON.stringify(activity), long, '{}']) {
+      await as(MAYA, `update public.room_presence set activity = $3 where person_id = $1 and device = $2`, [MAYA, DEVICE, list]);
+      expect((await rows(ANA, `select activity from public.room_presence where person_id = $1`, [MAYA]))[0].activity).toEqual([]);
+    }
   });
 });

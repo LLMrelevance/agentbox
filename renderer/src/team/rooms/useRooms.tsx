@@ -3,7 +3,7 @@
 // App.tsx only places them beside the narrow sidebar (GroupsSidebar.tsx).
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../../api';
-import type { Room, RoomMention, RoomsState, ThreadCard } from '../../types';
+import type { Room, RoomMention, RoomsState } from '../../types';
 import './rooms.css';
 import { boardPeople, boardPicked, cardName, chatPeople, groupInTab, mentionRows, noticeShown, readBoardLater, readBoardPicks, readNoticeSeen, readRoomTab, withMe, writeBoardLater, writeBoardPicks, writeNoticeSeen, writeRoomTab, type MentionRow } from './room-rules';
 import { OpenGroupNotice } from './OpenGroupNotice';
@@ -34,8 +34,8 @@ type Direct = Conversation & { people: string[] };
 /** A named group's name, or the people in a chat. */
 const nameOf = (r: Room) => (r.kind === 'group' ? r.wall.filter((c) => !c.me).map(cardName).join(', ') || r.name : r.name);
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, teamCards = [], directs = [], now, toast, onOpenDirect, onTeamMessage, onLeavePage, renderBoard, renderPersonBoard }: {
-  rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean; teamCards?: ThreadCard[];
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, directs = [], now, toast, onOpenDirect, onTeamMessage, onLeavePage, renderBoard }: {
+  rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean;
   /** Teammates' direct records, listed among the groups as chats of their own. */
   directs?: Direct[];
   now: number; toast: (text: string) => void;
@@ -47,8 +47,6 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onLeavePage: () => void;
   /** The room's board, for these people's threads. */
   renderBoard?: (people: string[], opts: { later: boolean }) => ReactNode;
-  /** The Inbox's board, for the Today's activity tab on a person's page. */
-  renderPersonBoard?: (people: string[]) => ReactNode;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -296,8 +294,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     heading = { title: <GroupsHead current={currentRow} onFind={() => setFinderOpen(true)} /> };
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
-    page = <RoomPage room={open} rooms={list} cards={teamCards} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
-      pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={null} board={board} renderBoard={renderPersonBoard}
+    page = <RoomPage room={open} rooms={list} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}
+      pane={pane} link={links[open.id] ?? null} onPane={setPane} chat={null} board={board}
       picked={picked} onPick={(ids) => setPicked(new Set(ids))} onMessage={(ids) => void message(ids, open)}
       onRoom={(id) => openRoom(id)}
       onSaveBio={async (bio) => { const res = await call('saveProfile', { bio }); return res.ok ? null : res.error ?? 'Your bio did not save'; }}

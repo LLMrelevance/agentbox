@@ -28,8 +28,9 @@ describe('the top bar', () => {
   // line under the title only while neither of those is there to say it.
   it('portals only the thread’s menu into the corner', () => {
     const portal = focus.slice(focus.indexOf('createPortal(<span className="ts-top">'));
-    // One thing at a time (w-65bcefb857) puts its place and arrows beside the dots, in that mode only.
-    expect(portal.startsWith('createPortal(<span className="ts-top">{queue && <QueueNav spot={queue.spot} onStep={queue.onStep} />}{threadMenu}</span>, cornerHeaderTarget)')).toBe(true);
+    // One thing at a time (w-65bcefb857) puts the line saying where an answer
+    // went, and its place and arrows, beside the dots, in that mode only.
+    expect(portal.startsWith('createPortal(<span className="ts-top">{sentUp && aboveDock}{queue && <QueueNav spot={queue.spot} onStep={queue.onStep} />}{threadMenu}</span>, cornerHeaderTarget)')).toBe(true);
     expect(focus).toContain('lead={summarised && !summaryOffered ? <ThreadStateMark item={item} /> : null}');
   });
   it('toggles with S only while focus is out of a text field', () => {

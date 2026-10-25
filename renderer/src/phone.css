@@ -252,7 +252,7 @@
   /* Its top bar is a back arrow and the thread's name in the reading type,
      not the desktop's "NEEDS YOU / NAME" crumb in capitals. */
   :root:root:root .thread-crumb-from, :root:root:root .thread-crumb-sep { display: none; }
-  :root:root:root .thread-crumb, :root:root:root .thread-crumb * { font-family: 'Geist', 'Avenir Next', -apple-system, sans-serif; text-transform: none; letter-spacing: 0; font-size: 15px; }
+  :root:root:root .thread-crumb, :root:root:root .thread-crumb * { font-family: 'Geist', 'Avenir Next', -apple-system, 'DejaVu Sans', sans-serif; text-transform: none; letter-spacing: 0; font-size: 15px; }
   :root:root:root .thread-crumb-name { color: var(--text); }
 
   /* A PAGE OPENED FROM A THREAD KEEPS A BAR ON A PHONE: a back arrow and the

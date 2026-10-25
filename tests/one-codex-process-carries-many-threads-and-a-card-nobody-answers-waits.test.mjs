@@ -10,11 +10,15 @@
 // stdio and raises real approval REQUESTS that must be answered. That moves the
 // failure somewhere new, and this file is about the new place. An approval is
 // now a request with an id, and a request with an id that nobody answers is a
-// worker parked forever with no symptom at all. That is the shape of the
-// stranded-item incident already written up in CLAUDE.md, arriving through a
-// new door. So the rule this file pins is the one
+// worker parked. So the rule this file pins is the one
 // main/approval-prompt-server.mjs already keeps: DENY IS THE DEFAULT IN EVERY
-// FAILURE MODE, and silence is not a refusal, it is a hang.
+// FAILURE MODE, and a failure is never a silence.
+//
+// A CARD WAITING ON HER IS NOT ONE OF THOSE FAILURE MODES, and the last block
+// of this file is where that line is drawn. It used to be: the card denied
+// itself after fifteen minutes, because a parked worker had no symptom on any
+// screen. It has one now -- the row reads Asking, in Needs you -- and the
+// deadline turned out to cost more than it saved (w-4b00022acb).
 //
 // ------------------------------------------------------------------------
 // MEASURED ON THIS MAC 2026-09-04, codex-cli 0.148.0, because four of the
@@ -356,7 +360,7 @@ describe('an approval reaches the founder', () => {
   // whole fleet. A's card is never answered; B must still work.
   it('lets another thread finish while one sits on a card nobody has answered', async () => {
     const codex = fakeCodex();
-    const client = createCodexAppServer({ transport: codex.child, approvalTimeoutMs: 15 * 60_000 });
+    const client = createCodexAppServer({ transport: codex.child });
     const seenByB = [];
     client.watch('T-A', { onApproval: () => new Promise(() => {}) });
     client.watch('T-B', { onApproval: () => 'accept', onNotification: (m) => seenByB.push(m) });
@@ -677,23 +681,32 @@ describe('nothing is left hanging when the process goes', () => {
   });
 });
 
-/* -------------------------------- the deadline ---------------------------- */
+/* ------------------------- waiting for her answer ------------------------- */
 
-// SHE IS NOT ALWAYS AT HER DESK, AND THE WAIT IS NOT UNBOUNDED.
+// SHE IS NOT ALWAYS AT HER DESK, AND NO CLOCK ANSWERS FOR HER (w-4b00022acb).
 //
-// The first version of this client waited forever for `onApproval`, and the
-// test above it asserted that as the intended behaviour, on the theory that the
-// caller owns the timeout policy. That was wrong, and the precedent settles it:
-// main/approval-prompt-server.mjs, the Claude Code half of exactly this
-// channel, has `TIMEOUT_MS = 15 * 60_000` and DENIES on expiry, with deny as
-// its default in every failure mode. A card nobody answers is not a policy
-// question the caller gets to defer. It is a worker parked for the rest of the
-// session, which is the thing this file is named after.
+// This block used to assert the opposite: a card denied itself after fifteen
+// minutes, on the precedent of the Claude Code half of the same channel. A
+// tester left two commit approvals open overnight on a Linux box and got the
+// cost of that back. The deadline is a `setTimeout`, which does not run while
+// the machine is suspended, and the spool's own sweep counts `Date.now()`,
+// which does. So the card left the screen at sixteen minutes of wall time with
+// nothing answering it, the row went back to reading WORKING with "Running git
+// commit" for six hours, and the deny landed fifteen minutes of waking time
+// later -- after which the agent reported a commit the user had refused. She
+// had refused nothing, and the tested work was still uncommitted.
+//
+// Matching the two clocks would have kept the lie. The deadline was the fault.
+// It was put here when a waiting card showed nowhere but the open thread, so a
+// parked worker was invisible; the row reads Asking and sits in Needs you now
+// (w-fe48447cab), so the question can wait for its answer the way everything
+// else in that list does. What settles a card is an event and never a clock:
+// her answer, the worker stopping, the app closing, the connection breaking.
 //
 // Fake timers rather than a short real one, because a test that sleeps is a
 // test that goes red on a loaded machine, and this suite already carries four
 // of those.
-describe('a card she never answers denies itself, the way the Claude Code one does', () => {
+describe('a card she has not answered yet waits for her', () => {
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(() => { vi.useRealTimers(); });
 
@@ -703,7 +716,7 @@ describe('a card she never answers denies itself, the way the Claude Code one do
   const parked = () => new Promise(() => {});
 
   it('holds the card open while she is still deciding', async () => {
-    const { codex } = await withThread({ onApproval: parked }, { approvalTimeoutMs: 15 * 60_000 });
+    const { codex } = await withThread({ onApproval: parked });
     codex.say(card(0));
     await flush();
     expect(codex.answerTo(0)).toBeUndefined();
@@ -712,47 +725,51 @@ describe('a card she never answers denies itself, the way the Claude Code one do
     expect(codex.answerTo(0)).toBeUndefined();
   });
 
-  it('denies once the deadline passes, exactly once', async () => {
-    const { codex } = await withThread({ onApproval: parked }, { approvalTimeoutMs: 15 * 60_000 });
+  // THE REPORTED SHAPE, and the boundary either side of the old deadline. RED
+  // BEFORE THE FIX at every one of these: the first answer went out at fifteen
+  // minutes and said `decline`.
+  it('says nothing at the quarter hour, nor overnight', async () => {
+    const { codex } = await withThread({ onApproval: parked });
     codex.say(card(0));
+
     await vi.advanceTimersByTimeAsync(15 * 60_000);
+    expect(codex.answerTo(0)).toBeUndefined();
 
-    expect(codex.answerTo(0)).toEqual({ jsonrpc: '2.0', id: 0, result: { decision: REFUSAL_DECISION } });
-    expect(codex.answersTo(0)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(16 * 60_000);
+    expect(codex.answerTo(0)).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(12 * 60 * 60_000);
+    expect(codex.answersTo(0)).toHaveLength(0);
   });
 
-  it('denies a timed-out permissions card in the shape that method takes', async () => {
-    const { codex } = await withThread({ onApproval: parked }, { approvalTimeoutMs: 1000 });
+  it('leaves a permissions card waiting too, rather than erroring it out on a clock', async () => {
+    const { codex } = await withThread({ onApproval: parked });
     codex.say(card(0, 'item/permissions/requestApproval'));
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60_000);
 
-    expect(codex.answerTo(0).result).toBeUndefined();
-    expect(codex.answerTo(0).error.code).toBeTypeOf('number');
+    expect(codex.answerTo(0)).toBeUndefined();
   });
 
-  // THE ONE THAT MATTERS. She comes back to her desk and clicks Approve on a
-  // card that timed out twenty minutes ago. The turn has already been told no
-  // and has moved on; saying yes now is an approval nobody is waiting for, and
-  // a second answer to one request id is a protocol violation on top of it.
-  it('ignores her answer when it arrives after the deadline already denied', async () => {
+  // THE ONE THAT MATTERS. She comes back to her desk hours later and clicks
+  // Allow. Her word is the one that goes out, and it goes out exactly once.
+  it('sends her answer whenever she gives it, however long she was away', async () => {
     let her;
     const { codex } = await withThread(
       { onApproval: () => new Promise((resolve) => { her = resolve; }) },
-      { approvalTimeoutMs: 1000 },
     );
     codex.say(card(0));
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(codex.answerTo(0)).toMatchObject({ result: { decision: REFUSAL_DECISION } });
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60_000);
+    expect(codex.answerTo(0)).toBeUndefined();
 
     her('accept');
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect(codex.answersTo(0)).toHaveLength(1);
-    expect(codex.answersTo(0)[0].result.decision).toBe(REFUSAL_DECISION);
+    expect(codex.answersTo(0)[0].result.decision).toBe('accept');
   });
 
-  it('drops the deadline when she answers in time, and never sends a second answer', async () => {
-    const { codex } = await withThread({ onApproval: () => 'accept' }, { approvalTimeoutMs: 1000 });
+  it('sends her answer once and never a second one', async () => {
+    const { codex } = await withThread({ onApproval: () => 'accept' });
     codex.say(card(0));
     await flush();
     expect(codex.answerTo(0)).toMatchObject({ result: { decision: 'accept' } });
@@ -761,10 +778,11 @@ describe('a card she never answers denies itself, the way the Claude Code one do
     expect(codex.answersTo(0)).toHaveLength(1);
   });
 
-  // A refusal that is already certain does not wait out the clock. There is
-  // nobody to ask, so the turn hears no now rather than in fifteen minutes.
+  // A refusal that is already certain does not become a card. There is nobody
+  // to ask, so the turn hears no now rather than parking on a question that
+  // would reach nobody.
   it('refuses at once when there is nobody to ask, rather than sitting on the card', async () => {
-    const { codex } = await withThread({}, { approvalTimeoutMs: 15 * 60_000 });
+    const { codex } = await withThread({});
     codex.say(card(0));
     await flush();
     expect(codex.answerTo(0)).toMatchObject({ result: { decision: REFUSAL_DECISION } });
