@@ -7440,12 +7440,30 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
   background: var(--wash);
   font-size: 12.5px; white-space: nowrap;
 }
+.web-bar-address { position: relative; cursor: text; }
 .web-bar-mark { display: inline-flex; flex: 0 0 auto; color: var(--text-faint); }
 .web-bar-host { color: var(--text-dim); flex: 0 0 auto; }
 .web-bar-rest { color: var(--text-faint); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The field holds the whole address and is invisible until it has the
+   keyboard; the drawn host and rest lie over it until then. */
+.web-bar-input {
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  padding: 0; border: 0; outline: none; background: none;
+  font: inherit; color: transparent; caret-color: transparent;
+  user-select: text; -webkit-user-select: text;
+}
+.web-bar-shown {
+  position: absolute; inset: 0 10px 0 29px;
+  display: flex; align-items: center; min-width: 0;
+  pointer-events: none;
+}
+.web-bar-address[data-editing="yes"] .web-bar-input { color: var(--text); caret-color: auto; }
+.web-bar-address[data-editing="yes"] .web-bar-shown { visibility: hidden; }
+.web-bar-address[data-editing="yes"] { box-shadow: inset 0 0 0 1px var(--line-strong); }
 /* Loading lights the field's edge: every browser's answer, and it costs no
    room. */
 .web-bar[data-loading="yes"] .web-bar-address { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.web-bar-refused { flex: 0 0 auto; color: var(--text-faint); font-size: 11.5px; }
 
 .doc-missing { flex: 1; padding: 40px; color: var(--text-faint); font-size: 13.5px; }
 
