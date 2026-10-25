@@ -1,6 +1,6 @@
-// A teammate's pages inside Chats: your chat with it, its Log beside the chat,
-// About (what it does, in its own words, beside the plain facts), a playbook
-// it reads, and the chat a new teammate starts as.
+// A teammate's pages inside Chats: your chat with it, with its details or its
+// Log beside it, About (what it does, in its own words), a playbook it reads,
+// and the chat a new teammate starts as.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -10,9 +10,9 @@ import { GREETING, MAX_HOPS, STARTERS, TEAMMATE_EFFORT, starterAsks } from '../.
 import { ModelPicker } from '../components/Model';
 import type { ModelChoice } from '../models';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatWith, clockOf, dayOf, heldFor, heldTitle, logOf, longMessage, nameOf, roleLabel, SAVED_VERBS, workingLine, type ChatEntry } from './chat-lines';
+import { answerTo, chatWith, clockOf, dayOf, firstSentence, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, titleAside, workingLine, type ChatEntry } from './chat-lines';
 import { ChatsColumn } from './ChatsColumn';
-import { TeammateMark } from './TeammatesRail';
+import { nowLine, TeammateMark } from './TeammatesRail';
 import './teammates.css';
 
 const MD = [remarkGfm];
@@ -59,13 +59,33 @@ export function TeammatesTitle({ view, open }: { view: TeammatesView | null; ope
     <div className="gc-head-col"><span className="workspace-title gc-col-title">Chats</span></div>
     {open === 'new' || !t
       ? <h1 className="workspace-title gc-head-group tq-title"><i className="tq tq-hd tq-hash" aria-hidden="true">+</i><span>New teammate</span></h1>
-      : <h1 className="workspace-title gc-head-group tq-title"><TeammateMark t={t} size="hd" /><span>{book ? book.title : t.name}</span>{!book && t.role && <span className="tq-role">{roleLabel(t.role)}</span>}{!book && !t.role && <span className="tq-role">AI teammate</span>}</h1>}
+      : <h1 className="workspace-title gc-head-group tq-title"><TeammateMark t={t} size="hd" /><span>{book ? book.title : t.name}</span>{!book && <span className="tq-role">{titleAside(shown.kind, t.role)}</span>}</h1>}
   </div>;
 }
 
-// About, Log and Pause, behind one ⋯ like the thread view's.
+// Whether its details sit beside its chat. Open unless you hid them, and the
+// same for every teammate.
+const DETAILS_KEY = 'agentbox.teammate-details';
+const DETAILS_EVENT = 'agentbox:teammate-details';
+function useDetailsShown(): [boolean, (on: boolean) => void] {
+  const read = () => { try { return localStorage.getItem(DETAILS_KEY) !== 'hidden'; } catch { return true; } };
+  const [on, setOn] = useState(read);
+  useEffect(() => {
+    const sync = () => setOn(read());
+    window.addEventListener(DETAILS_EVENT, sync);
+    return () => window.removeEventListener(DETAILS_EVENT, sync);
+  }, []);
+  const set = (next: boolean) => {
+    try { localStorage.setItem(DETAILS_KEY, next ? 'shown' : 'hidden'); } catch { /* kept for this page only */ }
+    window.dispatchEvent(new Event(DETAILS_EVENT));
+  };
+  return [on, set];
+}
+
+// About, Log, its details and Pause, behind one ⋯ like the thread view's.
 export function TeammateMenu({ t, shown, onOpen, call }: { t: Teammate; shown: Shown; onOpen: (open: string) => void; call: Call }) {
   const [open, setOpen] = useState(false);
+  const [details, setDetails] = useDetailsShown();
   const wrap = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -78,6 +98,7 @@ export function TeammateMenu({ t, shown, onOpen, call }: { t: Teammate; shown: S
   const rows: [string, () => void][] = [
     shown.kind === 'about' ? ['Chat', () => onOpen(t.id)] : ['About', () => onOpen(`about:${t.id}`)],
     shown.kind === 'log' ? ['Hide its log', () => onOpen(t.id)] : ['Log', () => onOpen(`log:${t.id}`)],
+    ...(shown.kind === 'chat' ? [[details ? 'Hide details' : 'Show details', () => setDetails(!details)] as [string, () => void]] : []),
     t.paused ? ['Resume', () => { void call('update', { id: t.id, patch: { paused: false } }); }] : ['Pause', () => { void call('update', { id: t.id, patch: { paused: true } }); }],
   ];
   return <span className="ts-more-wrap" ref={wrap}>
@@ -114,17 +135,20 @@ export function TeammatesPage({ view, open, products, engines, onOpen, onOpenThr
     onChanged();
     return r.value ?? true;
   };
+  const [details] = useDetailsShown();
   const shown = shownOf(open, team);
   const t = shown.kind === 'new' ? null : team.find((x) => x.id === shown.id) ?? null;
   let main: ReactNode;
   if (shown.kind === 'new' || !t) main = <NewTeammate team={team} products={products} call={call} error={error} onOpen={onOpen} />;
-  else if (shown.kind === 'about') main = <About t={t} view={view} products={products} engines={engines} models={models} call={call} error={error} onOpen={onOpen} />;
+  else if (shown.kind === 'about') main = <About t={t} call={call} error={error} />;
   else if (shown.kind === 'book') main = <PlaybookPage t={t} book={view?.playbooks?.find((p) => p.id === shown.book) ?? null} team={team} onOpen={onOpen} onOpenThread={onOpenThread} />;
   else {
     main = <>
       <ChatColumn view={view} team={team} t={t} me={me} mePic={mePic} call={call} sessions={sessions} onOpen={onOpen} onOpenThread={onOpenThread}
         placeholder={t.status === 'draft' ? `Answer ${t.name === 'New teammate' ? 'your new teammate' : t.name}` : `Message ${t.name}`} error={error} />
-      {shown.kind === 'log' && <LogPanel view={view} team={team} t={t} call={call} onClose={() => onOpen(t.id)} onOpenThread={onOpenThread} />}
+      {shown.kind === 'log'
+        ? <LogPanel view={view} team={team} t={t} call={call} onClose={() => onOpen(t.id)} onOpenThread={onOpenThread} />
+        : details && <Details t={t} view={view} products={products} engines={engines} models={models} call={call} onOpen={onOpen} />}
     </>;
   }
   return <div className="gr-page tq-chats"><div className="gr-body">
@@ -327,10 +351,10 @@ function LogPanel({ view, team, t, call, onClose, onOpenThread }: { view: Teamma
   </aside>;
 }
 
-/* ----------------------------------------------------------------- about */
-// Its description, in its own words, and the facts beside it. The facts you
-// pick are kept the moment you pick them.
-function About({ t, view, products, engines, models, call, error, onOpen }: { t: Teammate; view: TeammatesView | null; products: Product[]; engines: { id: string; label: string }[]; models: TeammateModels; call: Call; error: string | null; onOpen: (open: string) => void }) {
+/* --------------------------------------------------------------- details */
+// What it does and how it is set, beside its chat. What you pick is kept the
+// moment you pick it.
+function Details({ t, view, products, engines, models, call, onOpen }: { t: Teammate; view: TeammatesView | null; products: Product[]; engines: { id: string; label: string }[]; models: TeammateModels; call: Call; onOpen: (open: string) => void }) {
   const [saved, setSaved] = useState(false);
   useEffect(() => { if (!saved) return undefined; const timer = setTimeout(() => setSaved(false), 2000); return () => clearTimeout(timer); }, [saved]);
   const keep = (patch: Record<string, unknown>) => { void call('update', { id: t.id, patch }).then((ok) => { if (ok !== false) setSaved(true); }); };
@@ -338,42 +362,57 @@ function About({ t, view, products, engines, models, call, error, onOpen }: { t:
   const real = products.filter((p) => !p.practice && !p.team?.direct);
   const books = (view?.playbooks ?? []).filter((p) => (t.playbooks ?? []).includes(p.id));
   const product = real.find((p) => p.slug === t.product);
-  return <>
-    <div className="tq-doc"><div className="tq-doc-in">
-      <div className="tq-doc-id"><TeammateMark t={t} size="big" /><div><b>{t.name}</b><small>AI teammate{product ? ` in ${product.name}` : ''}{t.paused ? ', paused' : ''}</small></div></div>
-      {t.status === 'draft' && <p className="tq-doc-note">It is still setting itself up, and asks you in the chat before it starts.</p>}
-      <div className="tq-desc">{t.job ? <ReactMarkdown remarkPlugins={MD}>{t.status === 'draft' ? jobLine(t) : t.job}</ReactMarkdown> : <p className="dim">No description yet. Tell it what you need below.</p>}
-        {t.goal && <><h5>Its goal</h5><p>{t.goal}{t.counted ? `, counted as ${t.counted.replace(/^./, (c) => c.toLowerCase())}` : ''}</p></>}
-        {t.asksFirst && <><h5>What needs your yes first</h5><p>{t.asksFirst}</p></>}
-      </div>
-      {error && <p className="tq-error" role="alert">{error}</p>}
-      <Composer placeholder={`Tell ${t.name} what to change about its job`} onSend={async (text) => (await call('post', { text, to: [t.id] })) !== false} />
-    </div></div>
-    <aside className="gr-side tq-side tq-details">
-      <dl>
-        <dt>Model</dt>
-        <dd><ModelPicker value={t.model ?? null} onChange={(m) => keep({ model: m })} engine={t.engine ?? models.engine ?? null} codexModels={models.codex} codexDefault={models.codexDefault}
-          effort={t.effort ?? TEAMMATE_EFFORT} onEffortChange={(e) => keep({ effort: e })} /><span className="s">Every thread it starts runs on this too</span></dd>
-        {engines.length > 1 && <><dt>Runs on</dt><dd className="tq-chips">{engines.map((e) => <button key={e.id} type="button" className={`tq-chip${(t.engine ?? '') === e.id ? ' on' : ''}`} onClick={() => keep({ engine: e.id })}>{e.label}</button>)}</dd></>}
-        <dt>Works in</dt>
-        <dd>{real.length > 1
-          ? <PickOne value={t.product} label="Works in" options={real.map((p) => ({ id: p.slug, label: p.name }))} onPick={(slug) => keep({ product: slug })} />
-          : product?.name ?? t.product}</dd>
-        <dt>On its own</dt>
-        <dd>{t.duties?.length
-          ? t.duties.map((d) => <span key={d.id} className="tq-duty">{d.what}<small>{d.when}</small></span>)
-          : t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}</dd>
-        <dt>Playbooks</dt>
-        <dd>{books.length
-          ? books.map((b) => <button key={b.id} type="button" className="tq-book" onClick={() => onOpen(`book:${b.id}:${t.id}`)}>{ICON.doc}<span>{b.title}</span></button>)
-          : <span className="dim">None yet. It starts one when you show it how you like something done.</span>}</dd>
-        <dt>This week</dt>
-        <dd>{t.runsThisWeek} of {t.limit} runs</dd>
-        {t.memory.length > 0 && <><dt>Knows</dt><dd>{t.memory.map((m) => <span key={m.id} className="tq-knows">{m.text}<button type="button" className="tq-x" aria-label={`Forget ${m.text}`} title="Forget" onClick={() => { void call('forget', { id: t.id, memory: m.id }); }}>×</button></span>)}</dd></>}
-      </dl>
-      {saved && <span className="tq-st" role="status">Saved</span>}
-    </aside>
-  </>;
+  const about = () => onOpen(`about:${t.id}`);
+  const now = nowLine(t);
+  const knows = t.memory.slice(-3);
+  return <aside className="gr-side tq-side tq-details" aria-label={`About ${t.name}`}>
+    <dl>
+      {now !== 'Idle' && <><dt>Now</dt><dd>{now}</dd></>}
+      <dt>Job</dt>
+      <dd>{t.job ? <span>{clipLine(firstSentence(t.status === 'draft' ? jobLine(t) : t.job), 150)} <Inline onClick={about}>Read all</Inline></span> : <span className="dim">Nothing yet. Tell it in the chat.</span>}</dd>
+      <dt>Model</dt>
+      <dd><ModelPicker value={t.model ?? null} onChange={(m) => keep({ model: m })} engine={t.engine ?? models.engine ?? null} codexModels={models.codex} codexDefault={models.codexDefault}
+        effort={t.effort ?? TEAMMATE_EFFORT} onEffortChange={(e) => keep({ effort: e })} /></dd>
+      {engines.length > 1 && <><dt>Runs on</dt>
+        <dd><PickOne value={t.engine ?? ''} label="Runs on" options={[...(t.engine ? [] : [{ id: '', label: 'Your default' }]), ...engines]} onPick={(id) => keep({ engine: id })} /></dd></>}
+      <dt>Works in</dt>
+      <dd>{real.length > 1
+        ? <PickOne value={t.product} label="Works in" options={real.map((p) => ({ id: p.slug, label: p.name }))} onPick={(slug) => keep({ product: slug })} />
+        : product?.name ?? t.product}</dd>
+      <dt>On its own</dt>
+      <dd>{t.duties?.length
+        ? t.duties.map((d) => <span key={d.id} className="tq-duty">{d.what}<small>{d.when}</small></span>)
+        : t.worksLabel ? `Works ${t.worksLabel}` : 'Works when someone writes to it'}</dd>
+      <dt>Playbooks</dt>
+      <dd>{books.length
+        ? books.map((b) => <button key={b.id} type="button" className="tq-book" onClick={() => onOpen(`book:${b.id}:${t.id}`)}>{ICON.doc}<span>{b.title}</span></button>)
+        : <span className="dim">None yet. It starts one when you show it how you like something done.</span>}</dd>
+      <dt>This week</dt>
+      <dd>{t.runsThisWeek} of {t.limit} runs</dd>
+      {knows.length > 0 && <><dt>Knows</dt><dd>
+        {knows.map((m) => <span key={m.id} className="tq-knows" title={m.text}>{m.text}</span>)}
+        {t.memory.length > knows.length && <Inline onClick={about}>All {t.memory.length}</Inline>}
+      </dd></>}
+    </dl>
+    {saved && <span className="tq-st" role="status">Saved</span>}
+  </aside>;
+}
+
+/* ----------------------------------------------------------------- about */
+// What it does, in its own words, and everything it knows about you. Its
+// name is in the bar above, and how it is set is beside its chat.
+function About({ t, call, error }: { t: Teammate; call: Call; error: string | null }) {
+  return <div className="tq-doc"><div className="tq-doc-in">
+    {t.status === 'draft' && <p className="tq-doc-note">It is still setting itself up, and asks you in the chat before it starts.</p>}
+    <div className="tq-desc">{t.job ? <ReactMarkdown remarkPlugins={MD}>{t.status === 'draft' ? jobLine(t) : t.job}</ReactMarkdown> : <p className="dim">No description yet. Tell it what you need below.</p>}
+      {t.goal && <><h5>Its goal</h5><p>{goalLine(t.goal, t.counted)}</p></>}
+      {t.asksFirst && <><h5>What needs your yes first</h5><p>{t.asksFirst}</p></>}
+      {t.memory.length > 0 && <><h5>What it knows about you</h5>
+        <ul className="tq-known">{t.memory.map((m) => <li key={m.id}><span>{m.text}</span><button type="button" className="tq-x" aria-label={`Forget ${m.text}`} title="Forget" onClick={() => { void call('forget', { id: t.id, memory: m.id }); }}>×</button></li>)}</ul></>}
+    </div>
+    {error && <p className="tq-error" role="alert">{error}</p>}
+    <Composer placeholder={`Tell ${t.name} what to change about its job`} onSend={async (text) => (await call('post', { text, to: [t.id] })) !== false} />
+  </div></div>;
 }
 
 /* -------------------------------------------------------------- playbook */

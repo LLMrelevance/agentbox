@@ -30,8 +30,9 @@ describe('a teammate\'s role', () => {
     expect(read('ChatsColumn.tsx')).toMatch(/<TeammateMark t=\{t\} \/><span className="cx-n">\{t\.name\}<\/span>/);
   });
 
-  it('is drawn with a capital at the top of its page, when it is not already its name', () => {
-    const page = read('TeammatesPage.tsx');
-    expect(page).toMatch(/\{!book && t\.role && <span className="tq-role">\{roleLabel\(t\.role\)\}<\/span>\}/);
+  it('is drawn with a capital at the top of its page, when it is not already its name', async () => {
+    const { titleAside } = await import('../renderer/src/teammates/chat-lines.ts');
+    expect(titleAside('chat', 'video producer')).toBe('Video producer');
+    expect(read('TeammatesPage.tsx')).toMatch(/<span className="tq-role">\{titleAside\(shown\.kind, t\.role\)\}<\/span>/);
   });
 });

@@ -168,7 +168,7 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-saved > svg { color: var(--text-dim); }
 .tq-menu { min-width: 200px; }
 
-/* About: its description in its own words, the facts beside it, square. */
+/* About: its description in its own words, and what it knows, square. */
 .tq-doc { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
 .tq-doc-in { max-width: 720px; padding: 28px 40px 28px var(--text-x, 40px); }
 .tq-doc-id { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
@@ -194,7 +194,13 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-book { display: inline-flex; align-items: center; gap: 7px; border: 0; padding: 0; background: none; font: inherit; color: var(--text); text-align: left; cursor: default; }
 .tq-book svg { color: var(--text-faint); flex: none; }
 .tq-book:hover span { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
-.tq-knows { display: flex; gap: 6px; width: 100%; }
+.tq-knows { display: block; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tq-details .tq-link { color: var(--text-faint); }
+.tq-details .tq-link:hover { color: var(--text-dim); }
+.tq-desc ul.tq-known { list-style: none; padding: 0; margin: 0 0 10px; }
+.tq-known li { display: flex; align-items: baseline; gap: 12px; padding: 7px 0; border-top: 1px solid var(--line); }
+.tq-known li:first-child { border-top: 0; padding-top: 0; }
+.tq-known li > span { flex: 1; min-width: 0; }
 .tq-details > .tq-st { margin: 16px 0 0; }
 
 /* A playbook, with its table on square corners like the rest of the app. */

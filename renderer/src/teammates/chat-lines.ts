@@ -146,6 +146,23 @@ export function roleLabel(role: string | null | undefined): string {
   return r ? r[0].toUpperCase() + r.slice(1) : '';
 }
 
+/** Beside its name in the bar: About on its About page, else its role, else what it is. */
+export function titleAside(kind: string, role: string | null | undefined): string {
+  return kind === 'about' ? 'About' : roleLabel(role) || 'AI teammate';
+}
+
+/** Its goal and how it is counted, as one sentence however each one ends. */
+export function goalLine(goal: string, counted: string | null | undefined): string {
+  const g = goal.trim();
+  const c = (counted ?? '').trim().replace(/[.\s]+$/, '');
+  return c ? `${g.replace(/[.,;:\s]+$/, '')}, counted as ${c.replace(/^./, (x) => x.toLowerCase())}.` : g;
+}
+
+export function firstSentence(text: string): string {
+  const one = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return one.match(/^.+?[.!?](?=\s|$)/)?.[0] ?? one;
+}
+
 // What it saved, shown in your chat with it as one quiet line.
 export const SAVED_VERBS = new Set(['learned', 'updated', 'lesson']);
 
