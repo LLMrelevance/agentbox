@@ -74,11 +74,29 @@ describe('new chats from Claude Code and Codex', () => {
     expect(out.brought).toBe(0);
   });
 
-  it('wait until a chat has gone quiet and nothing has it open', async () => {
+  it('wait until a chat has gone quiet', async () => {
     const w = await world();
     expect((await scan(w, [chat('busy', w.folder, { when: NOW - 60e3 })])).brought).toBe(0);
-    expect((await scan(w, [chat('open', w.folder)], { isOpen: (t) => t.id === 'open' })).brought).toBe(0);
     expect((await scan(w, [{ ...chat('live', w.folder), source: 'codex', live: true }])).brought).toBe(0);
+  });
+
+  // CHANGED 2026-10-25 on the founder's pick: most people leave Claude Code
+  // open in its terminal for hours, so "nothing has it open" kept their chats
+  // out for good. A reply here to a chat still open carries on a copy
+  // (Supervisor#importedThreadFor), so the two never write over each other.
+  it('come in once quiet even while Claude Code still has the chat open', async () => {
+    const w = await world();
+    const out = await scan(w, [chat('open', w.folder)], { isOpen: (t) => t.id === 'open' });
+    expect(out.brought).toBe(1);
+  });
+
+  it('leave an open chat to "Show while they run" when that setting shows it live', async () => {
+    for (const mode of ['all', 'waiting']) {
+      const w = await world();
+      w.config.outsideAgents = mode;
+      expect((await scan(w, [chat('open', w.folder)], { isOpen: () => true })).brought).toBe(0);
+      expect((await scan(w, [chat('closed', w.folder)], { isOpen: () => false })).brought).toBe(1);
+    }
   });
 
   it('never go into a project shared with a team, where teammates would read them', async () => {

@@ -3,13 +3,15 @@
 // Settings (`importNew`, from the moment `importNewSince`).
 //
 // A chat comes in when it was started after that moment, in a folder one of
-// the projects points at, and has gone quiet with nothing holding it open. It
-// is filed the way setup files one: waiting on you to Needs you, finished to
-// Done. Nothing asks about a chat first; asking rows are what the old Codex
-// watch was removed for.
+// the projects points at, and has gone quiet. Claude Code may still have it
+// open: people leave it open for hours, and a reply here to an open chat
+// carries on a copy (Supervisor#importedThreadFor). It is filed the way setup
+// files one: waiting on you to Needs you, finished to Done. Nothing asks about
+// a chat first; asking rows are what the old Codex watch was removed for.
 import { productsForThread } from '../shared/codex-import.mjs';
 import { isShared } from '../shared/team-rules.mjs';
 import { appSessionFolders } from './agent-homes.mjs';
+import { outsideAgentsMode } from './settings.mjs';
 import { claudeSessionOpen } from './claude-session-open.mjs';
 import { readCodexThreadsOffThread } from './codex-threads.mjs';
 import { readRecentThreads } from './importable-threads.mjs';
@@ -32,7 +34,7 @@ function idsWithRows(items) {
 }
 
 /** Which of `threads` come in now, grouped by the project each lands in. */
-export function newChatsToBring(threads, { products, items, since, now, isOpen = () => false }) {
+export function newChatsToBring(threads, { products, items, since, now, isOpen = () => false, openShownLive = false }) {
   const had = idsWithRows(items);
   const bySlug = new Map();
   for (const t of threads ?? []) {
@@ -40,7 +42,7 @@ export function newChatsToBring(threads, { products, items, since, now, isOpen =
     if (!id || had.has(id)) continue;
     if (!(Number(t.startedAt) > since)) continue;
     if (now - Number(t.when ?? 0) < QUIET_MS) continue;
-    if (t.source === 'codex' ? t.live : isOpen(t)) continue;
+    if (t.source === 'codex' ? t.live : openShownLive && isOpen(t)) continue;
     const slug = productsForThread(t, products)[0]?.slug;
     if (!slug) continue;
     if (!bySlug.has(slug)) bySlug.set(slug, []);
@@ -59,7 +61,9 @@ export async function scanNewChats({ store, config, readThreads, isOpen, now = D
   const products = store.listProducts().filter((p) => !isShared(p));
   const folders = products.map((p) => p.repoPath).filter(Boolean);
   const threads = await readThreads({ days, since, folders, now });
-  const picks = newChatsToBring(threads, { products, items: store.listItems(), since, now, isOpen });
+  // An open session already has its own row when "Show while they run" is on.
+  const openShownLive = outsideAgentsMode(config) !== 'off';
+  const picks = newChatsToBring(threads, { products, items: store.listItems(), since, now, isOpen, openShownLive });
   let brought = 0;
   for (const [slug, list] of picks) {
     brought += store.importThreadRows(slug, list, { now, land: 'sorted' }).added;
