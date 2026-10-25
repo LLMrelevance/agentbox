@@ -13,9 +13,9 @@
 .one-sum { padding-bottom: 16px; margin-bottom: 26px; border-bottom: 1px solid var(--line); }
 .one-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 40px; }
 .one-cols.one-single { grid-template-columns: 1fr; }
-.one-col { font-size: 14px; line-height: 1.55; color: var(--text-dim); white-space: pre-line;
+.one-col { font-size: 14px; line-height: 1.55; color: var(--text-dim); white-space: pre-line; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.one-lab { margin-right: 10px; font: 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
+.one-lab { margin-right: 10px; white-space: nowrap; font: 10.5px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--text-faint); }
 .one-you { border-left: 2px solid var(--line-strong); padding-left: 12px; }
 .one-earlier { margin-top: 10px; padding: 0; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: pointer;
   text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 4px; }

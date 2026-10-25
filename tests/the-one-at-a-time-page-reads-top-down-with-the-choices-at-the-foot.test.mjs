@@ -45,6 +45,14 @@ describe('the summary on top', () => {
     expect(visible(html)).not.toContain('Context');
     expect(visible(html)).toContain('only mine');
   });
+  it('keeps a label on one line when the text beside it is one long link', () => {
+    // Drawn on a real thread whose last message was a bare x.com link: the
+    // link could not break, so "3:46AM" fell to a line of its own under
+    // "You, Yesterday".
+    const css = read('renderer/src/one-thing-at-a-time.css');
+    expect(css).toMatch(/\.one-col \{[^}]*overflow-wrap: anywhere/);
+    expect(css).toMatch(/\.one-lab \{[^}]*white-space: nowrap/);
+  });
   it('says nothing with a colon or a dash', () => {
     const words = visible(draw({ context: 'c', you: { at: Date.now(), text: 't' }, earlier: 3 })).replace(/\d{1,2}:\d{2}/g, '');
     expect(words).not.toMatch(/[:—–]/);
