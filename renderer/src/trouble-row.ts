@@ -51,6 +51,7 @@ export function shortNext(c: Cause): string {
     return at ? `back at ${at[1]}` : 'back when the limit resets';
   }
   if (c.cause === 'signed-out') return 'need a login';
+  if (c.cause === 'no-plan') return 'need a plan to run on';
   if (c.cause === 'org-blocked') return 'need an admin';
   if (c.cause === 'subscription-ended') return 'need a renewed subscription';
   if (c.cause === 'workspace') return 'need the folder trusted';
