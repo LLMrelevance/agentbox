@@ -65,6 +65,23 @@ describe('folded', () => {
   });
 });
 
+describe('the number keys', () => {
+  // "these numbers aren't even properly centered": measured at the founder's
+  // zoom (115%), each digit sat 1 to 3 device pixels high and one left, and the
+  // three boxes came out 44 and 46 pixels tall, from a height of 18.94px and a
+  // 1px nudge meant for the conversation's options. Now a whole-pixel box with
+  // the digit centred in it: within half a device pixel, all three the same.
+  const rule = (sel) => css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
+  it('are a 20px box with the digit in its middle', () => {
+    expect(rule('.one-choices .opt-key')).toMatch(/display: inline-flex; align-items: center; justify-content: center; align-self: flex-start;/);
+    expect(rule('.one-choices .opt-key')).toMatch(/box-sizing: border-box; width: 20px; height: 20px; padding: 0; line-height: 1; top: 0;/);
+  });
+  it('level with the first line of their words, which is 20px too', () => {
+    expect(rule('.one-choices .opt-key')).toMatch(/align-self: flex-start;/);
+    expect(css).toMatch(/\.one-choices \.opt-row \{[^}]*line-height: 20px;/);
+  });
+});
+
 describe('only on this page', () => {
   it('drawn beside the choices at the foot', () => {
     expect(focus).toMatch(/<div className=\{`one-choices\$\{choicesFolded \? ' one-choices-folded' : ''\}`\}>[\s\S]{0,700}<ChoicesFold onFold=\{foldChoices\} \/>/);

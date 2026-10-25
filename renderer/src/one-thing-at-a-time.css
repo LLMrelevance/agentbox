@@ -48,7 +48,10 @@
    the foot. A long one is cut to a line; hovering it shows it whole
    (OptionsOffer's peek), and so does picking it out with the keys. */
 .one-choices > .opt-strip { margin: 0 0 10px; }
-.one-choices .opt-row { padding: 3px 14px; }
+.one-choices .opt-row { padding: 3px 14px; line-height: 20px; }
+/* Each number in a whole-pixel box, centred, level with the first line of its words. */
+.one-choices .opt-key { display: inline-flex; align-items: center; justify-content: center; align-self: flex-start;
+  box-sizing: border-box; width: 20px; height: 20px; padding: 0; line-height: 1; top: 0; }
 .one-choices > .opt-strip > .opt-row:first-of-type { padding-top: 7px; }
 .one-choices > .opt-strip > .opt-row:last-child { padding-bottom: 7px; }
 .one-choices .opt-text { -webkit-line-clamp: 1; }
