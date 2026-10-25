@@ -78,6 +78,7 @@ export function stripeClient({ key, webhookSecret, managedPayments = false, fetc
         ...(customer ? { customer } : {}),
         success_url: successUrl,
         cancel_url: cancelUrl,
+        allow_promotion_codes: true,
         ...(managedPayments ? { managed_payments: { enabled: true } } : {}),
       });
       return { id: session.id, url: session.url };
