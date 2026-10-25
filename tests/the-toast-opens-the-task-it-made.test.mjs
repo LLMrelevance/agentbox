@@ -46,7 +46,8 @@ describe('the toast can carry a way in', () => {
   it('stays a plain announcement when there is nowhere to go', () => {
     // Nothing that is only telling her something grows a pointer or a ring.
     // Since w-f0bfe32859 it is drawn in parts, and still a div.
-    expect(app).toContain(': <div key={toastShown.current} className="toast toast-plain">{face}</div>;');
+    // On a thread's page it also sits in the bar (w-65bcefb857), still a div.
+    expect(app).toContain(': <div key={toastShown.current} className={`toast toast-plain${toastInBar ? \' toast-in-bar\' : \'\'}`}>{face}</div>;');
   });
 
   it('says out loud that it is pressable', () => {

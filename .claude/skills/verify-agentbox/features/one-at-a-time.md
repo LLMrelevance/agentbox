@@ -1,23 +1,24 @@
 # One thing at a time
 
-Every thread in Needs you opens on this page, however it was opened: the answer
-moves them to the next, and the last answer lands them on the empty inbox. A
-thread anywhere else opens on the full thread page.
+Every thread with an agent opens on this page. In Needs you it also shows the
+place in the queue and the arrows, an answer moves them to the next, and the
+last answer lands them on the empty inbox. A thread they have written to since
+its answer is drawn from that message down, the agent's work under it.
 
 ## Sub-features
 
 - `way-in` Enter or a click on a Needs you row, the board's Waiting column, search or an alert: any way a Needs you thread is opened.
-- `page` the short title in the top bar, the place in the queue and two arrows beside the menu; Context and your last message on top; the newest answer under its headline; the choices at the foot, apart from the reply box.
+- `page` the thread's name as the largest type on the page, said once (the bar keeps only the way back); a two-line Context under it, opened whole on a click; the place in the queue and two arrows beside the menu, which name J and K on hover; the newest answer under its bold first line; tight choices at the foot, apart from the reply box; the line saying where the last answer went in the bar's empty middle.
 - `moves-on` a pick, a typed reply or E moves to the next thread, and the answer reaches that thread's agent.
 - `walks` J and K, and the arrows, step through the queue without answering.
 - `earlier` Show N earlier messages opens the whole conversation in place, the agent's steps included.
 - `leaves` esc goes back to Needs you; the last answer lands on the empty inbox.
-- `files` a page or a note the answer names is read in place under it (the Mac app only: the browser copy gives a page no address to frame).
+- `files` a page or a note the answer names is read in place under it, and folds to its name from its head (a page is framed only in the Mac app: the browser copy gives it no address).
 
 ## How to get to it (user POV)
 
 - Open any thread on Needs you.
-- A thread in In progress, Later or Done opens on the full thread page.
+- A thread in In progress, Later or Done opens on the same page, without the place in the queue.
 
 ## Driving it with live.mjs
 

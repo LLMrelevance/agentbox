@@ -66,17 +66,16 @@ describe('a room’s board', () => {
   });
 });
 
-// Merging main brought a person's page whose Activity tab is the Inbox's board
-// for that one person (w-88e1e23325), drawn through the same renderBoard. The
-// room's board is not that, so a person's page keeps its own.
+// A person's page once drew the Inbox's board for that one person through the
+// same renderBoard. It shows no threads now (w-0bc0443617).
 describe('wired into the room', () => {
   const app = readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   const hook = readFileSync(new URL('../renderer/src/team/rooms/useRooms.tsx', import.meta.url), 'utf8');
   it('the room’s Board view draws the room board, not the Inbox’s cards', () => {
     expect(app).toMatch(/renderBoard: \(people, \{ later \}\) => <RoomBoard /);
   });
-  it('a person’s Activity tab still draws the Inbox’s board for them', () => {
-    expect(app).toMatch(/renderPersonBoard: \(people\) => <InboxBoard /);
-    expect(hook).toMatch(/<RoomPage [\s\S]{0,400}renderBoard=\{renderPersonBoard\}/);
+  it('a person’s page is handed no board at all', () => {
+    expect(app).not.toContain('renderPersonBoard');
+    expect(hook).not.toContain('renderPersonBoard');
   });
 });

@@ -40,6 +40,17 @@ describe('codexAccountReadings', () => {
     expect(spans(readings[0])).toEqual([['session', 12], ['week', 31]]);
   });
 
+  it('a window whose reset has gone past is dropped, and the week is kept', () => {
+    const now = (1_800_000_000 + 3600) * 1000;
+    const readings = codexAccountReadings({ profiles: ['/h/.codex-2'], homeOf, readLog, now });
+    expect(spans(readings[0])).toEqual([['week', 31]]);
+  });
+
+  it('a log whose every window has reset counts as no reading', () => {
+    const now = (1_800_500_000 + 3600) * 1000;
+    expect(codexAccountReadings({ profiles: ['/h/.codex-2'], homeOf, readLog, now })).toEqual([{ profile: '/h/.codex-2' }]);
+  });
+
   it('an account that has never run here has no limits rather than zeroes', () => {
     const readings = codexAccountReadings({ profiles: ['/h/.codex-3'], homeOf, readLog });
     expect(readings).toEqual([{ profile: '/h/.codex-3' }]);
