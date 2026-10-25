@@ -46,6 +46,8 @@
 .si-terms { margin: 14px 0 0; font-size: 12.5px; line-height: 19px; color: var(--text-dim); text-align: center; }
 .si-terms a, .si-lede a { color: var(--text); text-decoration: underline; text-decoration-color: var(--text-faint); text-underline-offset: 3px; }
 .si-back { -webkit-app-region: no-drag; }
+.si-skip-corner { position: absolute; top: 18px; right: 22px; padding: 4px 6px; border: 0; background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: pointer; -webkit-app-region: no-drag; }
+.si-skip-corner:hover { color: var(--text); }
 /* On a phone the card is the screen's width, padding included, and never
    wider (the phone with the Mac shut signs in here, renderer/src/cloud-bridge.ts). */
 :root[data-door="phone"] .si-page { grid-template-columns: minmax(0, 1fr); }

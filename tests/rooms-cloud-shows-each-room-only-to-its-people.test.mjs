@@ -10,7 +10,7 @@
 // Every migration runs in an in-process Postgres (PGlite) with Supabase's
 // `auth` schema stood in, as in team-cloud-keeps-each-team-to-itself. People
 // are signed in by setting the claim Supabase sets. No Docker, no network.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -90,6 +90,7 @@ beforeAll(async () => {
   ({ id: northwindRoom } = await one(MAYA, `select id from public.rooms where team_id = $1`, [northwind.id]));
   for (const [p, n] of [[MAYA, 'Maya C.'], [THEO, 'Theo P.'], [JUN, 'Jun I.'], [ANA, 'Ana L.']]) await profile(p, n);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('a team has its room', () => {
   it('made with the team, named after it, and its members are the team', async () => {

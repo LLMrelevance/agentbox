@@ -8,7 +8,7 @@
 // other phone tables: every migration, in order, in PGlite, with the pre-2025
 // Supabase default grants switched on, trying each door as the owner, a
 // stranger, and nobody.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -70,6 +70,7 @@ beforeAll(async () => {
   }
   await as(OWNER, `insert into public.phone_projects (device, project, name) values ($1, 'alpha', 'Alpha')`, [DEV]);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('the settings your Mac sends', () => {
   it('are one row per computer, written again in place', async () => {

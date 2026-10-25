@@ -220,6 +220,8 @@ export interface TeamState {
   phoneSiteQr?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
+  /** This build has an account to sign in to, whether or not Multiplayer is on. */
+  canSignIn?: boolean;
   /** The saved sign-in and its team are still being restored; the boot screen waits on it. */
   settling?: boolean;
   /** When this person began sharing on this Mac: threads started before it stay theirs unless shared by hand. */

@@ -11,7 +11,7 @@
 // and done by the window's own handler, and the phone names each command
 // itself, so the same command sent twice is one. A database not yet updated
 // says so in words, and every older command still goes.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -94,6 +94,7 @@ grant usage on schema public to anon, authenticated;`);
     await db.exec('grant usage on schema auth to authenticated, anon; grant execute on function auth.uid() to authenticated, anon;');
     for (const id of [OWNER, STRANGER]) await db.query(`insert into auth.users (id, email, email_confirmed_at) values ($1, $2, now())`, [id, `${id}@example.com`]);
   }, 60_000);
+  afterAll(() => db.close());
 
   it('takes the new kinds, and still refuses any other', async () => {
     for (const kind of ['stop', 'run-now', 'send-now', 'reopen', 'schedule', 'approve']) {

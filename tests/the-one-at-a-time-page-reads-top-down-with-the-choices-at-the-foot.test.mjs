@@ -17,7 +17,6 @@ import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { QueueSummary, QueueAnswer, QueueNav, QueueFile } from '../renderer/src/components/OneThingAtATime.tsx';
 import { OptionsOffer } from '../renderer/src/components/OptionsOffer.tsx';
-import { StateTabs } from '../renderer/src/threads/Pages.tsx';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -123,34 +122,13 @@ describe('the choices', () => {
   });
 });
 
-describe('the way in', () => {
-  const tabs = (p) => visible(renderToStaticMarkup(h(StateTabs, { view: 'inbox', counts: { inbox: 3 }, onView: noop, ...p })));
-  it('is a quiet button on Needs you, naming its key', () => {
-    expect(tabs({ onOneAtATime: noop })).toContain('One at a time Space');
-  });
-  it('and is not drawn without a way in', () => {
-    expect(tabs({})).not.toContain('One at a time');
-  });
-});
-
 describe('where the app wires it', () => {
   const app = read('renderer/src/App.tsx');
   const focus = read('renderer/src/components/Focus.tsx');
   const thread = read('renderer/src/components/ItemThread.tsx');
 
-  it('Space starts it from the top of Needs you, and Enter still opens the whole thread', () => {
-    expect(app).toMatch(/case ' ':[^\n]*startOneAtATime\(\)/);
-    expect(app).toMatch(/case 'Enter':[^\n]*setFocused\(pointed\)/);
-  });
-  it('the button is offered where the rule says', () => {
-    expect(app).toMatch(/onOneAtATime=\{queueStartsHere\(/);
-  });
-  it('an answer moves on in the queue, the last one included', () => {
-    expect(app).toMatch(/oneAtATime\s*\?\s*queueMovesOn\(/);
-  });
-  it('the advance turns it off when there is nothing left, and leaving does too', () => {
-    expect(app).toMatch(/if \(!next\) \{ setOneAtATime\(false\); return; \}/);
-    expect(app).toMatch(/if \(!focused && !advanceRef\.current\) setOneAtATime\(false\)/);
+  it('every thread in Needs you opens on it (tests/every-thread-in-needs-you-opens-one-thing-at-a-time)', () => {
+    expect(app).toMatch(/const queueSpot = spotIn\(shownInbox, focused\);/);
   });
   it('the thread page takes the queue, and wears no summary panel in it', () => {
     expect(app).toMatch(/queue=\{queueSpot \?/);

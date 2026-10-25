@@ -41,7 +41,7 @@ import type { Invisible } from '../team/rooms/GoInvisible';
  *  deselected tab that is --text-faint at 400, exactly the word Inbox beside it;
  *  on the active one it is --text at 500. There is one rule rather than two.
  */
-export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, invisible = null, inboxLabel = 'Threads', rail = false, onHover, groups = null, onGroupsPage = false, teammates = null, onTeammatesPage = false }: {
+export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearch: _onSearch, onCompose: _onCompose, inboxCount = 0, scheduledCount: _scheduledCount = 0, usage, onSettings, onInstructions, page: pageIn, hasTeam = false, onTeam, teamPage = false, team = null, onInvite, onAccount, onSignIn, onFeedback, onSignOut, update = null, onUpdate, move = null, onMove, invisible = null, inboxLabel = 'Threads', rail = false, onHover, groups = null, onGroupsPage = false, teammates = null, onTeammatesPage = false }: {
   /** Each teammate's row under Groups (renderer/src/teammates), and whether one of their pages is up. */
   teammates?: ReactNode; onTeammatesPage?: boolean;
   /** The first row's name: Threads, or Inbox while its page holds groups too. */
@@ -74,7 +74,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // box. It is no longer a row here (w-1b574413db: single-player for launch);
   // your account menu still offers it. `onAccount` is your own row, which
   // opens the same pane without the cursor in the email box.
-  team?: TeamState | null; onInvite?: () => void; onAccount?: () => void; onFeedback?: () => void;
+  team?: TeamState | null; onInvite?: () => void; onAccount?: () => void; onSignIn?: () => void; onFeedback?: () => void;
   // The last row of your account menu.
   onSignOut?: () => void;
   view: View; collapsed: boolean; onToggle: () => void; onView: (view: View) => void; onSearch: () => void; onCompose: () => void;
@@ -198,6 +198,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
             INVITE PEOPLE LEFT THE SIDEBAR THE SAME DAY: "we're in
             single-player mode for what we're going to launch soon." Inviting
             is still in your account menu and in Settings. */}
+        {onSignIn && <button aria-label="Sign in" title="Sign in" onClick={onSignIn}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><g transform="translate(12 12) scale(.8) translate(-12 -12)" strokeWidth="1.5625"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.3-6 8-6s6.8 2 8 6"/></g></svg><span>Sign in</span></button>}
         {onFeedback && <button aria-label="Feedback" title="Feedback" onClick={onFeedback}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><g transform="translate(12 12) scale(.8) translate(-12 -12)" strokeWidth="1.5625"><path d="M2.5 11.5 21.5 3l-5 18-5-6.5z"/><path d="M11.5 14.5 21.5 3"/><path d="m11.5 14.5-1.2 6 3-3.6"/></g></svg><span>Feedback</span></button>}
         {onInstructions && <button aria-label="Instructions" aria-current={page === 'instructions' ? 'page' : undefined} title="Instructions for every agent" onClick={onInstructions}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true"><path d="M6 3.5h8l4 4V20H6zM14 3.5V8h4M9 12h6M9 16h6"/></svg><span>Instructions</span></button>}
         {onSettings && <button aria-label="Settings" aria-current={page === 'settings' ? 'page' : undefined} title="Settings" onClick={onSettings}><SettingsIcon/><span>Settings</span></button>}

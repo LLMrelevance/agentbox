@@ -5,7 +5,7 @@
 // picked. Measured on PGlite with every migration and on the in-memory cloud:
 // the group keeps its id, so everyone already in it stays, and only its name
 // changes. A room somebody else called General keeps that name.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -40,6 +40,7 @@ describe('on the cloud', () => {
     await db.exec(`insert into public.rooms (id, name, kind, listed) values ('${OTHER}', 'General', 'room', false)`);
     await db.exec(sql([RENAME]));
   }, 60_000);
+  afterAll(() => db.close());
 
   it('the group everyone joins keeps its id and is called Coworking', async () => {
     expect(await nameOf(GENERAL_ROOM)).toEqual({ name: 'Coworking', listed: true });

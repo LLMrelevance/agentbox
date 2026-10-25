@@ -15,7 +15,7 @@
 // (shared/cloud-kit.mjs, shared/phone-snapshot.mjs withCloudTurn) and the
 // database's rule that only the server names a cloud claim, run against every
 // migration in PGlite.
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -178,6 +178,7 @@ grant usage on schema public to anon, authenticated, service_role;
     `);
     id = (await as('authenticated', `insert into public.phone_commands (device, project, item, kind, payload) values ('a1b2c3d4e5f6', 'alpha', 'w-1', 'reply', '{"text":"yes"}') returning id`)).rows[0].id;
   });
+  afterEach(() => db.close());
 
   it('a new command is never born claimed by the cloud', async () => {
     expect((await db.query(`select claimed_by from public.phone_commands where id = '${id}'`)).rows[0].claimed_by).toBeNull();

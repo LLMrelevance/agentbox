@@ -26,7 +26,7 @@ import { createRooms } from './rooms.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
-const EMPTY = { configured: false, started: false, settling: false, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error: null };
+const EMPTY = { configured: false, canSignIn: false, started: false, settling: false, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error: null };
 
 // With Alpha features › Multiplayer off the window gets the sign-in the phone
 // needs and no team, so it draws the single-person app.
@@ -52,7 +52,8 @@ export function createTeamService({
   let siteQr = null;
   // `settling` holds the window's boot screen until the team is known, so it
   // never draws the single-person app first and then redraws with the team.
-  let state = { ...EMPTY, configured: !!session?.configured, settling: !!session?.configured, phoneSite: site, phoneSiteQr: null };
+  // `canSignIn` survives teamForWindow, so a build with Multiplayer off still asks.
+  let state = { ...EMPTY, configured: !!session?.configured, canSignIn: !!session?.configured, settling: !!session?.configured, phoneSite: site, phoneSiteQr: null };
   let backend = null;
   let sync = null;
   let timer = null;
