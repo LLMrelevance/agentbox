@@ -7,7 +7,7 @@
 // it is readable by its owner and nobody else, only a well-formed Expo token
 // is taken, and deleting the account takes it too. Run here against every
 // migration in PGlite, with a stand-in for Supabase's auth schema.
-import { it, expect, beforeEach, describe } from 'vitest';
+import { it, expect, beforeEach, afterEach, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -51,6 +51,7 @@ beforeEach(async () => {
     insert into auth.users (id, email, email_confirmed_at) values ('${ME}', 'me@example.com', now()), ('${MATE}', 'mate@example.com', now());
   `);
 });
+afterEach(() => db.close());
 
 describe('push_devices', () => {
   it('is its own migration', () => {

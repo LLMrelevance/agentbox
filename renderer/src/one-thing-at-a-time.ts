@@ -1,7 +1,7 @@
 // ONE THING AT A TIME (w-65bcefb857): Needs you as a queue, one thread per page.
-// The page itself is the thread page in a mode (Focus.tsx `queue`, ItemThread.tsx
-// `queue`); these are the rules it and App.tsx share, kept here so a test can
-// reach them.
+// The page is how the thread page draws any thread in Needs you (Focus.tsx
+// `queue`, ItemThread.tsx `queue`); these are the rules it and App.tsx share,
+// kept here so a test can reach them.
 import type { AgentEvent, AgentTurn } from './types';
 import type { ItemOutcome } from './item-thread';
 
@@ -23,20 +23,6 @@ export function stepIn<T extends Keyed>(rows: T[], item: Keyed, dir: 1 | -1): T 
   const index = rows.findIndex((r) => same(r, item));
   if (index < 0) return null;
   return rows[index + dir] ?? null;
-}
-
-/**
- * In the queue every answer moves on, the last one included, so answering the
- * last thread lands on the empty inbox. Outside it the rule is ./advance's,
- * which keeps you on the last thread.
- */
-export function queueMovesOn(p: { index: number; searching?: boolean }): boolean {
-  return !p.searching && p.index >= 0;
-}
-
-/** Space and the button start it on Needs you, with something waiting. */
-export function queueStartsHere(p: { view: string; searching: boolean; waiting: number }): boolean {
-  return p.view === 'inbox' && !p.searching && p.waiting > 0;
 }
 
 const said = (e: AgentEvent): e is AgentTurn & { kind?: undefined } => e.kind !== 'work';
