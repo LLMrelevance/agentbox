@@ -140,6 +140,12 @@ export function snoozeWords(runAt: number, from: number): string {
 // to say more is still a message of hers, so the match is the whole answer.
 const PICK = /^Option (\d+): ([^\n]+)$/;
 
+/** A pick's line in the thread, or null when the answer is a typed reply. */
+export function pickedLine(answer: string): { said: string; words: string } | null {
+  const picked = PICK.exec(answer);
+  return picked ? { said: `You picked option ${picked[1]}`, words: picked[2].replace(/\s*\(recommended\)\s*$/i, '').trim() } : null;
+}
+
 // HOW LONG AFTER YOUR REPLY A LIFTED SNOOZE STILL BELONGS TO IT. The app
 // writes the two one after the other, milliseconds apart; a minute leaves room
 // for a slow disk and is still far shorter than anyone bringing a thread back
@@ -374,13 +380,9 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
       // be drawn as her message reading "Option 1: …". It is a quiet line of
       // hers now, the option's own words beside it, and `answers` tells the
       // conversation it still answered the agent (item-thread.ts).
-      const picked = said ? PICK.exec(said) : null;
+      const picked = said ? pickedLine(said) : null;
       if (picked) {
-        events.push({
-          at, who: 'you', said: `You picked option ${picked[1]}`,
-          words: picked[2].replace(/\s*\(recommended\)\s*$/i, '').trim(),
-          field: 'answer', answers: true,
-        });
+        events.push({ at, who: 'you', ...picked, field: 'answer', answers: true });
         continue;
       }
       events.push(said

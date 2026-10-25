@@ -101,7 +101,7 @@ export function previewSettings(now = Date.now()) {
     settings: {
       v: 1, version: '0.9.4',
       workspace: {
-        cornerTag: true, diagnostics: true, adhdMode: true, alpha: { neo: false, rooms: true }, outsideAgents: 'waiting',
+        cornerTag: true, diagnostics: true, adhdMode: true, alpha: { rooms: true }, outsideAgents: 'waiting',
         permission: 'auto', codexMode: 'auto', engines: ['claude', 'codex'], claude: { found: true }, codex: { found: true },
         agentsAuto: true, sessionsAtOnce: 4, agentsTotal: 6, agentsAutoTotal: 6, agentsNudge: 0, slotsMax: 12, slotsSuggested: 6, running: 3,
         memoryGate: { on: true, slots: null, slotsAuto: 2, slotsMax: 8, now: 'Memory is fine. Nothing heavy running.' },
@@ -139,7 +139,7 @@ export function previewCloud(now = () => Date.now()) {
     const { scope, key, value, product } = c.payload ?? {};
     const w: any = settings.settings.workspace;
     if (scope === 'project') Object.assign(settings.settings.projects.find((p) => p.slug === product) ?? {}, { [key]: value });
-    else if (key === 'alphaNeo' || key === 'alphaRooms') w.alpha[key === 'alphaNeo' ? 'neo' : 'rooms'] = value;
+    else if (key === 'alphaRooms') w.alpha.rooms = value;
     else if (key === 'memoryGate') w.memoryGate.on = value;
     else if (key === 'memoryGateSlots') w.memoryGate.slots = value;
     else if (key === 'cleanupLeftovers') w.leftovers.on = value;

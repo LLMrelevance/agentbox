@@ -80,6 +80,7 @@ contextBridge.exposeInMainWorld('zero', {
   micAccess: () => ipcRenderer.invoke('zero:mic-access'),
   teamMessage: (payload) => ipcRenderer.invoke('zero:team-message', payload),
   rooms: (payload) => ipcRenderer.invoke('zero:rooms', payload),
+  teammates: (payload) => ipcRenderer.invoke('zero:teammates', payload),
   takeJoin: () => ipcRenderer.invoke('zero:take-join'),
   threadEdit: (payload) => ipcRenderer.invoke('zero:thread-edit', payload),
   moveItem: (payload) => ipcRenderer.invoke('zero:move-item', payload),
@@ -309,30 +310,6 @@ contextBridge.exposeInMainWorld('zero', {
     const handler = (_e, payload) => fn(payload);
     ipcRenderer.on('zero:open-item', handler);
     return () => ipcRenderer.removeListener('zero:open-item', handler);
-  },
-  // NEO, the voice alpha (main/neo/). Off unless this Mac has the alpha flag;
-  // when on, Neo's tool calls arrive here and the app carries them out with
-  // its own functions (renderer/src/neo/bridge.ts).
-  neoEnabled: () => ipcRenderer.invoke('neo:enabled').catch(() => false),
-  // What Neo remembers, for its page in Settings. Answers null where Neo is
-  // off, so the page can say so rather than throw.
-  neoMemory: (change) => ipcRenderer.invoke('neo:memory', change).catch(() => null),
-  neoVoice: (voice) => ipcRenderer.invoke('neo:voice', voice).catch(() => null),
-  onNeoAct: (fn) => {
-    const handler = (_e, payload) => fn(payload);
-    ipcRenderer.on('neo:act', handler);
-    return () => ipcRenderer.removeListener('neo:act', handler);
-  },
-  neoActResult: (id, result) => ipcRenderer.send('neo:act-result', { id, result }),
-  onNeoMode: (fn) => {
-    const handler = (_e, payload) => fn(payload);
-    ipcRenderer.on('neo:mode', handler);
-    return () => ipcRenderer.removeListener('neo:mode', handler);
-  },
-  onNeoOrb: (fn) => {
-    const handler = (_e, payload) => fn(payload);
-    ipcRenderer.on('neo:orb', handler);
-    return () => ipcRenderer.removeListener('neo:orb', handler);
   },
   // The corner tag's "Turn off…": opens Settings at the switch that does it.
   onOpenSettings: (fn) => {

@@ -309,8 +309,14 @@ describe(`the text ${NAME} ships`, () => {
   // explanations first and stacked the screenshots below, because nothing told
   // it the pane would draw each picture wherever it put one.
   // The autonomy rules distinguish ordinary handoffs from already authorized work.
+  //
+  // Raised from 8000 to 8700 for 647 characters (w-65bcefb857): offer choices
+  // whenever the next reply is clear, the reply after steps included, and stack
+  // designs to choose between. Measured on her store that day: 8 of 23 open
+  // answers offered no choices, most of them steps she had to take, so the
+  // one-at-a-time page drew an empty reply box where a number would have done.
   it('stays small enough to sit on every run', () => {
-    expect(shipped.length).toBeLessThan(8000);
+    expect(shipped.length).toBeLessThan(8700);
   });
 
   // THE SECOND COPY IS NOT ASKED FOR ANY MORE, AND THAT REPLACES THE RULE THAT

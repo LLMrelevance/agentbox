@@ -41,8 +41,14 @@ import type { LedgerLine } from '../thread-history';
 import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
+import { QueueAnswer, QueueSummary } from './OneThingAtATime';
+import { earlierCount, newestAnswer, repeatsTitle, yourLast } from '../one-thing-at-a-time';
+import { rowTitle } from '../list-rules';
 import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
+import { TeammatesContext } from '../teammates/row-lead';
+import { teammateIdOf, OFFER_LABEL } from '../../../shared/teammates.mjs';
+import { Name } from '../../../shared/product-name.mjs';
 
 // THE BACKSTOP, NOT THE HEARTBEAT.
 //
@@ -66,7 +72,9 @@ const REFRESH_MS = 8_000;
 // screen is the kind of drift this row exists to end.
 const THEM = 'The agent';
 
-export function ItemThread({ item, engine, engineChoice, codexModels = [], codexModelDefault = null, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread }: {
+export function ItemThread({ item, engine, engineChoice, codexModels = [], codexModelDefault = null, session, opening, sending, filed = [], onOpenFiled, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, onOpenOrigin, onSendNow, md, clean, onOpenDoc, chat = false, onQuote, onHandToAgent, thread, queue }: {
+  /** One thing at a time (w-65bcefb857): the summary on top, the newest answer, the rest folded. */
+  queue?: { context: string | null };
   // A CHAT'S THREAD, IN THE PANEL BESIDE IT (w-920461cbe6). The pane owns which
   // one is open and how wide it is; this draws it, because this is where the
   // replies were read. `host` is the pane the panel is drawn into. Absent
@@ -161,7 +169,16 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   // surfaces that sit outside the thread.
   clean: (text: string) => string;
 }) {
-  const [ledger, setLedger] = useState<{ lines: LedgerLine[]; error?: string } | null>(null);
+  const teammates = useContext(TeammatesContext);
+  const teammateId = teammateIdOf(item);
+  // The offer of a teammate is the app's own words, so it is signed with its name.
+  const teammate = teammateId ? teammates.get(teammateId) ?? null : (item.labels ?? []).includes(OFFER_LABEL) ? { name: Name } : null;
+  // Keyed to its row: the effect below empties it only after the first paint
+  // of a new row, and without the key that frame drew the last row's messages
+  // under this one's header (w-388be0a968).
+  const rowKey = `${item.product}\n${item.id}`;
+  const [loaded, setLedger] = useState<{ key: string; lines: LedgerLine[]; error?: string } | null>(null);
+  const ledger = loaded?.key === rowKey ? loaded : null;
   const [sessions, setSessions] = useState<TraceSession[]>([]);
   // EVERY FILE THIS ROW'S RUNS CHANGED, so a line in the conversation that says
   // it edited one can become a chip into it. Empty on the great majority of
@@ -177,6 +194,8 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   // timer.
   const [whole, setWhole] = useState(false);
   useEffect(() => { setWhole(false); }, [item.product, item.id]);
+  const [earlierOpen, setEarlierOpen] = useState(false);
+  useEffect(() => { setEarlierOpen(false); }, [item.product, item.id]);
 
   // A REACTION SHOWS THE MOMENT IT IS PRESSED (w-45cbac227a), in the chat and in
   // the thread panel alike, rather than after the sync and the next snapshot.
@@ -225,8 +244,8 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
     // away (../phone-polls, oneAtATime).
     const read = oneAtATime(() => Promise.allSettled([
       api.itemHistory({ product: item.product, id: item.id })
-        .then((r) => { if (live) setLedger({ lines: r?.lines ?? [], error: r?.ok ? undefined : r?.error }); })
-        .catch((err) => { if (live) setLedger({ lines: [], error: String((err as Error)?.message ?? err) }); }),
+        .then((r) => { if (live) setLedger({ key: rowKey, lines: r?.lines ?? [], error: r?.ok ? undefined : r?.error }); })
+        .catch((err) => { if (live) setLedger({ key: rowKey, lines: [], error: String((err as Error)?.message ?? err) }); }),
       api.sessionTrace({ product: item.product, id: item.id })
         .then((r) => { if (live) setSessions(r?.sessions ?? []); })
         .catch(() => { if (live) setSessions([]); }),
@@ -351,15 +370,41 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   const markUnread = () => { askMarkUnread({ product: item.product, id: item.id }); };
   const copied = () => say('Copied');
 
+  // With no answer to lead with, the queue draws the conversation as it always is, under the summary.
+  const newest = queue ? newestAnswer(events, outcome) : null;
+  const mine = queue ? yourLast(events, me) : null;
+  const queueHead = queue && (
+    <QueueSummary
+      context={queue.context}
+      // Left out when it is the title the bar already shows.
+      you={mine && !repeatsTitle(mine.text, rowTitle(item)) ? mine : null}
+      earlier={newest ? earlierCount(events, outcome) : 0}
+      steps={!!newest && (events.some((e) => e.kind === 'work') || after.length > 0)}
+      open={earlierOpen}
+      onToggle={() => { setEarlierOpen((open) => !open); setWhole(true); }}
+    />
+  );
+  if (queue && newest && !earlierOpen) {
+    return (
+      <>
+        {queueHead}
+        <QueueAnswer text={clean(newest.text)} md={md} />
+        {madeList(made.atFoot)}
+      </>
+    );
+  }
+
   return (
     <>
+      {queueHead}
       <Thread
         events={events}
         omitted={omitted}
         chat={chat}
-        name={THEM}
-        // AND WHAT THAT AGENT WAS, on the answers the row has a record for.
-        nameOf={ranOf}
+        name={teammate?.name ?? THEM}
+        // AND WHAT THAT AGENT WAS, on the answers the row has a record for. A
+        // teammate's run is signed with its name.
+        nameOf={teammate ? () => teammate.name : ranOf}
         landOn={item.id}
         onWhole={() => setWhole(true)}
         onOpenOrigin={onOpenOrigin}

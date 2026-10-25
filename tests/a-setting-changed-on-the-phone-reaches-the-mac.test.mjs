@@ -21,7 +21,7 @@ const HOME = '/Users/someone';
 const model = (over = {}) => ({
   ok: true,
   workspace: {
-    adhdMode: true, cornerTag: true, diagnostics: true, alpha: { neo: false, rooms: false }, outsideAgents: 'all', permission: 'auto',
+    adhdMode: true, cornerTag: true, diagnostics: true, alpha: { rooms: false }, outsideAgents: 'all', permission: 'auto',
     agentsAuto: true, sessionsAtOnce: 3, agentsTotal: 3, slotsMax: 12, running: 0, memoryGate: { on: false }, leftovers: { on: false },
     storePath: `${HOME}/Zero/accounts/x`, homePath: HOME, claudeFound: true,
     accounts: [

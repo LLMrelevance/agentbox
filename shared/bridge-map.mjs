@@ -60,6 +60,8 @@ export const REQUEST_CHANNELS = {
   micAccess: 'zero:mic-access',
   teamMessage: 'zero:team-message',
   rooms: 'zero:rooms',
+  // Teammates: make, describe, start, edit, write to, and what they remember.
+  teammates: 'zero:teammates',
   takeJoin: 'zero:take-join',
   threadEdit: 'zero:thread-edit',
   // Move a thread to another project (shared/move-thread.mjs).
@@ -168,12 +170,6 @@ export const REQUEST_CHANNELS = {
   // The phone door's Settings page (main/phone-link.mjs): its state, on, off,
   // a new key, and which address the QR code carries. The desktop window only.
   phoneLink: 'zero:phone-link',
-  // Whether Neo, the voice alpha, is on for this Mac (main/neo/gate.mjs).
-  // Answered only by the desktop app; anywhere else the screen reads no.
-  neoEnabled: 'neo:enabled',
-  // What Neo remembers, for its page in Settings (main/neo/index.mjs).
-  neoMemory: 'neo:memory',
-  neoVoice: 'neo:voice',
 };
 
 /** Told rather than asked: the app talks and the screen listens. */
@@ -191,10 +187,6 @@ export const PUSH_CHANNELS = {
   onKeyInTheFile: 'zero:key-in-the-file',
   // A phone connected, left, or the key changed.
   onPhoneChanged: 'zero:phone-changed',
-  // Neo's tool calls for the app to carry out, and Neo waking or signing off.
-  onNeoAct: 'neo:act',
-  onNeoMode: 'neo:mode',
-  onNeoOrb: 'neo:orb',
 };
 
 // THE FEW THAT ARE NOT A STRAIGHT HANDOVER. Each is called with bare values
@@ -214,6 +206,4 @@ export const WRAPPED_ARGS = {
 // `onWriteHeld` is the desktop's ⌘R asking the page to write what the undo
 // window holds before it reloads (main/write-before-reload.mjs). A browser
 // reload asks nobody; the page writes on `pagehide` there instead.
-//
-// `neoActResult` answers a call only the desktop's Neo window ever makes.
-export const DESKTOP_ONLY = ['pathForFile', 'onWriteHeld', 'neoActResult'];
+export const DESKTOP_ONLY = ['pathForFile', 'onWriteHeld'];

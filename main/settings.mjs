@@ -12,6 +12,7 @@
 // place a grant is reviewed; what changed is that she edits them as fields on
 // the project they belong to instead of in a text editor.
 
+import { teammatesOn } from '../shared/teammates.mjs';
 import { phoneChoiceOf, phoneProjectsOf, withPhoneAll, withPhoneProject, phoneEligible } from '../shared/phone-snapshot.mjs';
 import fs from 'node:fs';
 import { harnessFor } from './harnesses.mjs';
@@ -492,8 +493,8 @@ export function searchForEngineBin(config, engine) {
 // the exception in a checkout, where it was always on.
 export function alphaFeatures(config, { packaged = isPackagedElectron() } = {}) {
   return {
-    neo: config?.alphaNeo === true,
     rooms: config?.alphaRooms === true,
+    teammates: teammatesOn(config),
     multiplayer: packaged ? config?.alphaMultiplayer === true : config?.alphaMultiplayer !== false,
   };
 }
@@ -1323,14 +1324,15 @@ export function setWorkspaceSetting({ config, supervisor, store }, { key, value 
       if (!value) saveConfig(config, { importNew: false });
       else if (config.importNew !== true) saveConfig(config, { importNew: true, importNewSince: Date.now() });
       break;
-    // Neo starts only if its switch was on at launch, and stops waking the
-    // moment it goes off; Rooms is read on every snapshot.
-    case 'alphaNeo':
-      saveConfig(config, { alphaNeo: !!value });
-      break;
+    // Rooms is read on every snapshot.
     case 'alphaRooms':
       saveConfig(config, { alphaRooms: !!value });
       supervisor.onChange?.();
+      break;
+    case 'alphaTeammates':
+      saveConfig(config, { alphaTeammates: !!value });
+      supervisor.onChange?.();
+      supervisor.wake?.();
       break;
     case 'alphaMultiplayer':
       saveConfig(config, { alphaMultiplayer: !!value });

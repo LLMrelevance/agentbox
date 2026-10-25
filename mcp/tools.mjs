@@ -18,6 +18,9 @@ import { listDocuments, readDocument, writeDocument } from './core/documents.mjs
 import { listSkills, fetchSkill, fetchReference } from './core/skills.mjs';
 import { listWorkItems, updateItem, createClaimRegistry } from './core/work.mjs';
 import { readStandingInstruction, setStandingInstruction } from './core/repeats.mjs';
+import { teamPost, teamPass, teamRemember, teamSetup, teamRoster, teamPlaybook } from './core/teammates.mjs';
+import { readTeammates, teamDir } from '../main/store/teammates-files.mjs';
+import { legacyRoot } from '../main/store/project.mjs';
 import { listProductChats, readProductChat } from './core/chat.mjs';
 import { lookAtPage } from './core/page.mjs';
 import { WORK_ITEM_STATUSES } from '../shared/work-items.mjs';
@@ -35,6 +38,7 @@ const CAPABILITIES = [
   'products', 'documents (read and write, any path in the product)',
   'personas and transcripts (they are documents)', 'skills', 'work items', 'past chats (read only)',
   'the standing instruction behind a repeating task, on a thread that is one of its runs',
+  'the team chat and passing work to a teammate, from any thread; remembering and setting up, on a thread that is a teammate\'s run',
   'looking at a page running on this machine (look_at_page, local addresses only)',
 ];
 const MISSING = [
@@ -56,6 +60,8 @@ const guard = (fn) => async (args) => {
 export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } = {}) {
   const account = resolveAccount();
   const claims = createClaimRegistry({ holder: holder ?? `mcp-${process.pid}` });
+  const hasTeam = teammatesExist(String(process.env.STORE_ACCOUNT_ID ?? '').trim() || account.accountId);
+  const capabilities = hasTeam ? CAPABILITIES : CAPABILITIES.filter((c) => !c.includes('teammate'));
 
   const tools = [
     /* ------------------------------- products ------------------------------ */
@@ -141,7 +147,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
       name: 'fetch_skill',
       description: 'One skill in full, with a short header explaining which of its tools exist here and which are your own job. These were written for the agent inside the app, so the method applies exactly and some tool names do not.',
       schema: { name: z.string() },
-      run: ({ name }) => json(fetchSkill(name, { capabilities: CAPABILITIES, missing: MISSING })),
+      run: ({ name }) => json(fetchSkill(name, { capabilities, missing: MISSING })),
     },
     {
       name: 'fetch_reference',
@@ -243,6 +249,79 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
       run: ({ instruction }) => json(setStandingInstruction({ instruction })),
     },
 
+    /* ------------------------------- teammates ------------------------------ */
+    // On a teammate's run, the teammate speaks; on any other thread, the person
+    // does, because they asked. Which comes from the run, never an argument.
+    {
+      name: 'team_post',
+      description: 'Say something in the team chat: as the teammate this run belongs to, or, on any other thread, for the person when they ask you to tell a teammate something. The person and every teammate read it, so say "you" to the person, never "the person". Naming a teammate in `to` or with @Name in the text wakes them to read it, so name someone only when they need to act. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
+      schema: {
+        text: z.string().describe('what to say, one to three sentences'),
+        to: z.array(z.string()).optional().describe('names of teammates who need to act on it'),
+        options: z.array(z.string()).optional().describe('short answers the person can tap, when asking them a question'),
+      },
+      run: ({ text: words, to, options }) => json(teamPost({ text: words, to, options })),
+    },
+    {
+      name: 'team_pass',
+      description: 'Hand a piece of work to a teammate whose job it is. They get it as a run of their own, with your title and details as its brief, and it shows in the team chat. On a thread that is not a teammate\'s run, use it when the person asks you to give something to one of their teammates (call team_roster first to see who is on the team). Put everything they need in the details: steps, files, links, what done looks like.',
+      schema: {
+        to: z.string().describe('the teammate\'s name'),
+        title: z.string().describe('the work, in a short line'),
+        details: z.string().describe('everything they need to do it'),
+        project: z.string().optional().describe('the project the work is in, when it is not the teammate\'s own (from another thread it defaults to that thread\'s)'),
+      },
+      run: ({ to, title, details, project }) => json(teamPass({ to, title, details, project })),
+    },
+    {
+      name: 'team_remember',
+      description: 'Keep a standing preference the person stated ("from now on", "always", "never", "I prefer"), so every later run of yours is briefed with it. A few words in their terms. The person sees it in the team chat and can undo it.',
+      schema: { text: z.string().describe('the preference, in a few words') },
+      run: ({ text: words }) => json(teamRemember({ text: words })),
+    },
+    {
+      name: 'team_playbook',
+      description: 'Keep a lesson about how the person likes a kind of work done ("open videos on the product, never a logo") in the playbook of that title ("How you like videos made"), made if new, with the thread you are on as where it came from. Every teammate that reads the playbook is briefed with it. Leave out lesson to start reading a playbook another teammate wrote.',
+      schema: {
+        playbook: z.string().describe('its title, like "How you write posts"'),
+        lesson: z.string().optional().describe('the lesson, one sentence in their terms'),
+      },
+      run: ({ playbook, lesson }) => json(teamPlaybook({ playbook, lesson })),
+    },
+    {
+      name: 'team_setup',
+      description: 'Set or change who you are as a teammate: your name (your role, like Marketing lead), role, job (as long as it needs, in plain words to yourself), goal, how the goal is counted, what you ask the person first, what you do on your own (duties: a list, each { what, every: day|weekday|week, at: ["09:00", "15:00"], on: 0-6 for weekly } or { what, after: "ship", most: runs a week }, with tell: when to bring the person in; the list you send replaces the old one), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
+      schema: {
+        name: z.string().optional(),
+        role: z.string().optional(),
+        job: z.string().optional(),
+        goal: z.string().optional(),
+        counted: z.string().optional(),
+        asksFirst: z.string().optional(),
+        duties: z.array(z.object({
+          what: z.string(),
+          every: z.enum(['day', 'weekday', 'week']).optional(),
+          at: z.union([z.string(), z.array(z.string())]).optional(),
+          on: z.number().int().optional(),
+          after: z.enum(['ship']).optional(),
+          most: z.number().int().optional(),
+          tell: z.string().optional(),
+        })).optional(),
+        every: z.enum(['day', 'weekday', 'week', 'never']).optional(),
+        at: z.string().optional(),
+        on: z.number().int().optional(),
+        runsOn: z.enum(['claude', 'codex']).optional(),
+        ready: z.boolean().optional(),
+      },
+      run: (args) => json(teamSetup(args)),
+    },
+    {
+      name: 'team_roster',
+      description: 'The person\'s teammates (agents with standing jobs) with their role and job, and the last twenty things said in the team chat. Works on any thread.',
+      schema: {},
+      run: () => json(teamRoster()),
+    },
+
     /* -------------------------------- chats -------------------------------- */
     {
       name: 'list_chats',
@@ -282,9 +361,15 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
   ];
 
+  // Teammates are an alpha feature: their tools are offered once there is a
+  // teammate to talk to, which is never while the feature is off.
   return {
     account,
     claims,
-    tools: tools.map((t) => ({ ...t, run: guard(t.run) })),
+    tools: tools.filter((t) => hasTeam || !t.name.startsWith('team_')).map((t) => ({ ...t, run: guard(t.run) })),
   };
+}
+
+function teammatesExist(accountId) {
+  try { return readTeammates(teamDir(legacyRoot(), accountId)).length > 0; } catch { return false; }
 }

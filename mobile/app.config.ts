@@ -24,6 +24,11 @@ function cloudConfig(): { url: string; anonKey: string; phoneSite: string | null
   return null;
 }
 
+// The image picker gets the same words: its `false` would delete the
+// microphone line from Info.plist and block the microphone on Android.
+const MICROPHONE_USE = `${NAME} listens only while you dictate a message, and writes what you say into it.`;
+const SPEECH_USE = `${NAME} writes what you say into your message. Your iPhone does this itself when it can, and Apple's speech recognition does it when it cannot.`;
+
 const bundleId = process.env.MOBILE_BUNDLE_ID || 'now.astral.agentbox';
 const projectId = process.env.EAS_PROJECT_ID || '2b129901-faac-4b8d-8709-9a08cf6778f5';
 
@@ -55,7 +60,8 @@ const config: ExpoConfig = {
     ['expo-notifications', { color: '#ee6018' }],
     'expo-video',
     // Apple shows these words when the app first asks; the camera is never asked for.
-    ['expo-image-picker', { photosPermission: 'Pick a photo or video to attach to a message for your agent.', cameraPermission: false, microphonePermission: false }],
+    ['expo-image-picker', { photosPermission: 'Pick a photo or video to attach to a message for your agent.', cameraPermission: false, microphonePermission: MICROPHONE_USE }],
+    ['expo-speech-recognition', { microphonePermission: MICROPHONE_USE, speechRecognitionPermission: SPEECH_USE }],
   ],
   experiments: { typedRoutes: false },
   extra: {

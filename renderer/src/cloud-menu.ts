@@ -3,6 +3,7 @@
 // button and built like its menu; what they say lives here.
 import type { UsageLimit } from './types';
 import { accountName } from '../../shared/account-names.mjs';
+import { teammateIdOf } from '../../shared/teammates.mjs';
 
 export type CloudMode = 'mac' | 'full' | 'all';
 
@@ -231,11 +232,12 @@ export function cloudMonthLine(month: CloudMonth): string {
  * not kept, or a project the cloud does not take.
  */
 export function threadPlace(
-  item: { id: string; product: string; onMac?: boolean },
+  item: { id: string; product: string; onMac?: boolean; labels?: string[] },
   session: { where?: string } | null,
   cloud: CloudStatus | null,
 ): 'cloud' | 'here' | 'kept' | null {
   if (!cloud?.setUp) return null;
+  if (teammateIdOf(item)) return null;
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;

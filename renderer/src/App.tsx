@@ -18,11 +18,12 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
 import { flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
-import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
+import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, RunningSession, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
 import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
+import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
@@ -38,7 +39,6 @@ import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsI
 import { changeOwnsKey } from './code-keys';
 import { askStillStands, bringsBack, closesAgain, graceUndoneLine, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
 import { answeredAlready, TOO_LATE_TO_WITHDRAW } from './withdraw-send';
-import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { ALIVE_EVERY_MS, markWindowAlive, type Place, placeIsSomewhere, readPlace, windowWasJustHere, writePlace, writeScroll } from './where-she-was';
@@ -46,7 +46,7 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames, projectsOffered, teammates, threadMessage } from './threads/composer-rules';
+import { joinNames, projectsOffered, teammates } from './threads/composer-rules';
 import { chosenNames, whoSees } from './threads/summary-rules';
 import { shownToPeople } from '../../shared/thread-cards.mjs';
 import { changePathFor } from './code-artifact';
@@ -58,7 +58,7 @@ import { ImportAgents } from './components/ImportAgents';
 import { importedLine } from './agent-import-card';
 import { whenLabel } from './components/When';
 import { RepeatFocus } from './components/RepeatFocus';
-import { Palette, type Command as CommandRow } from './components/Palette';
+import { Palette } from './components/Palette';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
 import { Snooze } from './components/Snooze';
@@ -108,6 +108,10 @@ import { resolveTaskShape, TASK_SHAPE_KEY, type TaskShape } from './task-shape';
 import { ComposeIcon } from './components/ComposeIcon';
 import { WorkspaceNavigation } from './components/WorkspaceNavigation';
 import { useRooms } from './team/rooms/useRooms';
+import { useTeammates } from './teammates/useTeammates';
+import { TeammatesContext } from './teammates/row-lead';
+import { ChatsContext, LAST_CHAT_KEY, type ChatsValue } from './teammates/ChatsColumn';
+import { queuedTeammateRun } from './teammates/chat-lines';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
@@ -118,6 +122,7 @@ import { searchFieldInStrip, workspaceDestinations, workspaceNavigationShown, wo
 import { SettingsIcon } from './components/SettingsIcon';
 import { UsagePill } from './components/UsagePill';
 import { engineWordFor } from './byline';
+import { lastUsedEngine } from './usage-last-used';
 import { SearchIcon } from './components/SearchIcon';
 import { CrossIcon } from './components/CrossIcon';
 import { ZoomPercent } from './components/ZoomPercent';
@@ -160,6 +165,8 @@ import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, t
 import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { NOT_ANSWERING, NOT_ANSWERING_MS, RESTART_IT, RESTART_IT_MS, SEND_NOT_TAKEN } from './not-answering';
+import { TEAM_WAIT_MS } from './boot-waits';
+import { signInAsk, SIGN_IN_SKIPPED } from './sign-in-ask';
 import { isNew } from '../../shared/notify-rules.mjs';
 import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../shared/team-rules.mjs';
 import { Face, TeamContext, firstName, teamView } from './team/people';
@@ -272,6 +279,7 @@ const liveAnswer = (i: WorkItem) => (i.answer && i.answer !== '(withdrawn)' ? i.
 // No project order yet, as one array, so the sorts that read it do not rerun
 // on every snapshot.
 const NO_ORDER: string[] = [];
+const NO_RUNNING: RunningSession[] = [];
 
 // THE SCREEN BEFORE THERE IS A SCREEN. The app's name in the faintest grey
 // there is, which is right for the half second it is usually up and reads as
@@ -661,21 +669,25 @@ export default function App() {
   // Drawn when it is open and nothing sits over it: an opened task or Settings
   // takes the page, and closing them returns to the Team page.
   const teamShown = teamOpen && !focused && !settingsOpen;
-  // THE SIGN-IN PAGE STANDS OVER EVERYTHING when a team build has nobody
-  // signed in, once the saved sign-in has been looked for (team/SignInPage.tsx).
-  // Signing out lands on it, and it says so.
-  const signInGate = !api.isFixtures && !!snap?.team?.configured && snap.team.started === true && !snap.team.signedIn;
+  // THE SIGN-IN PAGE STANDS OVER EVERYTHING when a build that can sign in has
+  // nobody signed in, once the saved sign-in has been looked for, until it is
+  // skipped (./sign-in-ask). Signing out lands on it, and it says so.
+  const [signInSkipped, setSignInSkipped] = useState(() => localStorage.getItem(SIGN_IN_SKIPPED) === '1');
+  const signInAsked = signInAsk({ team: snap?.team, fixtures: api.isFixtures, skipped: signInSkipped, canSkip: !onCloudPhone() });
+  const signInGate = signInAsked.page;
   // AND THE FIRST-RUN WALK WAITS FOR SOMEBODY TO BE SIGNED IN (2026-10-04).
   // It used to run underneath the sign-in page, invisible but live: on its
   // guided steps it holds every press not on what it points at, so Continue
   // with Google did nothing at all for the first teammate to install this, and
   // Return in the sign-in form went to the walk instead. It neither starts nor
-  // draws until someone is signed in, and picks up where it was after.
-  const walkWaitsForSignIn = !api.isFixtures && !!snap?.team?.configured && !snap.team.signedIn;
+  // draws until someone is signed in or skips, and picks up where it was after.
+  const walkWaitsForSignIn = signInAsked.walkWaits;
+  const skipSignIn = useCallback(() => { localStorage.setItem(SIGN_IN_SKIPPED, '1'); setSignInSkipped(true); }, []);
+  const askToSignIn = useCallback(() => { localStorage.removeItem(SIGN_IN_SKIPPED); setSignInSkipped(false); }, []);
   const wasSignedIn = useRef(false);
   const [signedOutHere, setSignedOutHere] = useState(false);
   useEffect(() => {
-    if (snap?.team?.signedIn) { wasSignedIn.current = true; setSignedOutHere(false); }
+    if (snap?.team?.signedIn) { wasSignedIn.current = true; setSignedOutHere(false); localStorage.removeItem(SIGN_IN_SKIPPED); setSignInSkipped(false); }
     else if (wasSignedIn.current && snap?.team?.started) setSignedOutHere(true);
   }, [snap?.team?.signedIn, snap?.team?.started]);
   const signInGateRef = useRef(false);
@@ -924,7 +936,6 @@ export default function App() {
    * the screen reads it except the toast it already raised.
    */
   const undoAskRef = useRef<{ entry: Undoable & { at: number }; at: number } | null>(null);
-  const neoUndoAskRef = useRef<{ entry: Undoable & { at: number }; at: number; confirmation: string } | null>(null);
   /* * A TOAST CAN CARRY A WAY IN NOW, and on the one that says a task was made it does.
 
      `goes` is the row it was about, by id, NOT a closure that opens it. A
@@ -2300,7 +2311,7 @@ export default function App() {
   const snoozed = useMemo(() => [
     // AND A FIFTH (w-5244c90c33): a thread waiting on another one, unless a
     // session or the ship queue has it, which is In progress.
-    ...items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now
+    ...items.filter((i) => !queuedTeammateRun(i) && (notStarted(i) || isProposal(i) || hiddenAt(i) > now
         || (waitsInLater(i, waitingOn(i)) && !liveIds.has(i.id) && !shippingIds.has(i.id)))
       && (i.status !== 'done' || i.wrote?.status?.source !== 'founder')
       && (!scope || i.product === scope)),
@@ -3243,6 +3254,20 @@ export default function App() {
   // Where the keyboard is in the walk: their row, or your last one.
   const walkPlace = keyCard ? stops.findIndex((s) => s.card && stopKey(s) === cardSel) : stops.findIndex((s) => s.item === current);
 
+  // One thing at a time (w-65bcefb857): every thread in Needs you opens on it,
+  // however it was opened. Its place and its arrows are counted in Needs you,
+  // not in J and K's walk, which takes in teammates' rows.
+  const openInQueue = useCallback((item: WorkItem) => {
+    setFocused(item); markSeen(item);
+    const at = list.indexOf(item);
+    if (at >= 0) setSelected(at);
+  }, [list, markSeen]);
+  const queueSpot = spotIn(shownInbox, focused);
+  const stepQueue = useCallback((dir: 1 | -1) => {
+    const to = focused && stepIn(shownInbox, focused, dir);
+    if (to) openInQueue(to);
+  }, [focused, shownInbox, openInQueue]);
+
   // WHERE THE OPEN THREAD SAT, KEPT AFTER IT LEAVES THE LIST (w-0d55a2b160).
   // A reply to a person keeps you on the thread and takes it out of Needs you
   // (`iSpokeLast`), so J, K and E, which all count from the thread's place,
@@ -3580,6 +3605,37 @@ export default function App() {
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
+  const teammateModels = useMemo(() => ({ engine: snap?.engines?.workspace ?? null, codex: codexModels, codexDefault: codexModelDefault ?? null }), [snap?.engines?.workspace, codexModels, codexModelDefault]);
+  const teammatesUi = useTeammates({
+    view: snap?.teammates, asking: (snap?.approvals ?? []).map((a) => a.item), running: snap?.supervisor?.running ?? NO_RUNNING, products: snap?.products ?? [], engines: snap?.engines?.choices ?? [],
+    models: teammateModels,
+    me: team?.byId.get(team.me ?? '')?.name ?? '',
+    mePic: team?.byId.get(team.me ?? '')?.avatarUrl ?? null,
+    onEnter: () => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setFocusedRepeat(null); },
+    onOpenThread: (product, id) => {
+      const item = items.find((i) => i.id === id && i.product === product);
+      if (item) { setFocused(item); markSeen(item); }
+    },
+    onChanged: () => { void refresh(); },
+  });
+  // A group opened from anywhere takes the page from a teammate.
+  useEffect(() => { if (roomsUi.openId) teammatesUi.leave(); }, [roomsUi.openId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const teammatesById = useMemo(() => new Map((snap?.teammates?.list ?? []).map((t) => [t.id, t])), [snap?.teammates?.list]);
+  const teammatesShown = !!teammatesUi.open && !roomShown && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
+  // With teammates on, Groups is Chats: your AI teammates, people and groups
+  // in one list, and the sidebar's row opens the chat you had open last.
+  const chatsValue: ChatsValue | null = teammatesUi.live ? {
+    teammates: teammatesUi.list, groups: roomsUi.live ? roomsUi.groups : [], now,
+    onTeammate: (id) => teammatesUi.go(id), onNew: teammatesUi.onNew, onGroup: (key) => roomsUi.pickGroup(key),
+  } : null;
+  const openChats = () => {
+    let last: string | null = null;
+    try { last = localStorage.getItem(LAST_CHAT_KEY); } catch { /* opens the first chat */ }
+    const mate = last?.startsWith('teammate:') ? last.slice('teammate:'.length) : null;
+    if (mate && teammatesUi.list.some((t) => t.id === mate)) { teammatesUi.go(mate); return; }
+    if (last && !mate && roomsUi.groups.some((g) => g.key === last)) { roomsUi.pickGroup(last); return; }
+    teammatesUi.go(teammatesUi.list[0]?.id ?? 'new');
+  };
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -3772,15 +3828,11 @@ export default function App() {
 
   // Whether a reply from inside this thread moves her on to the next (./advance).
   const movesOn = useCallback((item: WorkItem) => replyMovesOn({
-    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), inboxSize: shownInbox.length, searching: search !== null,
+    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), searching: search !== null,
   }), [view, onBoard, shownInbox, search]);
 
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
-  // WHILE NEO SENDS, HER REPLY BOX STAYS AS IT IS. A send closes the box, and
-  // a pasted screenshot too big for the saved draft goes with it: "you removed
-  // an image I had previously attached" (2026-10-16).
-  const neoSending = useRef(false);
   const deferCommit = useCallback(async (
     item: WorkItem,
     run: () => Promise<void>,
@@ -3815,7 +3867,7 @@ export default function App() {
     // (tests/e-never-waits-for-the-app.test.mjs). This action's write goes after it.
     const flushed = flushPending().catch((err) => console.warn('a held action was not written', err));
     if (!stay) leaveResolved(item);
-    if (!neoSending.current) setModal(null);
+    setModal(null);
     holdRow(item.id); // out of the inbox NOW; the write can wait, the signal cannot
     // Only an answer passes `goes`, and only an answer starts an agent.
     setHeldAnswer(goes ? item.id : null);
@@ -4156,7 +4208,7 @@ export default function App() {
     const isRunning = snap?.supervisor.running.some((run) => run.itemId === item.id && run.product === item.product);
     if (isRunning) {
       setFollowing({ product: item.product, id: item.id });
-      if (!neoSending.current) setModal(null);
+      setModal(null);
       // ON THE SCREEN BEFORE ANYTHING IS ASKED OF ANYBODY. The moment she
       // presses send, her message is the last thing in the conversation, where
       // she is already looking, and it says in its own head that the agent has
@@ -4322,13 +4374,9 @@ export default function App() {
     // Held, and so saying "press Z to undo", only where it really is held: a
     // phone writes it at once and has no Z (./phone-holds).
     const mine = { product: item.product, id: item.id, at: Date.now(), text, held: holdsReplies(onPhone()) };
-    // ANY REPLY THAT KEEPS HER ON THE THREAD IS DRAWN AT ONCE (w-461fbd8d2d),
-    // not only one to a person. Since a reply to a finished agent stopped
-    // moving her on, it closed the box and drew nothing until the write landed:
-    // "for a good half second ... I feel like only when the agent starts
-    // thinking does it actually show my message." A reply that moves her on
-    // leaves no thread on the screen to draw it in.
-    if (stay) setSending((q) => [...q, mine]);
+    // EVERY REPLY IS DRAWN AT ONCE, including one that moves her on: O
+    // follows it back, and the thread must already hold it (w-388be0a968).
+    setSending((q) => [...q, mine]);
     const restore = (): Restored => {
       setSending((q) => q.filter((s) => s !== mine));
       return restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []) ? { item } : null;
@@ -4375,7 +4423,7 @@ export default function App() {
         putBack(error);
         return;
       }
-      if (stay) setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
+      setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
       if (wasScheduled) {
         if (priorRunAt > Date.now()) await api.schedule({ product: item.product, id: item.id, runAt: 0 });
         if (priorSnooze > Date.now()) await api.snooze({ product: item.product, id: item.id, snoozedUntil: 0 });
@@ -4513,9 +4561,17 @@ export default function App() {
     const status = statusForReply(item.status);
     // The option in the words the thread drew it with when it was picked.
     const undid = [{ product: item.product, id: item.id, words: 'Undid picking', choice: option.text.replace(/\s*\(recommended\)\s*$/i, '').trim() }];
+    // On the thread at once, as a typed reply is (w-388be0a968).
+    const answer = `Option ${option.n}: ${option.text}`;
+    const mine = { product: item.product, id: item.id, at: Date.now(), text: answer, held: holdsReplies(onPhone()) };
+    setSending((q) => [...q, mine]);
+    const letGo = () => setSending((q) => q.filter((s) => s !== mine));
+    const takeBack = (): Restored => { letGo(); return null; };
     await deferCommit(item, async () => {
-      await api.answer({ product: item.product, id: item.id, answer: `Option ${option.n}: ${option.text}`, ...(status ? { status } : {}) });
-      pushUndo({ label: `Option ${option.n} withdrawn, back in your inbox`, undoes: `take back option ${option.n}`, brings: item, undid, run: async () => {
+      try { await api.answer({ product: item.product, id: item.id, answer, ...(status ? { status } : {}) }); }
+      catch (error) { letGo(); throw error; }
+      setTimeout(letGo, LANDED_MS);
+      pushUndo({ label: `Option ${option.n} withdrawn, back in your inbox`, undoes: `take back option ${option.n}`, brings: item, undid, restore: takeBack, run: async () => {
         await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id });
         // Back exactly where the pick found it, the same one write a typed
         // reply's undo makes. Hardcoding 'open' was right while a pick could
@@ -4526,7 +4582,7 @@ export default function App() {
       // "Sent", because the arrow says where the answer went and nothing said
       // what happened to it: "Option 1 → Practice" was read off the QA box as
       // meaning nothing.
-    }, `Option ${option.n} sent → ${item.productName}`, undefined, !movesOn(item), { product: item.product, id: item.id }, undid);
+    }, `Option ${option.n} sent → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
   }, [deferCommit, pushUndo, markDone, markSeen, movesOn]);
 
   /* ------------------------ the task she just wrote ------------------------ */
@@ -5041,85 +5097,6 @@ export default function App() {
     return 'done' as const;
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks, letRowGo]);
 
-  const paletteCommands = useRef<CommandRow[]>([]);
-  // NEO, THE VOICE ALPHA (w-e85fd9144f). Nothing at all unless this Mac has
-  // the alpha flag. When it does, Neo's tool calls are carried out here with
-  // the same functions the keys use, so a voice can do nothing a hand could
-  // not; the rules about which thread and when to ask are in ./neo/bridge.
-  const neo = useNeo({
-    rows: () => shownInbox,
-    commands: () => paletteCommands.current,
-    threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
-    threadById: (id) => items.find((i) => i.id === id) ?? null,
-    focused: () => focused,
-    options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
-    summary: (row) => row.result || row.note || row.body || '',
-    answer: (row) => (row.wrote?.answer?.ts ?? 0) > (row.wrote?.result?.ts ?? 0) ? row.answer || '' : '',
-    about: (row) => row.problem || '',
-    projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
-    open: (row) => {
-      setSettingsOpen(false); setSettingsPane(null); setTeamOpen(false); setOpenCard(null); setModal(null);
-      setFocusedRepeat(null); setEditingRule(false);
-      setSearch(null); setFocused(row); markSeen(row);
-    },
-    pick: (row, n) => pickOption(row, n),
-    reply: async (row, text, { attach } = {}) => {
-      // The pictures in her reply box go out with the words, through the box's own send.
-      if (attach) {
-        let taken = false;
-        window.dispatchEvent(new CustomEvent('neo:send-from-box', { detail: { key: draftKey(row), text, answer: (sent: boolean) => { taken = sent; } } }));
-        if (taken) return 'with-pictures';
-      }
-      neoSending.current = true;
-      try { await answerWith(row, text); } finally { neoSending.current = false; }
-      return attach ? 'no-pictures' : undefined;
-    },
-    close: (row, confirmed) => markDone(row, { force: confirmed }),
-    closePrompt: (row) => {
-      const waiting = waitingFiled(row).length;
-      if (waiting) return `This thread has ${waiting} task${waiting === 1 ? '' : 's'} waiting for approval. Ask whether to close it anyway.`;
-      return offerIsLive(row) ? 'The agent is waiting on your answer. Closing leaves it waiting. Ask whether to close it anyway.' : null;
-    },
-    later: (row, ts, label) => snoozeUntil(row, ts, label),
-    compose: async (text, product) => {
-      const message = threadMessage(text, []);
-      if (!message) return null;
-      const made = await api.compose({ product, title: message.title, body: message.body || undefined, kind: 'directive', priority: 5 });
-      // Z and Neo's own undo take it back, the same as a task typed into the card.
-      if (made?.id) {
-        pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
-          undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
-          run: async () => {
-            const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
-            if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
-            await api.answer({ product: made.product, id: made.id, status: 'done' });
-          } });
-        const next = await refresh();
-        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false,
-          limit: next?.supervisor?.atLimit?.[made.id] }), { product: made.product, id: made.id });
-      }
-      return made;
-    },
-    undo: async (confirmation) => {
-      if (pendingRef.current && !confirmation) return undo();
-      const now = Date.now();
-      const { take, instant } = nextUndo(undoStack, now);
-      if (confirmation) {
-        const asked = neoUndoAskRef.current;
-        neoUndoAskRef.current = null;
-        if (!asked || asked.confirmation !== confirmation || asked.entry !== take || pendingRef.current || now - asked.at > 60_000) return 'changed';
-        undoAskRef.current = { entry: take!, at: now };
-      }
-      if (!take) return 'none';
-      if (!instant && !confirmation) {
-        const token = crypto.randomUUID();
-        neoUndoAskRef.current = { entry: take, at: now, confirmation: token };
-        return { asked: `Do you want to ${take.undoes}?`, confirmation: token };
-      }
-      return undo();
-    },
-  });
-
   // INTO THE ROW THE TOAST IS ABOUT, from a click on it or from O
   // (w-f0bfe32859). One path, so the key can never open something the click
   // would not. The lookup is by id at the moment of the press, against whatever
@@ -5188,6 +5165,13 @@ export default function App() {
         if (roomsUi.dialogOpen || modal || inInput || e.metaKey || e.ctrlKey || e.altKey) return;
         if (e.key === 'Escape') { e.preventDefault(); roomsUi.close(); }
         if ((e.key === 'g' || e.key === 'G') && roomsUi.findGroup) { e.preventDefault(); roomsUi.findGroup(); }
+        return;
+      }
+      // So does a teammates page, which has no list for J, K or E to act on.
+      if (teammatesShown && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
+        // Escape in an open dropdown closes the dropdown, not the page.
+        if (modal || inInput || target?.tagName === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === 'Escape') { e.preventDefault(); teammatesUi.leave(); }
         return;
       }
       // G FINDS A GROUP from any page, as ⌘K finds a command.
@@ -5347,6 +5331,10 @@ export default function App() {
       // N starts a thread from a room, as it does everywhere else.
       if (roomShown) {
         if ((e.key === 'n' || e.key === 'N') && !roomsUi.dialogOpen) setModal('compose');
+        return;
+      }
+      if (teammatesShown) {
+        if (e.key === 'n' || e.key === 'N') setModal('compose');
         return;
       }
       if (focusedRepeat) {
@@ -5570,7 +5558,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -5700,6 +5688,11 @@ export default function App() {
   // which is the same lost-place fault in a shorter form.
   const restoring = reloaded === null
     || (comingBack && !restored && placeIsSomewhere(wasAt.current));
+  const [teamWaitOver, setTeamWaitOver] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setTeamWaitOver(true), TEAM_WAIT_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // NOTHING RESETS THE PANEL. There used to be an effect here putting it back
   // up every time she left a task, so "up by default" meant every time rather
@@ -5720,6 +5713,7 @@ export default function App() {
     if (!pending || !advanceLandsHere({ view, onBoard }) || focused) return;
     advanceRef.current = null;
     const next = nextAfterAdvance(shownInbox, pending);
+    // Nothing left: the empty inbox is where one at a time ends.
     if (!next) return;
     // THE APP MOVED YOU, SO THE KEY THAT SENDS WAITS A MOMENT (./pick-settles).
     // The one place a thread is put in front of you without your asking, and so
@@ -5956,6 +5950,7 @@ export default function App() {
   // below has to go on reading exactly as it always did.
   if (restoring) return <Booting />;
   if (!snap) return <Booting />;
+  if (snap.team?.settling && !teamWaitOver) return <Booting />;
 
   // Searching is never inbox zero, whatever the inbox holds: the zero state
   // takes the whole screen, and it appearing under a query she is typing would
@@ -6097,7 +6092,7 @@ export default function App() {
   const sideFolded = narrowSidebar ? !railOpen : workspaceCollapsed;
   // A teammate's direct record is one of your groups, so Groups is the page it is on.
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
-  const openView = (next: View) => { roomsUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); };
+  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); };
   // `asking` is on the class list for the same reason the composer is: the
   // approval card stands in the corner the toast stands in and under it, so the
   // toast covered Allow and Deny. Read off the same stage the card is drawn
@@ -6112,11 +6107,13 @@ export default function App() {
     <CloudContext.Provider value={cloudIds}>
     <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
+    <TeammatesContext.Provider value={teammatesById}>
+    <ChatsContext.Provider value={chatsValue}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
-    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}`}>
+    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${queueSpot && focused ? ' one-at-a-time' : ''}`}>
 
-      {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
+      {signInGate && <SignInPage onSkip={onCloudPhone() ? undefined : skipSignIn} signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
           `.workspace-layout::after` is the window's drag strip. */}
       {workspaceNavigation && <div className="panel-marks" aria-hidden="true" />}
@@ -6159,13 +6156,16 @@ export default function App() {
             engineChoice: (snap.engines?.choices?.length ?? 1) > 1,
             engine: snap.usage?.engine ?? null,
           })}
+          all={snap.usageByEngine ?? []}
+          recent={lastUsedEngine(snap)}
         />}
-        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onSignIn={signInAsked.sidebar ? askToSignIn : undefined} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
         onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={sideFolded} onToggle={toggleWorkspace} onSearch={openSearch} onCompose={() => setModal('compose')} onView={openView}
-        rail={narrowSidebar} onHover={setRailOpen} groups={narrowSidebar ? roomsUi.sidebarGroups(roomShown || directOpen) : undefined} onGroupsPage={roomShown || directOpen} />}
+        teammates={narrowSidebar ? undefined : teammatesUi.rail(teammatesShown)} onTeammatesPage={teammatesShown}
+        rail={narrowSidebar} onHover={setRailOpen} groups={narrowSidebar ? roomsUi.sidebarGroups(roomShown || directOpen || teammatesShown, teammatesUi.live ? openChats : undefined) : undefined} onGroupsPage={roomShown || directOpen} />}
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
           only part of our own document lying over the file, so a pointer
           brought up there wakes the marks that a pointer moving across the
@@ -6256,7 +6256,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
+        ) : workspaceNavigation ? (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : teammatesShown ? teammatesUi.title : narrowSidebar && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>)) : (
         <nav
           className="tabs"
           /* NO HINT ON THIS NAV. This older strip is the layout without the
@@ -6392,7 +6392,7 @@ export default function App() {
               Not over a teammate's card or the team's setup. Search is drawn
               here only on the board; on the list it ends the tabs row
               (w-3c51d02de5). */}
-          {workspaceNavigation && !focused && !settingsOpen && !teamShown && (roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
+          {workspaceNavigation && !focused && !settingsOpen && !teamShown && (teammatesShown ? teammatesUi.right : roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
             <HeaderActions
               page="inbox"
               display={inboxDisplay}
@@ -6608,9 +6608,9 @@ export default function App() {
           )
         ) : (
           <>
-            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${bareView ? ' bare' : ''}${roomShown ? ' rm-open' : ''}`}>
-              {noPlan && !run && !focused && !focusedRepeat && <PlanBar onSetup={setSetupPlan} />}
-              {focusedRepeat ? (
+            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${bareView ? ' bare' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}`}>
+              {noPlan && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
+              {teammatesShown ? teammatesUi.page : focusedRepeat ? (
                 <RepeatFocus
                   rule={focusedRepeat}
                   items={items}
@@ -6650,6 +6650,7 @@ export default function App() {
                   // its page.
                   onHandToAgent={handToAgent}
                   onAddPeople={addPeopleToConversation}
+                  queue={queueSpot ? { spot: queueSpot, onStep: stepQueue } : null}
                   headerTarget={workspaceNavigation ? taskHeader : null}
                   cornerHeaderTarget={cornerHeaderTarget}
                   // WHERE IT WAS OPENED FROM, in the tab strip's own words (so
@@ -6990,6 +6991,14 @@ export default function App() {
       {roomsUi.dialogs}
       {modal === 'compose' && (
         <ThreadComposer
+          agentMates={teammatesUi.live ? snap.teammates?.list.filter((t) => t.status === 'active') : undefined}
+          onToTeammate={async (to, text, product) => {
+            const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to] });
+            if (!r.ok) return r.error;
+            void refresh();
+            teammatesUi.go(to === 'new' ? r.value?.teammate?.id ?? 'team' : to);
+            return null;
+          }}
           products={rankedProducts}
           items={items}
           engines={snap.engines?.choices}
@@ -7135,10 +7144,8 @@ export default function App() {
           a `scripted` prop for that now, so the tutorial opens the same card
           everybody else opens. Her words: "the tutorial is using the wrong
           component here, we no longer use this". */}
-      {/* Always worked out, drawn only while open: Neo runs its commands by name. */}
       <Palette
         open={modal === 'palette'}
-        commandsRef={paletteCommands}
         cloud={snap.cloud?.setUp ? snap.cloud : null}
         onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
         onFirstRun={walkAgain}
@@ -7417,6 +7424,9 @@ export default function App() {
         groups={roomsUi.groups}
         onGroups={() => { setModal(null); roomsUi.openTab(); }}
         onPickGroup={(key) => { setModal(null); roomsUi.pickGroup(key); }}
+        teammates={teammatesUi.live ? snap?.teammates?.list ?? [] : null}
+        onTeammates={(which) => { setModal(null); teammatesUi.go(which); }}
+        onPauseTeammate={(id, paused) => { setModal(null); void api.teammates('update', { id, patch: { paused } }).then(() => refresh()); }}
         onShortcuts={() => { setModal(null); setSettingsPane('shortcuts'); setSettingsOpen(true); }}
         onOpenProjects={() => { setModal(null); setTeamOpen(false); setSettingsPane('projects'); setSettingsOpen(true); }}
         onClose={() => setModal(null)}
@@ -7462,7 +7472,6 @@ export default function App() {
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
           roomsPane={roomsUi.settingsPane}
-          neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone
           // is signed in to a team, handed in for the same reason as the pane.
@@ -8060,6 +8069,8 @@ export default function App() {
     </div>
     </CloudOfferContext.Provider>
     </FreeAgentContext.Provider>
+    </ChatsContext.Provider>
+    </TeammatesContext.Provider>
     </WaitingContext.Provider>
     </FleetContext.Provider>
     </CloudContext.Provider>

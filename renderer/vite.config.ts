@@ -16,6 +16,6 @@ export default defineConfig({
   plugins: [react()],
   build: {
     outDir: 'dist',
-    rollupOptions: { input: { main: page('index.html'), cornerTag: page('corner-tag.html'), neo: page('neo.html') } },
+    rollupOptions: { input: { main: page('index.html'), cornerTag: page('corner-tag.html') } },
   },
 });

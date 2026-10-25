@@ -8,5 +8,8 @@ export const WEBSITE_PARTITION: string;
 /** Is this an ordinary page on the web, rather than a local app or a file? */
 export function isWebsiteAddress(src: string | undefined | null): boolean;
 
+/** What an address typed into the pane's bar means, with its scheme, or null. */
+export function addressYouTyped(typed: string | undefined | null): string | null;
+
 /** Can this page embed a website in a browser of its own (Electron only)? */
 export function canFrameAWebsite(doc: { createElement(tag: string): unknown } | null | undefined): boolean;

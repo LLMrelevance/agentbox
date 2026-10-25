@@ -220,6 +220,10 @@ export interface TeamState {
   phoneSiteQr?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
+  /** This build has an account to sign in to, whether or not Multiplayer is on. */
+  canSignIn?: boolean;
+  /** The saved sign-in and its team are still being restored; the boot screen waits on it. */
+  settling?: boolean;
   /** When this person began sharing on this Mac: threads started before it stay theirs unless shared by hand. */
   since?: number | null;
   /** The invites this team has out that nobody has taken up yet. */
@@ -358,7 +362,55 @@ export interface RoomsState {
   error: string | null;
 }
 
-export type RoomsResult<T = unknown> = { ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
+// TEAMMATES (main/teammates.mjs): agents with a standing job, and the one team
+// chat they and you write to.
+export interface TeammateMemory { id: string; text: string; from: string | null; at: number; by?: string | null }
+export interface TeammateWorks { every: 'day' | 'weekday' | 'week'; at: string; on?: number }
+export interface TeammateRef { id: string; product: string; title: string }
+export interface Teammate {
+  id: string; name: string; letter: string; role: string | null; job: string | null; goal: string | null;
+  counted: string | null; asksFirst: string | null; works: TeammateWorks | null; worksLabel: string | null;
+  product: string; engine: string | null; model: string | null; effort: string | null; limit: number;
+  paused: boolean; status: 'draft' | 'active'; memory: TeammateMemory[]; createdAt: number; starter?: string | null;
+  /** Its run is waiting for you to allow or deny a command (drawn from `approvals`, not the store). */
+  asking?: boolean;
+  /** It asked you something in the team chat and has not heard back (chat-lines `asksYou`). */
+  question?: boolean;
+  /** Work for it was held after too many hand-offs without you (chat-lines `heldFor`). */
+  held?: boolean;
+  waiting: TeammateRef[]; now: string | null; running: { id: string; product: string } | null;
+  queued: number; next?: TeammateRef[]; done: TeammateRef[]; runsThisWeek: number;
+  /** What it does on its own, each with when, in words ("After a ship", "9am and 3pm"). */
+  duties?: TeammateDuty[];
+  /** The playbooks it reads, by id (TeammatesView.playbooks). */
+  playbooks?: string[];
+}
+export interface TeammateDuty { id: string; what: string; when: string; lastRan?: number | null }
+/** What the person has taught their teammates about one kind of work, shared by every teammate that reads it. */
+export interface Playbook {
+  id: string; title: string; readers: string[]; updatedAt: number;
+  lessons: { id: string; text: string; ts: number; by?: string; from?: { product: string; id: string; title: string } | null }[];
+}
+export interface TeamChatLine {
+  id: string; kind: 'msg' | 'pass' | 'act'; from: string; to?: string[] | string; text?: string;
+  title?: string; details?: string; verb?: string; ref?: string; options?: string[]; ts: number;
+  /** Said for you by one of your threads, when you asked it to. */
+  via?: string; viaProduct?: string;
+  /** On an `act`: `learned` (kept something about you), `updated` (changed its own instructions),
+   *  `lesson` (added to the playbook `ref`), and the older run and pause verbs. */
+}
+export interface TeamRunLine {
+  id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;
+  verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
+  /** Your words, on an `answered` line. */
+  text?: string; ts: number;
+}
+export interface TeammatesView { list: Teammate[]; chat: TeamChatLine[]; runs: TeamRunLine[]; error?: string; playbooks?: Playbook[];
+  /** Something the loop that wakes teammates could not do lately, in words. */
+  trouble?: string }
+export type TeammatesResult<T = unknown> = { ok: true; value: T } | { ok: false; error: string };
+
+export type RoomsResult<T = unknown> ={ ok: true; value: T; rooms: RoomsState } | { ok: false; error: string; rooms?: RoomsState };
 
 /** Why a thread is not in the cloud: running locally, or waiting for the cloud or for this computer.
  *  `why` is one of main/supervisor.mjs `_whyLocal`'s or `_whyWaitingForCloud`'s answers. */
@@ -841,8 +893,9 @@ export interface Snapshot {
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
+  teammates?: TeammatesView | null;
   /** Which alpha features are switched on (Settings, Alpha features). */
-  alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
+  alpha?: { rooms: boolean; teammates?: boolean; multiplayer?: boolean };
   agents?: AgentSession[];
   approvals?: Approval[];
   supervisor: SupervisorStatus;
@@ -1165,7 +1218,7 @@ export interface WorkspaceSettings {
   // New Claude Code and Codex chats come in on their own (w-62228098e6).
   importNew?: boolean;
   // Settings, Alpha features (w-3d0fa23ffb).
-  alpha?: { neo: boolean; rooms: boolean; multiplayer?: boolean };
+  alpha?: { rooms: boolean; teammates?: boolean; multiplayer?: boolean };
   // The corner tag over other apps (w-dafae58a23). On unless she turned it off.
   cornerTag?: boolean;
   outsideAgents: AgentMode;
@@ -1332,6 +1385,7 @@ declare global {
       micAccess?(): Promise<'granted' | 'settings'>;
       teamMessage(p: { to: string | string[]; body: string; priority?: number; files?: TeamMessageFile[] }): Promise<TeamCallResult>;
       rooms?(p: { op: string; args?: unknown[] }): Promise<RoomsResult>;
+      teammates?(p: { op: string; args?: unknown }): Promise<TeammatesResult>;
       threadEdit(p: { product: string; id: string; patch: ThreadEditPatch }): Promise<{ ok: boolean; error?: string }>;
       /** Move a thread to another project (shared/move-thread.mjs). Answers
        *  with the row it became there, or with the reason in words. */
@@ -1379,12 +1433,6 @@ declare global {
       // finishing* on two channels.
       messageRulesRead?(): Promise<{ text: string; error?: string }>;
       messageRulesWrite?(p: { text: string }): Promise<{ ok: boolean; error?: string }>;
-      // WHAT NEO KEEPS, on the Neo page (renderer/src/neo/NeoSettings.tsx).
-      // Answers null where Neo is off, which is everywhere but the one Mac
-      // that opted in (main/neo/gate.mjs).
-      neoEnabled?(): Promise<boolean>;
-      neoMemory?(change?: { add?: string; forget?: string; instructions?: string; memories?: string }): Promise<NeoMemory | null>;
-      neoVoice?(voice?: string): Promise<string | null>;
       // The settings screen. Every write answers with the whole settings object
       // again, so the screen redraws from what the main process now believes
       // rather than from what the click assumed.
@@ -1456,10 +1504,6 @@ declare global {
   }
 }
 
-
-/** What Neo keeps between conversations (shared/neo-memory.mjs). `document`
- *  is the memories as the page writes them, one entry a line. */
-export type NeoMemory = { ok?: boolean; error?: string; instructions: string; memories: { id: string; text: string; at: number }[]; document: string };
 
 /**
  * ONE FOLDER'S WORTH OF THE DISK, as the app's own picker reads it.

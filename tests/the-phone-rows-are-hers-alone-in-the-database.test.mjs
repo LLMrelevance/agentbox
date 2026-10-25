@@ -7,7 +7,7 @@
 // have a command done twice. Measured here the same way: every migration, in
 // order, in PGlite, with that old default switched on, trying each door as the
 // owner, a stranger, and nobody.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,6 +68,7 @@ beforeAll(async () => {
   await as(OWNER, `insert into public.phone_projects (device, project, name) values ($1, 'alpha', 'Alpha')`, [DEV]);
   await as(OWNER, `insert into public.phone_threads (device, project, item, snapshot) values ($1, 'alpha', 'w-1', '{"v":3}')`, [DEV]);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('a command, once written', () => {
   it('cannot be rewritten by its owner: not its kind, its words, its date or its computer', async () => {

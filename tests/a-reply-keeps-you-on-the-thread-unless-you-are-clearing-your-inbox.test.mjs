@@ -11,7 +11,11 @@
 // then opened (./advance); on any other list there is no next, so she was put
 // back on the list. Agreed rule: where she opened the thread decides. Working
 // through Needs you with another thread waiting there, a reply moves on to it.
-// Anywhere else, or with nothing left to move to, she stays on the thread.
+// Anywhere else she stays on the thread.
+//
+// The last thread waiting used to keep her on it too. One thing at a time
+// (w-65bcefb857) asked the opposite: "once you're done it should just go back
+// to your empty inbox", and that page is now how every Needs you thread opens.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -35,8 +39,8 @@ describe('after a reply', () => {
     expect(replyMovesOn({ view: 'done', onBoard: false, index: -1, inboxSize: 5 })).toBe(false);
     expect(replyMovesOn({ view: 'snoozed', onBoard: false, index: 3, inboxSize: 5 })).toBe(false);
   });
-  it('stays on Needs you when this was the last thread waiting, rather than leaving her on an empty list', () => {
-    expect(replyMovesOn({ view: 'inbox', onBoard: false, index: 0, inboxSize: 1 })).toBe(false);
+  it('moves on from the last thread waiting too, to the empty inbox', () => {
+    expect(replyMovesOn({ view: 'inbox', onBoard: false, index: 0, inboxSize: 1 })).toBe(true);
   });
   it('stays on Needs you when the thread was not in it (opened from search or an alert)', () => {
     expect(replyMovesOn({ view: 'inbox', onBoard: false, index: -1, inboxSize: 4 })).toBe(false);
@@ -48,6 +52,6 @@ describe('App.tsx asks it', () => {
     expect(app).toMatch(/const stay = staysOnTheTask\(item, text, engine\) \|\| talking \|\| !movesOn\(item\);/);
   });
   it('for a picked option', () => {
-    expect(app).toMatch(/`Option \$\{option\.n\} sent → \$\{item\.productName\}`, undefined, !movesOn\(item\),/);
+    expect(app).toMatch(/`Option \$\{option\.n\} sent → \$\{item\.productName\}`, takeBack, !movesOn\(item\),/);
   });
 });

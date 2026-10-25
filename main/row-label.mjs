@@ -1,4 +1,5 @@
 import { harnessFor } from './harnesses.mjs';
+import { teammateIdOf } from '../shared/teammates.mjs';
 // THE NAME ON THE ROW, WRITTEN RATHER THAN TAKEN FROM THE FIRST SENTENCE.
 //
 // A dictated message keeps its first line as its title, verbatim and forever
@@ -89,6 +90,7 @@ const LIVE = new Set(['open', 'claimed', 'blocked']);
  */
 export function wantsName(item) {
   if (!item || !LIVE.has(item.status)) return false;
+  if (teammateIdOf(item)) return false;
   if (!String(item.title ?? '').trim() && !String(item.body ?? '').trim()) return false;
   return !String(item.label ?? '').trim();
 }
@@ -111,7 +113,9 @@ export function namePrompt(item) {
     '',
     '--- opened with ---',
     cut(item?.title, 300),
-    cut(item?.body, 1200),
+    // A teammate's run is titled with its own part of a message that may have
+    // woken several (shared/teammates.mjs `runTitle`); the whole would mix them.
+    (item?.labels ?? []).some((l) => String(l).startsWith('teammate:')) ? '' : cut(item?.body, 1200),
     '--- latest ---',
     latest || '(nothing written yet)',
     '---',

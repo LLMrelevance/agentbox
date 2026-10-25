@@ -52,10 +52,6 @@ const VOCABULARY = [
   'renderer/src/this-keyboard.ts',
 ];
 
-// Neo wakes on a double tap of ⌘, which is the Mac's own key and a Mac-only
-// feature; there is no such tap to offer anywhere else.
-const NEO = ['renderer/src/neo/main.ts', 'renderer/src/components/Settings.tsx'];
-
 describe('the glyphs come from the table', () => {
   const files = codeOf(path.join(root, 'renderer/src'));
 
@@ -86,7 +82,7 @@ describe('the glyphs come from the table', () => {
     // written, as against the vocabulary a draw point translates.
     const said = [];
     for (const [name, text] of files) {
-      if (NEO.includes(name) || VOCABULARY.includes(name)) continue;
+      if (VOCABULARY.includes(name)) continue;
       for (const m of text.matchAll(/(?:title|aria-label|placeholder)=(?:"([^"]*)"|\{`([^`]*)`\})/g)) {
         const label = m[1] ?? m[2] ?? '';
         if (MAC_GLYPH.test(label)) said.push(`${name}: ${label}`);

@@ -36,7 +36,9 @@ export function standingInstruction(rule) {
 // and reaches her, including a run that died without saying anything: this
 // predicate exists to hide, never to show, so it fails open by construction.
 export function isCleanRun(item) {
-  return !!ruleIdOf(item) && (item?.labels ?? []).includes(CLEAN_LABEL);
+  const labels = item?.labels ?? [];
+  const aRun = !!ruleIdOf(item) || labels.some((l) => typeof l === 'string' && (l.startsWith('teammate:') || l === 'teammate-offer'));
+  return aRun && labels.includes(CLEAN_LABEL);
 }
 
 // THE THREAD AN OPENED REPEATING TASK LANDS ON: its latest run, an ordinary

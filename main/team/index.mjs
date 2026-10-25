@@ -26,7 +26,7 @@ import { createRooms } from './rooms.mjs';
 
 // `signingIn` is { url } while a Google sign-in waits on the browser, so the
 // page can offer that link again rather than a button that does nothing.
-const EMPTY = { configured: false, started: false, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error: null };
+const EMPTY = { configured: false, canSignIn: false, started: false, settling: false, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error: null };
 
 // With Alpha features › Multiplayer off the window gets the sign-in the phone
 // needs and no team, so it draws the single-person app.
@@ -50,7 +50,10 @@ export function createTeamService({
   // The phone site's address, only an https one, and its code for Settings.
   const site = typeof phone?.site === 'string' && /^https:\/\/[^\s/]+(\/[^\s]*)?$/.test(phone.site) ? phone.site : null;
   let siteQr = null;
-  let state = { ...EMPTY, configured: !!session?.configured, phoneSite: site, phoneSiteQr: null };
+  // `settling` holds the window's boot screen until the team is known, so it
+  // never draws the single-person app first and then redraws with the team.
+  // `canSignIn` survives teamForWindow, so a build with Multiplayer off still asks.
+  let state = { ...EMPTY, configured: !!session?.configured, canSignIn: !!session?.configured, settling: !!session?.configured, phoneSite: site, phoneSiteQr: null };
   let backend = null;
   let sync = null;
   let timer = null;
@@ -262,6 +265,7 @@ export function createTeamService({
     // no team cloud. So the single-person app opened on no projects at all.
     // Everybody gets one at boot now (main/main.mjs), signed in or not.
     await refreshTeam();
+    if (state.settling) set({ settling: false });
     phoneInbox = makePhoneInbox();
     sync = createTeamSync({
       backend,
@@ -301,10 +305,10 @@ export function createTeamService({
         try {
           const b = await session.restore();
           if (b) await signedIn(b);
-          set({ started: true });
+          set({ started: true, settling: false });
           return state;
         } catch (err) {
-          set({ error: String(err?.message ?? err) });
+          set({ error: String(err?.message ?? err), settling: false });
           if (attempt < 2) await new Promise((r) => setTimeout(r, startRetryMs * (attempt + 1)));
         }
       }

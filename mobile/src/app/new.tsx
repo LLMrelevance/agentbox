@@ -16,6 +16,7 @@ import { screenGate } from '../lib/thread-gate';
 import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
 import { AttachSheet, Attached } from '../ui/Attach';
+import { DictationProblem, Listening, MicButton, useDictation } from '../ui/Dictation';
 import { Caret, Clip, Clock, Cross } from '../ui/icons';
 import { TimeBox, TypingSheet } from '../ui/Later';
 import { footRoom, IconButton, Pickable, PriorityBars, Sheet, SheetHead, SheetRow, T, TopBar, Wall } from '../ui/parts';
@@ -72,6 +73,7 @@ export default function NewThread() {
   const latest = useRef(sendNow);
   latest.current = sendNow;
   const [send] = useState(() => onceAtATime((later?: Choices) => latest.current(later)));
+  const talk = useDictation(draft, () => void send());
   const gate = screenGate(c);
   if (gate === 'wait') return <Wall><View /></Wall>;
   if (gate === 'sign-in') return <Redirect href="/sign-in" />;
@@ -83,7 +85,7 @@ export default function NewThread() {
         title={<T style={{ fontFamily: font.medium, fontSize: 19, letterSpacing: -0.19, paddingLeft: 4 }}>New thread</T>}
         right={(
           <View style={{ flexDirection: 'row', marginRight: 12, opacity: canSend ? 1 : 0.45 }}>
-            <Pressable disabled={!canSend} onPress={() => void send()} accessibilityRole="button" accessibilityLabel="Send"
+            <Pressable disabled={!canSend} onPress={() => (talk.on ? talk.send() : void send())} accessibilityRole="button" accessibilityLabel="Send"
               style={({ pressed }) => ({ height: 32, paddingHorizontal: 14, justifyContent: 'center', backgroundColor: color.accent, opacity: pressed ? 0.85 : 1 })}>
               <T style={{ fontSize: 15, fontFamily: font.medium, color: '#fff' }}>{busy ? 'Sending…' : 'Send'}</T>
             </Pressable>
@@ -111,6 +113,7 @@ export default function NewThread() {
             </Pressable>
           </Field>
           <TextInput multiline autoFocus value={text} onChangeText={draft.setText} placeholder="What do you need done?" placeholderTextColor={color.faint}
+            onFocus={() => { if (talk.active()) talk.stop(); }}
             style={[{ flex: 1, minHeight: 160, padding: 16, fontFamily: font.regular, fontSize: 16, lineHeight: 24.8, color: color.text, textAlignVertical: 'top' }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]} />
           <View style={{ paddingHorizontal: 16, paddingBottom: files.length || error || draft.dropped ? 14 : 0, gap: 10 }}>
             <Attached files={files} drop={(i) => draft.setFiles((f) => f.filter((_, n) => n !== i))} />
@@ -120,13 +123,23 @@ export default function NewThread() {
               </T>
             )}
             {error && <T style={{ fontSize: 13, color: color.dim }}>{error}</T>}
+            <DictationProblem talk={talk} />
           </View>
         </ScrollView>
-        <Pressable onPress={() => setSheet('attach')} accessibilityRole="button"
-          style={({ pressed }) => ({ height: 52 + foot, paddingBottom: foot, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, borderTopWidth: 1, borderTopColor: color.line, backgroundColor: pressed ? color.fill : 'transparent' })}>
-          <Clip />
-          <T style={{ fontSize: 15, color: color.dim }}>Attach a file or picture</T>
-        </Pressable>
+        <View style={{ height: 52 + foot, paddingBottom: foot, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: color.line }}>
+          {talk.on ? (
+            <View style={{ flex: 1, flexDirection: 'row', paddingLeft: 16, paddingRight: 12 }}><Listening talk={talk} /></View>
+          ) : (
+            <>
+              <Pressable onPress={() => setSheet('attach')} accessibilityRole="button"
+                style={({ pressed }) => ({ flex: 1, height: 52, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: pressed ? color.fill : 'transparent' })}>
+                <Clip />
+                <T style={{ fontSize: 15, color: color.dim }}>Attach a file or picture</T>
+              </Pressable>
+              <View style={{ marginRight: 8 }}><MicButton talk={talk} /></View>
+            </>
+          )}
+        </View>
       </KeyboardAvoidingView>
       <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={effort}
         pickModel={(id) => { setModel(id); pickModel(appStore, id); }} pickEffort={(id) => setEffort(pickEffort(appStore, effort, id))} />

@@ -337,6 +337,151 @@ export const DRIVES = {
       claim(/Nothing needs you/.test(text) && /New thread/.test(text), 'the empty inbox says so and offers a new thread', text.replace(/\s+/g, ' ').slice(0, 120));
     },
   },
+  'one-at-a-time': {
+    what: 'Every thread in Needs you opens one thing at a time: Enter or a click opens the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox, and a thread in In progress keeps the full page',
+    notInstalled: 'it rewrites the stand-in world, which only the browser copy reads',
+    async run({ tab, state, claim, capture }) {
+      // Every answer ends with choices; replies are held back once the three
+      // are answered, so the queue can be emptied before any comes back.
+      const worldFile = path.join(state.instance, 'world.json');
+      const prior = readJson(worldFile) ?? {};
+      const setWorld = (w) => fs.writeFileSync(worldFile, JSON.stringify({ ...prior, ...w }));
+      const page = () => tab.evaluate(`(() => ({
+        on: !!document.querySelector('.app.one-at-a-time'),
+        name: document.querySelector('.thread-crumb-name')?.textContent ?? null,
+        pos: document.querySelector('.one-pos')?.textContent ?? null,
+        choices: document.querySelectorAll('.one-choices .opt-row').length,
+        heading: !!document.querySelector('.one-choices .opt-head'),
+        panel: !!document.querySelector('.ts-panel, .ts-rail'),
+        summary: !!document.querySelector('.one-sum'),
+        answer: !!document.querySelector('.one-answer'),
+        earlier: document.querySelector('.one-earlier')?.textContent ?? null,
+      }))()`);
+      try {
+        setWorld({ options: 1, pace: { minMs: 0, maxMs: 0 } });
+        await tab.until(`document.body.innerText.includes('Threads')`, { why: 'the inbox to draw' });
+        const stamp = Date.now().toString(36);
+        const titles = ['Pick a name for the export button', 'Decide how long drafts are kept', 'Choose where the release notes live', 'Retire the old settings page'].map((t) => `${t} ${stamp}`);
+        for (const title of titles) {
+          await tab.press('n');
+          await tab.until(`document.activeElement?.matches('textarea')`, { why: 'N to open the composer' });
+          await tab.type(title);
+          await tab.press('Enter', ['meta']);
+          await tab.until(`document.body.innerText.includes(${JSON.stringify(title)})`, { why: 'the thread to be filed' });
+        }
+        const ours = () => rows(state).filter((r) => titles.includes(r.title));
+        const answered = await until(() => { const r = ours(); return r.length === 4 && r.every((x) => /## Options/.test(String(x.result ?? ''))) ? r : null; }, 90_000);
+        claim(answered, 'four threads come back from their agents with choices', answered ? '' : `${ours().filter((x) => x.result).length} of 4 answered`);
+        if (!answered) return;
+        setWorld({ options: 1, pace: { minMs: 120_000, maxMs: 120_000 } });
+
+        await clickTab(tab, /^needs you/i);
+        await tab.until(`!!document.querySelector('.list-pane .row')`, { why: 'Needs you to list the threads', ms: 10_000 }).catch(() => false);
+        await capture('needs-you');
+        claim(!(await tab.evaluate(`!!document.querySelector('.th-one')`)), 'Needs you has no separate way in to switch on');
+
+        const order = await tab.evaluate(`[...document.querySelectorAll('.list-pane .row:not(.th-head)')].map((r) => r.textContent)`);
+        await tab.press('Enter');
+        const opened = await tab.until(`!!(document.querySelector('.app.one-at-a-time') && document.querySelector('.one-answer'))`, { why: 'Enter to open the pointed row', ms: 10_000 }).catch(() => false);
+        claim(opened, 'Enter on a row opens it on the one-at-a-time page');
+        const first = await page();
+        // Enter opens the pointed row, which need not be the top one.
+        const at = order.findIndex((t) => first.name && t.includes(first.name.replace(/…$/, '').slice(0, 20)));
+        claim(at >= 0 && first.pos === `${at + 1} of 4`, 'the corner says where you are', first.pos ?? 'no position');
+        claim(titles.some((t) => first.name && t.startsWith(first.name.replace(/…$/, '').slice(0, 20))), 'the top bar names the thread', first.name ?? '');
+        claim(first.summary && first.answer, 'the summary on top and the newest answer under it');
+        claim(first.choices === 3 && !first.heading, 'the three choices at the foot, without a heading', `${first.choices} choices`);
+        claim(!first.panel, 'no summary panel beside the page');
+        await capture('first');
+
+        // A number pressed the moment the app moves you waits a beat (pick-settles).
+        await tab.wait(1000);
+        await tab.press('1');
+        const next = await tab.until(`document.querySelector('.app.one-at-a-time') && document.querySelector('.thread-crumb-name')?.textContent !== ${JSON.stringify(first.name)}`, { why: 'the next thread to come up', ms: 10_000 }).catch(() => false);
+        claim(next, 'picking 1 brings the next thread up');
+        await capture('second');
+        const firstRow = answered.find((r) => first.name && r.title.startsWith(first.name.replace(/…$/, '').slice(0, 20)));
+        const landed = firstRow && await until(() => rows(state).find((r) => r.id === firstRow.id && /^Option 1:/.test(String(r.answer ?? ''))), 15_000);
+        claim(landed, 'the pick is written onto the thread it answered', landed ? String(landed.answer).slice(0, 40) : '');
+        const taken = firstRow && await until(() => spawnsOf(state, firstRow.id).length >= 2 && spawnsOf(state, firstRow.id).length, 20_000);
+        claim(taken, 'an agent takes the answer up', taken ? `${taken} starts` : '');
+
+        const before = await page();
+        await tab.press('j');
+        await tab.wait(800);
+        const walked = await page();
+        claim(walked.on && walked.name !== before.name, 'J walks to the thread below', `${before.pos} to ${walked.pos}`);
+        await tab.evaluate(`document.querySelector('.one-step[aria-label^="Previous"]')?.click()`);
+        await tab.wait(800);
+        const back = await page();
+        claim(back.on && back.name === before.name, 'the up arrow walks back', back.pos ?? '');
+
+        await tab.evaluate(`document.querySelector('.one-earlier')?.click()`);
+        const opened2 = await tab.until(`!!(document.querySelector('.one-earlier')?.textContent?.startsWith('Hide') && document.querySelector('.focus-body .thread'))`, { why: 'the earlier messages to open', ms: 8000 }).catch(() => false);
+        claim(opened2, 'the earlier messages open in place', before.earlier ?? '');
+        await capture('earlier');
+
+        await tab.press('Escape');
+        const left = await tab.until(`!document.querySelector('.app.one-at-a-time') && !!document.querySelector('.list-pane .row')`, { why: 'esc to leave for Needs you', ms: 8000 }).catch(() => false);
+        claim(left, 'esc leaves for Needs you');
+
+        const ourRow = `[...document.querySelectorAll('.list-pane .row')].find((r) => ${JSON.stringify(titles.map((t) => t.slice(0, 20)))}.some((t) => r.textContent.includes(t)))`;
+        await tab.evaluate(`${ourRow}?.click()`);
+        const clicked = await tab.until(`!!document.querySelector('.app.one-at-a-time')`, { why: 'a click to open a thread', ms: 8000 }).catch(() => false);
+        claim(clicked, 'a click on a row opens it on the one-at-a-time page too');
+        // A typed reply moves on too.
+        const typed = await page();
+        await tab.wait(1000);
+        await tab.press('r');
+        await tab.until(`document.activeElement?.matches('textarea')`, { why: 'R to open the reply box', ms: 5000 }).catch(() => false);
+        await tab.type(`Keep it for 30 days ${stamp}`);
+        await tab.press('Enter', ['meta']);
+        const replied = await tab.until(`!document.querySelector('.app.one-at-a-time') || document.querySelector('.thread-crumb-name')?.textContent !== ${JSON.stringify(typed.name)}`, { why: 'the reply to move on', ms: 10_000 }).catch(() => false);
+        claim(replied, 'a typed reply moves on as a pick does', typed.name ?? '');
+        const repliedRow = answered.find((r) => typed.name && r.title.startsWith(typed.name.replace(/…$/, '').slice(0, 20)));
+        const reply = repliedRow && await until(() => rows(state).find((r) => r.id === repliedRow.id && String(r.answer ?? '').includes(stamp)), 15_000);
+        claim(reply, 'the typed reply is written onto its thread');
+        // And E closes it and moves on.
+        const closing = await page();
+        await tab.wait(1000);
+        await tab.press('e');
+        await tab.wait(400);
+        // The first E on a thread whose agent waits on you says so once, and a second E goes ahead (stopped-agent.ts).
+        const warned = await tab.evaluate(`[...document.querySelectorAll('.toast')].some((t) => /Press again to go ahead/.test(t.textContent))`);
+        if (warned) await tab.press('e');
+        const closed = await tab.until(`!document.querySelector('.app.one-at-a-time') || document.querySelector('.thread-crumb-name')?.textContent !== ${JSON.stringify(closing.name)}`, { why: 'E to close and move on', ms: 10_000 }).catch(() => false);
+        await capture('after-e');
+        claim(closed, 'E closes the thread and moves on', `${closing.name ?? ''}${warned ? ', after the one-time warning' : ''}`);
+        const closedRow = answered.find((r) => closing.name && r.title.startsWith(closing.name.replace(/…$/, '').slice(0, 20)));
+        const done = closedRow && await until(() => rows(state).find((r) => r.id === closedRow.id && r.status === 'done'), 15_000);
+        claim(done, 'the closed thread is marked done in the store');
+        for (let i = 0; i < 5; i++) {
+          const now = await page();
+          if (!now.on) break;
+          await tab.wait(1000);
+          await tab.press('1');
+          await tab.until(`!document.querySelector('.app.one-at-a-time') || document.querySelector('.thread-crumb-name')?.textContent !== ${JSON.stringify(now.name)}`, { why: 'the pick to move on', ms: 10_000 }).catch(() => false);
+          await tab.wait(400);
+        }
+        const empty = await tab.until(`!document.querySelector('.app.one-at-a-time') && document.body.innerText.includes('Nothing needs you')`, { why: 'the last answer to land on the empty inbox', ms: 10_000 }).catch(() => false);
+        claim(empty, 'the last answer lands on the empty inbox');
+        await capture('empty');
+        const all = await until(() => { const r = ours(); return r.every((x) => x.status === 'done' || /^Option 1:|Keep it for 30 days/.test(String(x.answer ?? ''))) ? r : null; }, 15_000);
+        claim(all, 'every thread holds what was done to it: a pick, a reply or a close');
+
+        // Out of Needs you, a thread keeps the full page.
+        await clickTab(tab, /^in progress/i);
+        await tab.until(`!!(${ourRow})`, { why: 'In progress to list a picked thread', ms: 10_000 }).catch(() => false);
+        await tab.evaluate(`${ourRow}?.click()`);
+        const full = await tab.until(`!!document.querySelector('.thread-crumb-name') && !document.querySelector('.app.one-at-a-time')`, { why: 'an In progress thread to open', ms: 8000 }).catch(() => false);
+        claim(full, 'a thread in In progress opens on the full page, not this one');
+        await capture('in-progress');
+        await tab.press('Escape');
+      } finally {
+        fs.writeFileSync(worldFile, JSON.stringify(prior));
+      }
+    },
+  },
   'new-thread': {
     what: 'N, type a task, ⌘↵: the thread is filed, a worker is started on it, and its answer shows in the thread',
     async run({ tab, state, claim, capture }) {
