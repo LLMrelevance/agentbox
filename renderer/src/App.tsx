@@ -6993,7 +6993,7 @@ export default function App() {
         <ThreadComposer
           agentMates={teammatesUi.live ? snap.teammates?.list.filter((t) => t.status === 'active') : undefined}
           onToTeammate={async (to, text, product) => {
-            const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to] });
+            const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to], fresh: true });
             if (!r.ok) return r.error;
             void refresh();
             teammatesUi.go(to === 'new' ? r.value?.teammate?.id ?? 'team' : to);

@@ -415,7 +415,8 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
         actions.push({ type: 'hops', teammate: tid, msg: m.id, from: m.from });
         continue;
       }
-      if (fromYou && m.kind === 'msg') {
+      // A new thread to a teammate is new work, never an answer to its last question.
+      if (fromYou && m.kind === 'msg' && !m.fresh) {
         const runs = runsOf(tid, items);
         const waiting = runs.filter(waitingOnYou).sort((a, b) => (b.wrote?.result?.ts ?? 0) - (a.wrote?.result?.ts ?? 0))[0];
         // A running run hears your words only if your words started it;
@@ -513,7 +514,8 @@ export function runLines(items, teammates = []) {
     const r = item.wrote?.result;
     if (r && r.source === 'agent' && !(item.labels ?? []).includes('clean')) {
       const answered = (item.wrote?.answer?.ts ?? 0) > r.ts;
-      out.push({ ...base, id: `${item.id}:sent`, kind: 'run', verb: 'sent', waiting: waitingOnYou(item), answered, ts: r.ts });
+      const said = String(item.result ?? '').split('\n').map((l) => l.replace(/\*\*|__|`|^#+\s*/g, '').trim()).find(Boolean) ?? '';
+      out.push({ ...base, id: `${item.id}:sent`, kind: 'run', verb: 'sent', said: clip(said, 200), waiting: waitingOnYou(item), answered, ts: r.ts });
     }
     if (item.status === 'done') {
       out.push({ ...base, id: `${item.id}:done`, kind: 'run', verb: 'finished', ts: item.wrote?.status?.ts ?? item.updatedAt ?? 0 });

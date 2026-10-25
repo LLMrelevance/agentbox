@@ -90,7 +90,7 @@ export function TeammateMenu({ t, shown, onOpen, call }: { t: Teammate; shown: S
   useEffect(() => {
     if (!open) return undefined;
     const away = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
-    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); } };
     document.addEventListener('mousedown', away);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
@@ -211,7 +211,7 @@ function SentCard({ r, t, lead, onOpen }: { r: TeamRunLine; t: Teammate; lead: b
   return <div className={`rm-cm tq-m${lead ? '' : ' tq-cont'}`}>
     {lead && <div className="h"><TeammateMark t={t} size="pic" /><span>{t.name}</span><em>{clockOf(r.ts)}</em></div>}
     <div className="tx"><div className="tq-card">
-      <div className="q">{r.title}</div>
+      <div className="q">{r.said || r.title}</div>
       <div className="btns"><button type="button" className="tq-btn pri" onClick={onOpen}>Open it</button></div>
       <div className="def">{r.waiting ? <><i className="tq-dot-need" aria-hidden="true" />Waiting on you</> : r.answered ? 'You answered it' : 'Done'}</div>
     </div></div>

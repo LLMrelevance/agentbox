@@ -406,6 +406,8 @@ export interface TeamRunLine {
   verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
   /** Your words, on an `answered` line. */
   text?: string; ts: number;
+  /** The first thing it said, on a `sent` line. */
+  said?: string;
 }
 export interface TeammatesView { list: Teammate[]; chat: TeamChatLine[]; runs: TeamRunLine[]; error?: string; playbooks?: Playbook[];
   /** Something the loop that wakes teammates could not do lately, in words. */
