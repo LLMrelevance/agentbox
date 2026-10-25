@@ -78,8 +78,9 @@ describe('the sent line', () => {
 });
 
 describe('the choices', () => {
-  it('sit in tighter rows, and since round ten side by side (tests/the-choices-flow-onto-as-few-lines-as-they-need)', () => {
-    expect(rule('.one-choices .opt-row')).toMatch(/padding: 2px 8px/);
+  it('sit in tighter rows', () => {
+    // Side by side was tried and taken back: "That looks pretty bad".
+    expect(rule('.one-choices .opt-row')).toMatch(/padding: 3px 14px/);
   });
   it('one line each, the whole of a long one on hover or once picked out', () => {
     expect(rule('.one-choices .opt-text')).toMatch(/-webkit-line-clamp: 1/);

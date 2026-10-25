@@ -27,6 +27,11 @@ export function stepIn<T extends Keyed>(rows: T[], item: Keyed, dir: 1 | -1): T 
 
 const said = (e: AgentEvent): e is AgentTurn & { kind?: undefined } => e.kind !== 'work';
 
+/** A note the app wrote on the row (the ship queue's "Shipped to main as …"), not an answer to lead with. */
+export function appWrote(outcome: ItemOutcome | null, wrote?: Record<string, { source: string } | undefined>): boolean {
+  return !!outcome && outcome.field === 'note' && wrote?.note?.source === 'system';
+}
+
 /** The newest answer: the one lifted to the foot, or else the last thing said that was not yours. */
 export function newestAnswer(events: AgentEvent[], outcome: ItemOutcome | null): { at: number; text: string } | null {
   if (outcome) return { at: outcome.at, text: outcome.text };

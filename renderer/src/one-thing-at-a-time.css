@@ -25,6 +25,9 @@
 .one-earlier:hover { color: var(--text); }
 .one-earlier:focus-visible { outline: 2px solid var(--underline); outline-offset: 2px; }
 
+/* What the app did after the answer, quiet under it. */
+.one-app-note { margin: 14px 0 0; font-size: 13px; color: var(--text-faint); }
+
 .one-answer .one-q { margin: 0 0 8px; font-size: 17px; line-height: 1.45; font-weight: 600; color: var(--text); }
 
 /* A page or a note the answer names, read in place at the page's width. */
@@ -41,12 +44,13 @@
 .one-notebody { padding: 14px 22px 6px; }
 .one-notebody hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 
-/* The choices, apart from the reply box at the foot, side by side and wrapping
-   only when the next does not fit. A long one is cut to a line; hovering it
-   shows it whole (OptionsOffer's peek), and so does picking it out with the keys. */
-.one-choices > .opt-strip { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 18px; padding: 3px 6px; margin: 0 0 10px; }
-.one-choices .opt-row { width: auto; max-width: 100%; padding: 2px 8px; }
-.one-choices > .opt-strip > .opt-row:first-of-type, .one-choices > .opt-strip > .opt-row:last-child { padding: 2px 8px; }
+/* The choices, as the app draws them but tighter, apart from the reply box at
+   the foot. A long one is cut to a line; hovering it shows it whole
+   (OptionsOffer's peek), and so does picking it out with the keys. */
+.one-choices > .opt-strip { margin: 0 0 10px; }
+.one-choices .opt-row { padding: 3px 14px; }
+.one-choices > .opt-strip > .opt-row:first-of-type { padding-top: 7px; }
+.one-choices > .opt-strip > .opt-row:last-child { padding-bottom: 7px; }
 .one-choices .opt-text { -webkit-line-clamp: 1; }
 .one-choices .opt-row.selected .opt-text { -webkit-line-clamp: unset; }
 

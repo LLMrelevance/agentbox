@@ -42,7 +42,7 @@ import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
 import { QueueAnswer, QueueSummary } from './OneThingAtATime';
-import { earlierCount, earlierThan, newestAnswer, standsAt } from '../one-thing-at-a-time';
+import { appWrote, earlierCount, earlierThan, newestAnswer, standsAt } from '../one-thing-at-a-time';
 import { rowTitle } from '../list-rules';
 import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
@@ -371,7 +371,9 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   const copied = () => say('Copied');
 
   // With no answer to lead with, the page draws the conversation as it always is, under the summary.
-  const newest = queue ? newestAnswer(events, outcome) : null;
+  // The app's own note ("Shipped to main as …") goes under the agent's answer rather than in its place.
+  const byApp = !!queue && appWrote(outcome, item.wrote);
+  const newest = queue ? newestAnswer(events, byApp ? null : outcome) : null;
   // Answered since (a reply or a pick the agent is working on): drawn from that answer down.
   const from = queue && newest && !earlierOpen ? standsAt(events, newest) : -1;
   const queueHead = queue && (
@@ -379,7 +381,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
       key={`${item.product}:${item.id}`}
       title={rowTitle(item)}
       context={queue.context}
-      earlier={from >= 0 ? earlierThan(events, from) : newest ? earlierCount(events, outcome) : 0}
+      earlier={from >= 0 ? earlierThan(events, from) : newest ? earlierCount(events, byApp ? null : outcome) : 0}
       steps={!!newest && (events.some((e) => e.kind === 'work') || after.length > 0)}
       open={earlierOpen}
       onToggle={() => { setEarlierOpen((open) => !open); setWhole(true); }}
@@ -396,6 +398,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
       <>
         {queueHead}
         <QueueAnswer text={clean(newest.text)} md={md} />
+        {byApp && outcome && <p className="one-app-note">{clean(outcome.text)}</p>}
         {afterList}
         {madeList(made.atFoot)}
       </>
