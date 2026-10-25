@@ -2,8 +2,9 @@
 // doing, basically its job title, in the sidebar because I can't remember who
 // Juno and Mira are functionally." The sidebar showed a teammate's name and
 // what it was on, and its role only on its own page, in the agent's own
-// casing ("video producer"). Now the role follows the name in the sidebar and
-// in its hover label, with a capital first letter wherever it is drawn.
+// casing ("video producer"). The role followed the name in the sidebar; since
+// round 6 the name is the role, shown in the Chats list, and a role is drawn
+// with a capital first letter wherever it still shows.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 
@@ -22,15 +23,15 @@ describe('a teammate\'s role', () => {
     expect(roleLabel('   ')).toBe('');
   });
 
-  it('follows the name in the sidebar and in its hover label', () => {
-    const rail = read('TeammatesRail.tsx');
-    expect(rail).toMatch(/<b>\{t\.name\}<\/b>\{role && <i className="tq-role">\{role\}<\/i>\}/);
-    expect(rail).toMatch(/title=\{role \? `\$\{t\.name\}, \$\{role\}` : t\.name\}/);
+  // Teammates are named by their role now ("Marketing lead"), so the Chats
+  // list shows each one by its name alone, and the old sidebar rows that put
+  // a role after a person's name are gone (round 6).
+  it('is the name each teammate goes by in the Chats list', () => {
+    expect(read('ChatsColumn.tsx')).toMatch(/<TeammateMark t=\{t\} \/><span className="cx-n">\{t\.name\}<\/span>/);
   });
 
-  it('is drawn the same way at the top of its page and in the list of teammates', () => {
+  it('is drawn with a capital at the top of its page, when it is not already its name', () => {
     const page = read('TeammatesPage.tsx');
-    expect(page).toMatch(/<span className="tq-role">\{roleLabel\(t\.role\)\}<\/span>/);
-    expect(page).toMatch(/<i className="r">\{roleLabel\(t\.role\)\}<\/i>/);
+    expect(page).toMatch(/\{!book && t\.role && <span className="tq-role">\{roleLabel\(t\.role\)\}<\/span>\}/);
   });
 });

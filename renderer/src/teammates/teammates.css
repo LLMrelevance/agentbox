@@ -12,18 +12,6 @@
 .tq-dots { display: inline-block; width: 12px; height: 9px; flex: none;
   background-image: radial-gradient(circle, var(--text-faint) 1px, transparent 1.2px); background-size: 4px 4.5px; }
 
-/* The sidebar: one row per teammate, two lines when it is wide. */
-.tq-rail { display: flex; flex-direction: column; margin-top: 3px; }
-.tq-rail .tq-row { height: 44px; }
-.tq-rail .tq-row .tq { margin: 0 1px; }
-.tq-rail .tq-two { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; }
-.tq-rail .tq-name { display: flex; align-items: baseline; gap: 6px; min-width: 0; max-width: 170px; white-space: nowrap; }
-.tq-rail .tq-two b { font-weight: 400; font-size: 13px; color: var(--text); flex: none; }
-.tq-rail .tq-name .tq-role { font-style: normal; font-size: 12px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.tq-rail .tq-two small { font-size: 11.5px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
-.gt-rail-nav .tq-rail .tq-two { display: flex; }
-.tq-rail .tq-team { height: 36px; }
-
 .tq-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .tq-title > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tq-title .tq-role { color: var(--text-faint); font-size: 15px; letter-spacing: 0; }
@@ -31,7 +19,6 @@
 /* The pages */
 .tq-page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .tq-page.tq-one { flex-direction: row; }
-.tq-team > .th-bar { flex: none; }
 .tq-chat { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .tq-lines { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 32px 8px 32px; display: flex; flex-direction: column; }
 .tq-lines .rm-day { margin: 10px 0 4px; }
@@ -77,6 +64,8 @@
 
 /* The panel beside a teammate's chat */
 .gr-side.tq-side { padding: 18px 24px 24px; }
+/* The Log has no faces, so its lines start at its title. */
+.tq-log .tq-act { padding-left: 0; }
 .tq-sec { margin-bottom: 26px; }
 .tq-sh { display: flex; align-items: baseline; justify-content: space-between; font-size: 14.5px; color: var(--text); margin-bottom: 8px; }
 .tq-sh b { font-weight: 400; font-size: 13px; color: var(--text-faint); }
@@ -111,28 +100,10 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .tq-quiet { height: 30px; padding: 0 12px; border: 1px solid var(--line-strong); background: none; font: inherit; font-size: 13.5px; color: var(--text-dim); cursor: default; }
 .tq-quiet:hover { color: var(--text); background: var(--wash); }
 
-/* The Teammates tab: who is on the team, and who else could help */
-.tp-body { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 32px 32px 32px; }
-.tp-head, .tp-row { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.3fr) minmax(0, 1.3fr) 130px; align-items: center; column-gap: 24px; }
-.tp-head { height: 38px; font: 400 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
-.tp-row { height: 60px; width: 100%; border: 0; border-top: 1px solid var(--line); background: none; font: inherit; font-size: 14px; color: var(--text); text-align: left; cursor: default; padding: 0; }
-.tp-row:hover { background: var(--wash); }
-.tp-row:last-of-type { border-bottom: 1px solid var(--line); }
-.tp-row .who { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.tp-row .who i.r { font-style: normal; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tp-row .now { display: flex; align-items: center; gap: 9px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.tp-row .need { display: inline-flex; align-items: center; gap: 8px; color: var(--text); }
-.tp-row .need::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
-.tp-row .num, .tp-head .num { font: 400 11.5px/1 var(--mono); letter-spacing: .04em; color: var(--text-dim); text-align: right; }
-.tp-head .num { font-size: 10.5px; color: var(--text-faint); }
-.tp-sec { margin: 34px 0 14px; font: 400 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
-
-
 /* An inbox row a teammate sent you, led by its mark */
 .tq-from { display: inline-flex; align-items: center; gap: 7px; flex: none; color: var(--text-dim); }
 .list-pane.tq-open { display: flex; flex-direction: column; overflow: hidden; }
 .rm-cm.tq-m .h > .tq-you { display: inline-flex; align-items: center; justify-content: center; }
-.tp-row .goal { color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* Sat on the line's baseline, an inline-flex box takes the mark's small letter
    as its baseline and drops the name below the title. */
 .tq-from { margin-right: 10px; vertical-align: top; height: 20px; }
@@ -142,7 +113,6 @@ select.tq-in { height: 32px; padding: 0 6px; }
 .gt-inset .tq-lines { padding-left: 44px; }
 .gt-inset .rm-compose.tq-compose { margin-left: 44px; }
 .gt-inset .tq-error { margin-left: 44px; }
-.gt-inset .tp-body { padding-left: 44px; }
 .tq-to.tq-link { color: var(--text-faint); font-size: 13.5px; }
 .tq-to.tq-link:hover { color: var(--text-dim); }
 .tq-chip:disabled { cursor: default; }
@@ -168,3 +138,73 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-step { padding-top: 0; padding-left: 25px; }
 .tq-folded { max-height: 11.5em; overflow: hidden; -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent); mask-image: linear-gradient(to bottom, #000 70%, transparent); }
 .tq-more { margin: 6px 0 0; display: inline-block; }
+
+/* CHATS: your AI teammates, people and groups in one list. Softer than the
+   inbox, as the chat is, with the sections folding. */
+.cx-list { padding: 10px 10px 16px; display: flex; flex-direction: column; gap: 1px; }
+.cx-search { display: flex; align-items: center; gap: 8px; height: 32px; margin: 0 2px 6px; padding: 0 10px; border-radius: 6px; background: var(--wash); color: var(--text-faint); }
+.cx-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 13.5px; color: var(--text); }
+.cx-search input::placeholder { color: var(--text-faint); }
+.cx-sec { display: flex; flex-direction: column; gap: 1px; margin-top: 8px; }
+.cx-head { display: flex; align-items: center; height: 30px; padding: 0 4px 0 2px; }
+.cx-fold { flex: 1; display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 6px; border: 0; background: none; font: inherit; font-size: 13px; font-weight: 500; color: var(--text-dim); text-align: left; cursor: default; }
+.cx-fold svg { color: var(--text-faint); flex: none; }
+.cx-fold em { font-style: normal; font-weight: 400; color: var(--text-faint); }
+.cx-plus { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--text-faint); cursor: default; }
+.cx-plus:hover { background: var(--wash-strong); color: var(--text); }
+.cx-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 14px; color: var(--text); text-align: left; cursor: default; }
+.cx-row:hover { background: var(--wash); }
+.cx-row.on { background: var(--bg-selected); }
+.cx-row .tq, .cx-row .gr-tile, .cx-row img, .cx-row .gr-two { flex: none; }
+.cx-row .tq-sm { width: 20px; height: 20px; }
+.cx-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-add .cx-n { color: var(--text-dim); }
+.cx-need { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); flex: none; }
+
+/* A teammate's pages sit in the Groups page's frame. */
+.tq-chats .gr-chat { min-width: 0; }
+.tq-chat .tq-lines { padding-left: var(--text-x, 32px); }
+.tq-saved { color: var(--text-faint); }
+.tq-saved > svg { color: var(--text-dim); }
+.tq-menu { min-width: 200px; }
+
+/* About: its description in its own words, the facts beside it, square. */
+.tq-doc { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; }
+.tq-doc-in { max-width: 720px; padding: 28px 40px 28px var(--text-x, 40px); }
+.tq-doc-id { display: flex; align-items: center; gap: 14px; margin-bottom: 22px; }
+.tq-doc-id b { display: block; font-weight: 500; font-size: 20px; letter-spacing: -.01em; color: var(--text); }
+.tq-doc-id small { display: block; font-size: 13.5px; color: var(--text-faint); margin-top: 2px; }
+.tq-doc-note { font-size: 14px; color: var(--text-dim); margin: -8px 0 18px; }
+.tq-desc { font-size: 15px; line-height: 25px; color: var(--text); }
+.tq-desc h1, .tq-desc h2, .tq-desc h3, .tq-desc h4, .tq-desc h5 { margin: 20px 0 6px; font-size: 13px; font-weight: 600; color: var(--text-dim); }
+.tq-desc p { margin: 0 0 10px; }
+.tq-desc ul, .tq-desc ol { margin: 0 0 10px; padding-left: 20px; }
+.tq-desc .dim { color: var(--text-faint); }
+.tq-doc .rm-compose.tq-compose { margin: 22px 0 0; }
+.tq-doc .tq-error { margin-left: 0; }
+.gr-side.tq-details { padding: 22px 24px; }
+.tq-details dl { display: grid; grid-template-columns: 86px minmax(0, 1fr); column-gap: 14px; row-gap: 16px; margin: 0; font-size: 13.5px; line-height: 20px; }
+.tq-details dt { color: var(--text-faint); }
+.tq-details dd { margin: 0; min-width: 0; color: var(--text); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.tq-details dd.tq-chips, .tq-details dd .tq-chips { flex-direction: row; margin-top: 0; }
+.tq-details .tq-chip { height: 26px; padding: 0 9px; font-size: 13px; }
+.tq-details .s { font-size: 12px; color: var(--text-faint); }
+.tq-details .dim { color: var(--text-faint); }
+.tq-duty small { display: block; font-size: 12.5px; color: var(--text-faint); }
+.tq-book { display: inline-flex; align-items: center; gap: 7px; border: 0; padding: 0; background: none; font: inherit; color: var(--text); text-align: left; cursor: default; }
+.tq-book svg { color: var(--text-faint); flex: none; }
+.tq-book:hover span { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+.tq-knows { display: flex; gap: 6px; width: 100%; }
+.tq-details > .tq-st { margin: 16px 0 0; }
+
+/* A playbook, with its table on square corners like the rest of the app. */
+.tq-crumb { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-faint); margin-bottom: 14px; }
+.tq-crumb .tq-link { color: var(--text-dim); }
+.tq-h { margin: 0; font-weight: 500; font-size: 22px; letter-spacing: -.01em; color: var(--text); }
+.tq-sub { font-size: 13.5px; color: var(--text-faint); margin: 6px 0 20px; }
+.tq-lessons { margin: 0 0 24px; padding-left: 20px; font-size: 15px; line-height: 25px; color: var(--text); }
+.tq-from-table { width: 100%; border-collapse: collapse; border: 1px solid var(--line); border-radius: 0; font-size: 13.5px; }
+.tq-from-table th { text-align: left; font-weight: 500; font-size: 13px; color: var(--text-dim); padding: 11px 16px; border-bottom: 1px solid var(--line); }
+.tq-from-table td { padding: 10px 16px; border-top: 1px solid var(--line); color: var(--text); vertical-align: top; }
+.tq-from-table td:last-child { text-align: right; color: var(--text-faint); white-space: nowrap; }
+.tq-from-table td:last-child .tq-link { color: var(--text-dim); }

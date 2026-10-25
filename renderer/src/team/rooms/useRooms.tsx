@@ -366,7 +366,7 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
      *  command bar lists so a group can be reached by name from anywhere. */
     groups: groupList, pickGroup,
     /** The narrow sidebar's Groups row, which opens the group you were in last. */
-    sidebarGroups: (onGroupsPage: boolean) => <SidebarGroups onGroupsPage={onGroupsPage} onGroups={openTab} />,
+    sidebarGroups: (onGroupsPage: boolean, chats?: () => void) => <SidebarGroups onGroupsPage={onGroupsPage} onGroups={chats ?? openTab} label={chats ? 'Chats' : 'Groups'} />,
     /** The group a teammate's card was opened over, for its Back. */
     roomName: open ? nameOf(open) : null,
   };
