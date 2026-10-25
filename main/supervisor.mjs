@@ -2883,6 +2883,9 @@ export class Supervisor {
     // Steering it in marks it delivered (live-replies.mjs), and a mark nothing
     // releases is a word no worker will ever be sent to carry.
     this.releaseLiveReply(session);
+    // The second hang said on the row that nothing restarts it; her next
+    // reply does.
+    if (session?.hungForGood) return 'stopped';
     // NOT THIS ITEM'S FAILURE, SO NOT THIS ITEM'S ATTEMPT. Three facts with one
     // meaning: the child died on a signal, we killed it, or the shared
     // `codex app-server` went down underneath it. The third is new and is the
@@ -3166,6 +3169,7 @@ export class Supervisor {
             status: 'blocked',
           });
         } catch (e) { console.warn('zero: could not say the session hung:', e.message); }
+        session.hungForGood = true;
       }
       session.hung = true;
       this._kill(session);
@@ -3233,6 +3237,7 @@ export class Supervisor {
         model: session.model || item.model || null,
         planEnded,
         gaveUp,
+        retryAt: gaveUp ? null : this.restingUntil(item),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -3520,6 +3525,7 @@ export class Supervisor {
             resetsAt,
             worked: trace.worked,
             account: spent,
+            retryAt: this.restingUntil(item),
           }),
           status: 'open',
         });
@@ -7316,6 +7322,10 @@ export class Supervisor {
     // session that wrote it, and that is all it is told: it has everything
     // else already. A fresh session gets its brief first.
     if (shipFailure) prompt = resumeId || rowChat ? shipFailure : `${prompt}\n\n${shipFailure}`;
+    // Another thread's ship left this branch in conflict with main
+    // (`_findNewConflicts`), heard now rather than at this thread's own ship.
+    const earlyConflict = shipFailure ? null : this.shipQueue?.takeEarlyConflict?.(item);
+    if (earlyConflict) prompt = `${prompt}\n\n${earlyConflict}`;
     // WHAT HAPPENS TO WHAT IT LEAVES RUNNING, when that switch is on
     // (main/leftovers.mjs): the rule, and the programs of this task still
     // shutting down, which it must not reuse.

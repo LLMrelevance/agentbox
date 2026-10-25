@@ -65,7 +65,7 @@ describe('teammates through the store', () => {
     const opening = threadEvents(lines).find((e) => e.field === 'body');
     expect(opening).toMatchObject({ who: 'you', words: 'Can you try checkout on a phone?' });
     const brief = team.briefFor(runs[0]);
-    expect(brief).toContain('You are Ada, the Quality lead');
+    expect(brief).toContain('You are Quality lead: a teammate');
     expect(brief).toContain('Can you try checkout on a phone?');
     expect(brief).toContain(`"teammate:${ada.id}"`);
     // The person reads the chat; "It's with the person for review" read as
@@ -99,8 +99,8 @@ describe('teammates through the store', () => {
 
     const posted = core.teamPost({ text: 'Found one: Buy twice charges twice.' });
     expect(posted.to).toEqual([]);
-    const passed = core.teamPass({ to: 'Felix', title: '**Buy twice charges twice**', details: 'Tap Buy twice on a slow connection.' });
-    expect(passed.to).toBe('Felix');
+    const passed = core.teamPass({ to: 'Maintainer', title: '**Buy twice charges twice**', details: 'Tap Buy twice on a slow connection.' });
+    expect(passed.to).toBe('Maintainer');
 
     await tick(Date.now());
     const felixRun = store.listItems().find((i) => teammateIdOf(i) === felix.id);
@@ -166,7 +166,7 @@ describe('teammates through the store', () => {
     await tick(Date.now());
     const adaRun = store.listItems().find((i) => teammateIdOf(i) === ada.id);
     onRun(adaRun.id);
-    core.teamPass({ to: 'Felix', title: 'Fix it', details: 'steps' });
+    core.teamPass({ to: 'Maintainer', title: 'Fix it', details: 'steps' });
     await tick(Date.now());
     const felixRun = store.listItems().find((i) => teammateIdOf(i) === felix.id);
     const { updateItem } = await import('../mcp/core/work.mjs');
@@ -268,9 +268,9 @@ describe('teammates through the store', () => {
     const ada = team.create({ starter: 'quality' });
     const plain = work.createWorkItem(dir, { title: 'Customer call notes', labels: ['founder'] });
     onRun(plain.id);
-    expect(core.teamRoster().team.map((t) => t.name)).toEqual(['Ada']);
-    const passed = core.teamPass({ to: 'Ada', title: 'Signup emails land in spam', details: 'Two customers said so on the call.' });
-    expect(passed.to).toBe('Ada');
+    expect(core.teamRoster().team.map((t) => t.name)).toEqual(['Quality lead']);
+    const passed = core.teamPass({ to: 'Quality lead', title: 'Signup emails land in spam', details: 'Two customers said so on the call.' });
+    expect(passed.to).toBe('Quality lead');
     const line = team.chat().messages.find((m) => m.kind === 'pass');
     // The work is done in the thread's project, not wherever Ada usually works.
     expect(line).toMatchObject({ from: 'you', to: ada.id, via: plain.id, viaProduct: product.id, product: product.id });
@@ -282,7 +282,7 @@ describe('teammates through the store', () => {
     expect(run.body).toMatch(/^One of your threads passed you this/);
     const lines = work.readLinesFrom(dir).lines.filter((l) => l.id === run.id);
     expect(threadEvents(lines).find((e) => e.field === 'body')?.who).not.toBe('you');
-    core.teamPost({ text: '@Ada the customer was on Gmail' });
+    core.teamPost({ text: '@Quality lead the customer was on Gmail' });
     expect(team.chat().messages.at(-1)).toMatchObject({ from: 'you', to: [ada.id], via: plain.id });
     // What only a teammate has stays a teammate's.
     expect(() => core.teamRemember({ text: 'x' })).toThrow(/not a teammate/);
@@ -296,7 +296,7 @@ describe('teammates through the store', () => {
     team.post({ text: 'go', to: [ada.id] });
     await tick(Date.now());
     onRun(store.listItems().find((i) => teammateIdOf(i) === ada.id).id);
-    expect(() => core.teamPass({ to: 'Ada', title: 'x' })).toThrow(/not to yourself/);
+    expect(() => core.teamPass({ to: 'Quality lead', title: 'x' })).toThrow(/not to yourself/);
     expect(() => core.teamPass({ to: 'Zelda', title: 'x' })).toThrow(/no teammate called Zelda/);
   });
 
@@ -326,8 +326,8 @@ describe('teammates through the store', () => {
     team.post({ text: 'go', to: [ada.id] });
     await tick(Date.now());
     onRun(store.listItems().find((i) => teammateIdOf(i) === ada.id).id);
-    core.teamPass({ to: 'Felix', title: 'first', details: '' });
-    core.teamPass({ to: 'Felix', title: 'second', details: '' });
+    core.teamPass({ to: 'Maintainer', title: 'first', details: '' });
+    core.teamPass({ to: 'Maintainer', title: 'second', details: '' });
     await tick(Date.now());
     const runs = store.listItems().filter((i) => teammateIdOf(i) === felix.id).sort((a, b) => a.createdAt - b.createdAt);
     expect(runs.map((r) => [r.title, r.start ?? 'now'])).toEqual([['first', 'now'], ['second', 'later']]);

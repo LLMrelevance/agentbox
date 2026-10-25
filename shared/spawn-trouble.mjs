@@ -62,7 +62,7 @@
 // would be this app telling her to do the one thing it refuses to do.
 import { NAME, Name } from '../shared/product-name.mjs';
 import { harnessDefinition } from './harness-definitions.mjs';
-import { instantIn, wallIn } from './usage.mjs';
+import { instantIn, resetDay, wallIn } from './usage.mjs';
 
 // A CLAUDE CODE TOO OLD FOR THE LINE AGENTBOX STARTS IT WITH. Its argument
 // parser refuses the line before a single request, in one of two shapes,
@@ -331,6 +331,14 @@ function clockWords(h, min) {
   return `${h % 12 || 12}${min ? `:${String(min).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
 }
 
+// "3:15pm" today, "Wed 2:30pm" this week, "Wed Oct 28 1:05pm" further out,
+// the same day words the account meters use.
+function momentWords(ms, from) {
+  const d = new Date(ms);
+  const day = resetDay(ms, from);
+  return `${day ? `${day} ` : ''}${clockWords(d.getHours(), d.getMinutes())}`;
+}
+
 // WHEN THE LIMIT LETS GO, IN THE CLOCK SHE IS LOOKING AT.
 //
 // carries the one thing she actually wants to know, and we were throwing it
@@ -342,7 +350,12 @@ function clockWords(h, min) {
 // there.
 export function limitResetsAt(raw, from = Date.now()) {
   const clock = resetClock(raw);
-  if (!clock) return null;
+  if (!clock) {
+    // A reset on another day ("resets Oct 22 at 4pm", Codex's "try again at
+    // Oct 28th, 2026 1:05 PM") has no bare hour to quote.
+    const moment = limitResetMoment(raw, from);
+    return moment == null ? null : momentWords(moment, from);
+  }
   if (clock.offset == null) return clockWords(clock.h, clock.min);
   const at = new Date(limitResetMoment(raw, from));
   return clockWords(at.getHours(), at.getMinutes());
@@ -771,7 +784,10 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
 // `partway` is a run that was picking up a thread an earlier run worked on: it
 // may have done nothing itself, but the task has been started. A cause with no
 // partway words stopped this run before it began, and keeps its own opener.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null } = {}) {
+//
+// `retryAt` is when the rest ladder starts it again (`restingUntil` in
+// main/supervisor.mjs), named only on the causes that wait for nothing else.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null, retryAt = null, now = Date.now() } = {}) {
   if (usedATool && !WORKED_OPENERS[cause]) cause = 'unknown';
   const worked = usedATool || (partway && !!WORKED_OPENERS[cause]);
   // A LIMIT IS A FACT ABOUT ONE LOGIN, so that is the one cause whose opener
@@ -790,6 +806,7 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
     return `${opener}${again} ${fix ? `${fix} Then reply` : 'Reply'} here to start it again.`;
   }
 
+  const when = retryAt > now ? ` at ${momentWords(retryAt, now)}` : '';
   // THE TIME THE LIMIT PRINTED, when there is one. "when the limit resets"
   // leaves her with a question; "at 6pm" is an answer, and it is the CLI's own
   // word for it rather than anything we worked out.
@@ -810,7 +827,7 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       : cause === 'open-elsewhere'
       ? ` Close it there and ${Name} tries again on its own.`
       : cause === 'interrupted'
-        ? ` ${Name} runs it again on its own.`
+        ? ` ${Name} runs it again on its own${when}.`
         : cause === 'model-not-on-plan'
           ? (planEnded
             ? ` That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
@@ -820,10 +837,10 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
         : cause === 'network'
           ? ` It will keep failing until this is fixed: if your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`
         : worked
-          ? ` ${Name} tries it again on its own.`
+          ? ` ${Name} tries it again on its own${when}.`
         : cause === 'workspace'
           ? ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`
-        : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own.`;
+        : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own${when}.`;
 
   return `${opener}${again}${next}`;
 }

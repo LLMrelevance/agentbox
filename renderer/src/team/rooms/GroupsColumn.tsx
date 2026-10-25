@@ -1,10 +1,11 @@
 // The Groups page's own column of every group, the header over it and over
 // the open group, and the finder G opens from anywhere (w-dcaa2c122e).
-import { useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import type { GroupChoice } from './GroupList';
 import { GroupMark } from './GroupList';
 import { I } from './icons';
 import { updatedWords } from '../../threads/page-rules';
+import { ChatsColumn, ChatsContext } from '../../teammates/ChatsColumn';
 
 /** Groups whose name matches, the name's start first, then a word's start, then anywhere in it.
  *  Names only: what was said last matches nearly every group. */
@@ -22,6 +23,8 @@ export function findGroups<T extends { name: string }>(rows: T[], q: string): T[
 
 /** Every group down the page's left, the open one lit; something new is a dot at the row's end. */
 export function GroupsColumn({ rows, current, now, onOpen }: { rows: GroupChoice[]; current: string | null; now: number; onOpen: (key: string) => void }) {
+  // With teammates on, this column is the Chats list.
+  if (useContext(ChatsContext)) return <ChatsColumn current={current} />;
   return <aside className="gc-list" aria-label="Groups">{rows.map((g) => {
     const on = g.key === current;
     const fresh = g.unread && !on;
@@ -37,8 +40,9 @@ export function GroupsColumn({ rows, current, now, onOpen }: { rows: GroupChoice
 
 /** The top bar over both: Groups and the finder's button over the column, the open group's name over its chat. */
 export function GroupsHead({ current, onFind }: { current: GroupChoice | undefined; onFind: () => void }) {
+  const chats = !!useContext(ChatsContext);
   return <div className="gc-head">
-    <div className="gc-head-col"><span className="workspace-title gc-col-title">Groups</span>
+    <div className="gc-head-col"><span className="workspace-title gc-col-title">{chats ? 'Chats' : 'Groups'}</span>
       <button type="button" className="gc-find" aria-label="Find a group" title="Find a group (G)" onClick={onFind}>{I.search()}<kbd>G</kbd></button></div>
     <h1 className="workspace-title gc-head-group">
       {current && (current.faces.length ? <GroupMark g={current} size={20} /> : <span className="gt-hh">{I.hash(15)}</span>)}
