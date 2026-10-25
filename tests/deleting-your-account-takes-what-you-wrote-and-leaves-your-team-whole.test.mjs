@@ -12,7 +12,7 @@
 // in shared projects too; a project or team other people still use is handed
 // to one of them; one nobody else uses goes. Run here against every migration
 // in PGlite, with a stand-in for Supabase's auth schema.
-import { it, expect, beforeEach, describe } from 'vitest';
+import { it, expect, beforeEach, afterEach, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -64,6 +64,7 @@ beforeEach(async () => {
     insert into public.phone_projects (owner, device, project, name) values ('${ME}', 'a1b2c3d4e5f6', 'p', 'P'), ('${MATE}', 'a1b2c3d4e5f6', 'p', 'P');
   `);
 });
+afterEach(() => db.close());
 
 describe('deleting your account', () => {
   it('takes you and everything you wrote, in shared projects too', async () => {
