@@ -118,6 +118,13 @@ export function workingLine(
   return { state: 'working', text: session.activity?.at(-1)?.label?.trim() || run, aside: elapsed < 60_000 ? 'just started' : `${spanLabel(elapsed)} in` };
 }
 
+// A run's first line. Its teammate's queue letting it go is not an agent
+// having it: until a session exists it is waiting, as the live line says.
+export function startWord(r: Pick<TeamRunLine, 'teammate' | 'item'>, team: Pick<Teammate, 'id' | 'running'>[], sessions: ReadonlyMap<string, unknown>): string {
+  const mate = team.find((x) => x.id === r.teammate);
+  return mate?.running?.id === r.item && !sessions.has(r.item) ? 'Waiting to start' : 'Picked up';
+}
+
 // The same line in the team chat, said of the teammate by name: a step that
 // starts with a verb in -ing follows "is", and anything else is what it is on.
 export function teamWorkingLine(name: string, line: { state: 'working' | 'waiting'; text: string }): { lead: string; text: string } {

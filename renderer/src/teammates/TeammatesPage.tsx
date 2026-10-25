@@ -10,7 +10,7 @@ import { GREETING, MAX_HOPS, STARTERS, TEAMMATE_EFFORT, starterAsks } from '../.
 import { ModelPicker } from '../components/Model';
 import type { ModelChoice } from '../models';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatWith, clockOf, dayOf, firstSentence, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, titleAside, workingLine, type ChatEntry } from './chat-lines';
+import { answerTo, chatWith, clockOf, dayOf, firstSentence, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, startWord, titleAside, workingLine, type ChatEntry } from './chat-lines';
 import { ChatsColumn } from './ChatsColumn';
 import { nowLine, TeammateMark } from './TeammatesRail';
 import './teammates.css';
@@ -147,7 +147,7 @@ export function TeammatesPage({ view, open, products, engines, onOpen, onOpenThr
       <ChatColumn view={view} team={team} t={t} me={me} mePic={mePic} call={call} sessions={sessions} onOpen={onOpen} onOpenThread={onOpenThread}
         placeholder={t.status === 'draft' ? `Answer ${t.name === 'New teammate' ? 'your new teammate' : t.name}` : `Message ${t.name}`} error={error} />
       {shown.kind === 'log'
-        ? <LogPanel view={view} team={team} t={t} call={call} onClose={() => onOpen(t.id)} onOpenThread={onOpenThread} />
+        ? <LogPanel view={view} team={team} t={t} sessions={sessions} call={call} onClose={() => onOpen(t.id)} onOpenThread={onOpenThread} />
         : details && <Details t={t} view={view} products={products} engines={engines} models={models} call={call} onOpen={onOpen} />}
     </>;
   }
@@ -189,7 +189,7 @@ function ChatColumn({ view, team, t, me, mePic, call, sessions, onOpen, onOpenTh
       rows.push(<SentCard key={e.id} r={r} t={t} lead={prevFrom !== t.id} onOpen={() => onOpenThread(r.product, r.item)} />);
       prevFrom = t.id;
     } else {
-      rows.push(<Activity key={e.id} e={e} view={view} team={team} only={t} call={call} onOpenThread={onOpenThread} />);
+      rows.push(<Activity key={e.id} e={e} view={view} team={team} only={t} sessions={sessions} call={call} onOpenThread={onOpenThread} />);
       // A message after an activity line says who it is from again.
       prevFrom = '';
     }
@@ -275,7 +275,7 @@ function LiveRow({ t, session, onOpen }: { t: Teammate; session: RunningSession 
   </div>;
 }
 
-function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; view: TeammatesView | null; team: Teammate[]; only: Teammate | null; call: Call; onOpenThread: (product: string, id: string) => void }) {
+function Activity({ e, view, team, only, sessions, call, onOpenThread }: { e: ChatEntry; view: TeammatesView | null; team: Teammate[]; only: Teammate | null; sessions: ReadonlyMap<string, RunningSession>; call: Call; onOpenThread: (product: string, id: string) => void }) {
   const who = only ? '' : `${nameOf(e.kind === 'run' ? e.teammate : e.from, team)} `;
   const time = <em>{clockOf(e.ts)}</em>;
   if (e.kind === 'run') {
@@ -290,7 +290,7 @@ function Activity({ e, view, team, only, call, onOpenThread }: { e: ChatEntry; v
     }
     if (r.verb === 'queued') return <div className="tq-act tq-next">{ICON.dots}<span><span className="v">Next</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
     if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">Finished</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
-    return <div className="tq-act">{ICON.dots}<span><span className="v">Picked up</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
+    return <div className="tq-act">{ICON.dots}<span><span className="v">{startWord(r, team, sessions)}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
   }
   const c = e as TeamChatLine;
   if (c.kind === 'pass') {
@@ -337,14 +337,14 @@ function Composer({ placeholder, onSend }: { placeholder: string; onSend: (text:
 }
 
 /* ------------------------------------------------------------------- log */
-function LogPanel({ view, team, t, call, onClose, onOpenThread }: { view: TeammatesView | null; team: Teammate[]; t: Teammate; call: Call; onClose: () => void; onOpenThread: (product: string, id: string) => void }) {
+function LogPanel({ view, team, t, sessions, call, onClose, onOpenThread }: { view: TeammatesView | null; team: Teammate[]; t: Teammate; sessions: ReadonlyMap<string, RunningSession>; call: Call; onClose: () => void; onOpenThread: (product: string, id: string) => void }) {
   const lines = logOf(view, t.id);
   return <aside className="gr-side tq-side tq-log" aria-label={`${t.name}'s log`}>
     <div className="tq-sh">Log<button type="button" className="tq-edit" onClick={onClose}>Close</button></div>
     {lines.length
       ? lines.flatMap((e, i) => {
         const day = dayOf(e.ts);
-        const row = <Activity key={e.id} e={e} view={view} team={team} only={t} call={call} onOpenThread={onOpenThread} />;
+        const row = <Activity key={e.id} e={e} view={view} team={team} only={t} sessions={sessions} call={call} onOpenThread={onOpenThread} />;
         return i === 0 || dayOf(lines[i - 1].ts) !== day ? [<div key={`day-${e.id}`} className="tq-log-day">{day}</div>, row] : [row];
       })
       : <p className="tq-empty">Nothing yet. What it does and says to other teammates shows here.</p>}
