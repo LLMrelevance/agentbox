@@ -160,6 +160,10 @@ function ChatColumn({ view, team, t, me, mePic, call, sessions, onOpen, onOpenTh
       const lead = e.from !== prevFrom;
       rows.push(<Message key={e.id} m={e} team={team} me={me} mePic={mePic} lead={lead} call={call} onOpenThread={onOpenThread} answered={answerTo(view, e)} />);
       prevFrom = e.from;
+    } else if (e.kind === 'run' && e.verb === 'sent') {
+      const r = e as TeamRunLine;
+      rows.push(<SentCard key={e.id} r={r} t={t} lead={prevFrom !== t.id} onOpen={() => onOpenThread(r.product, r.item)} />);
+      prevFrom = t.id;
     } else {
       rows.push(<Activity key={e.id} e={e} view={view} team={team} only={t} call={call} onOpenThread={onOpenThread} />);
       // A message after an activity line says who it is from again.
@@ -175,6 +179,38 @@ function ChatColumn({ view, team, t, me, mePic, call, sessions, onOpen, onOpenTh
     {!error && (view?.trouble || view?.error) && <p className="tq-error" role="status">{view?.trouble ?? `Teammates could not be read: ${view?.error}`}</p>}
     <Composer placeholder={placeholder} onSend={async (text) => (await call('post', { text, to: [t.id] })) !== false} />
   </div>;
+}
+
+// What it sent you, as a card in its own voice: what it is about, whether it
+// waits on you, and a button that opens the thread.
+function SentCard({ r, t, lead, onOpen }: { r: TeamRunLine; t: Teammate; lead: boolean; onOpen: () => void }) {
+  return <div className={`rm-cm tq-m${lead ? '' : ' tq-cont'}`}>
+    {lead && <div className="h"><TeammateMark t={t} size="pic" /><span>{t.name}</span><em>{clockOf(r.ts)}</em></div>}
+    <div className="tx"><div className="tq-card">
+      <div className="q">{r.title}</div>
+      <div className="btns"><button type="button" className="tq-btn pri" onClick={onOpen}>Open it</button></div>
+      <div className="def">{r.waiting ? <><i className="tq-dot-need" aria-hidden="true" />Waiting on you</> : r.answered ? 'You answered it' : 'Done'}</div>
+    </div></div>
+  </div>;
+}
+
+// One choice from a few, behind its current value, in the app's own small menu.
+function PickOne({ value, options, onPick, label }: { value: string; options: { id: string; label: string }[]; onPick: (id: string) => void; label: string }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e: MouseEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [open]);
+  const shown = options.find((o) => o.id === value)?.label ?? value;
+  return <span className="compose-word-wrap tq-pick" ref={wrap}>
+    <button type="button" className="compose-word set" aria-haspopup="listbox" aria-expanded={open} aria-label={label} onClick={() => setOpen((o) => !o)}>{shown}</button>
+    {open && <span className="prio-menu" role="listbox" aria-label={label}>
+      {options.map((o) => <button key={o.id} type="button" role="option" aria-selected={o.id === value} className={`prio-menu-row${o.id === value ? ' on' : ''}`} onClick={() => { setOpen(false); if (o.id !== value) onPick(o.id); }}><span className="prio-menu-label">{o.label}</span></button>)}
+    </span>}
+  </span>;
 }
 
 function Saved({ onSee }: { onSee: () => void }) {
@@ -321,7 +357,7 @@ function About({ t, view, products, engines, models, call, error, onOpen }: { t:
         {engines.length > 1 && <><dt>Runs on</dt><dd className="tq-chips">{engines.map((e) => <button key={e.id} type="button" className={`tq-chip${(t.engine ?? '') === e.id ? ' on' : ''}`} onClick={() => keep({ engine: e.id })}>{e.label}</button>)}</dd></>}
         <dt>Works in</dt>
         <dd>{real.length > 1
-          ? <span className="tq-chips">{real.map((p) => <button key={p.slug} type="button" className={`tq-chip${p.slug === t.product ? ' on' : ''}`} onClick={() => keep({ product: p.slug })}>{p.name}</button>)}</span>
+          ? <PickOne value={t.product} label="Works in" options={real.map((p) => ({ id: p.slug, label: p.name }))} onPick={(slug) => keep({ product: slug })} />
           : product?.name ?? t.product}</dd>
         <dt>On its own</dt>
         <dd>{t.duties?.length
