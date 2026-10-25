@@ -32,7 +32,6 @@ import { onPhone } from '../phone-screen';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
-import { NeoSettings } from '../neo/NeoSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
@@ -1542,8 +1541,6 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
-    // The orb, the one thing of Neo's that is already on screen.
-    neo: <><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="8.5" opacity="0.45" /></>,
     alpha: <><path d="M9.5 3.5h5M10.5 3.5v5.2L5.6 17.6a2 2 0 0 0 1.8 2.9h9.2a2 2 0 0 0 1.8-2.9l-4.9-8.9V3.5" /><path d="M7.6 14.5h8.8" /></>,
     rooms: <path d="M9.5 4.5 7.5 19.5M16.5 4.5l-2 15M5 9.5h14.5M4.5 14.5H19" />,
   };
@@ -1556,7 +1553,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
 
 /** The page an old link or a ⌘K row names, read the way it always was: every
  *  name the screen has ever used still opens the page its content went to. */
-function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
+function paneFrom(want: string, has: { team: boolean }): Pane {
   if (want.startsWith('project:')) return { project: want.slice('project:'.length) };
   if (want === 'themes') return 'appearance';
   if (want === 'priority') return 'projects';
@@ -1565,14 +1562,13 @@ function paneFrom(want: string, has: { team: boolean; neo?: boolean }): Pane {
   if (want === 'accounts') return 'claude';
   if (want === 'agents') return 'running';
   if (want === 'team') return has.team ? 'team' : 'general';
-  if (want === 'neo') return has.neo ? 'neo' : 'general';
   if (SETTINGS_PAGES.some((p) => p.id === want)) return want as SettingsPageId;
   return 'general';
 }
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, neoOn = false, projectShare, projectWho, account, phoneCloud, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1613,9 +1609,6 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   /** Team management, handed in by whoever has the team's state. Absent on a
    *  build with no team cloud, and then there is no Team row either. */
   teamPane?: ReactNode;
-  /** Whether this Mac has Neo, the voice alpha (main/neo/gate.mjs). No Neo,
-   *  no Neo page and nothing in the search that points at one. */
-  neoOn?: boolean;
   /** WHO SEES A PROJECT'S THREADS (w-b989839656), handed in the same way:
    *  the button beside a project's name, and the Projects list's column.
    *  Absent with nobody signed in, and then neither is drawn. */
@@ -1649,11 +1642,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // a way in Settings for me to configure [notifications]" (2026-10-12). The
   // page was there, a tab along a strip that opened on General.
   const asked = startPane || new URLSearchParams(location.search).get('settings') || (onPhone() ? 'phone' : '');
-  const [pane, setPane] = useState<Pane>(() => paneFrom(asked, { team: !!teamPane, neo: neoOn }));
-  // The Neo gate is a question for the main process, so it answers after this
-  // screen is already up and ?settings=neo would land on General and stay
-  // there. Asked for and now available means go.
-  useEffect(() => { if (neoOn && asked === 'neo' && pane === 'general') setPane('neo'); }, [neoOn]);
+  const [pane, setPane] = useState<Pane>(() => paneFrom(asked, { team: !!teamPane }));
   // WHICH PAGE IS UP, for the window around this screen.
   useEffect(() => {
     onSectionChange?.(typeof pane === 'object' ? 'projects' : pane === 'general' ? null : pane);
@@ -1778,8 +1767,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const twoEngines = engineRows.length > 1;
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
-   *  a build with a team cloud; Neo only where the voice alpha is on. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'neo' || neoOn) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane));
+   *  a build with a team cloud. */
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -2098,10 +2087,6 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
         {/* TEAM MANAGEMENT (w-8415594d19). It does not wait on `model`, because
             nothing on it comes from the settings file. */}
-        {/* NEO (w-6a1c405642). Its own file under renderer/src/neo, and it
-            asks main for everything on it, so nothing here comes from the
-            settings file either. */}
-        {pane === 'neo' && neoOn && <NeoSettings />}
         {pane === 'cloud' && cloudPlans && <CloudPlansPage signedIn={cloudPlans.signedIn} onSignIn={cloudPlans.onSignIn} />}
 
         {pane === 'rooms' && roomsPane && (
@@ -2140,9 +2125,6 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         {model && w && pane === 'alpha' && (
           <Page title="Alpha features" lede="Early features you can try before they are finished. They may change or go away.">
             <Group id="alpha">
-              <Row label="Neo" desc="A voice you wake by tapping ⌘ twice. Takes effect after a restart.">
-                <Switch label="Neo" on={!!w.alpha?.neo} onChange={(v) => setWorkspace('alphaNeo', v)} />
-              </Row>
               <Row label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in.">
                 <Switch label="Rooms" on={!!w.alpha?.rooms} onChange={(v) => setWorkspace('alphaRooms', v)} />
               </Row>

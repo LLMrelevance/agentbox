@@ -32,7 +32,7 @@ const model = () => ({
     ] },
     codexModels: [], codexModelDefault: null, codexModel: null, codexMode: 'auto',
     permission: 'auto', permissionArgs: ['--permission-mode', 'auto'], cloudPermission: 'bypassPermissions', cloudCodexMode: 'full-access',
-    diagnostics: true, diagnosticsDestination: true, adhdMode: true, alpha: { neo: false, rooms: true }, cornerTag: true, outsideAgents: 'waiting',
+    diagnostics: true, diagnosticsDestination: true, adhdMode: true, alpha: { rooms: true }, cornerTag: true, outsideAgents: 'waiting',
     accounts: [
       { profile: 'default', email: 'me@example.com', accountUuid: 'u-1', chosen: false, label: 'default', dir: null, live: true, state: 'live', trouble: null, running: 1, plan: { label: 'Max 20x', max: true } },
       { profile: `${HOME}/.claude-2`, email: 'work@example.com', accountUuid: 'u-2', chosen: true, label: '.claude-2', dir: `${HOME}/.claude-2`, live: false, state: 'limited', trouble: { cause: 'limited', note: 'Out of usage until 6:19pm.' }, running: 0, plan: null },
@@ -53,7 +53,7 @@ describe('what the phone is sent', () => {
   it('carries what the phone\'s pages draw', () => {
     expect(sent.v).toBe(SETTINGS_VERSION);
     expect(sent.version).toBe('1.2.3');
-    expect(sent.workspace).toMatchObject({ cornerTag: true, diagnostics: true, adhdMode: true, alpha: { neo: false, rooms: true }, outsideAgents: 'waiting', permission: 'auto', codexMode: 'auto', agentsAuto: true, sessionsAtOnce: 4, agentsTotal: 5, slotsMax: 12, running: 2 });
+    expect(sent.workspace).toMatchObject({ cornerTag: true, diagnostics: true, adhdMode: true, alpha: { rooms: true }, outsideAgents: 'waiting', permission: 'auto', codexMode: 'auto', agentsAuto: true, sessionsAtOnce: 4, agentsTotal: 5, slotsMax: 12, running: 2 });
     expect(sent.workspace.memoryGate).toEqual({ on: true, slots: null, slotsAuto: 3, slotsMax: 8, now: 'Memory is fine. Nothing heavy running.' });
     expect(sent.workspace.engines).toEqual(['claude', 'codex']);
     expect(sent.workspace.claude).toEqual({ found: true });

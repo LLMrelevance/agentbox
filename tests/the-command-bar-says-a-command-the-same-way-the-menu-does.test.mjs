@@ -48,7 +48,7 @@ describe('a command offered in both places', () => {
   // headline case. One capital at the front, and after that only a word the
   // app capitalises everywhere (a Mac, a tab, a tool, a person's product).
   it('is written as a sentence, like every other row in the list', () => {
-    const PROPER = /^(Mac|Claude|Codex|Neo|Agentbox|Inbox|Later|Done|Team|Light|Dark|Code)$/;
+    const PROPER = /^(Mac|Claude|Codex|Agentbox|Inbox|Later|Done|Team|Light|Dark|Code)$/;
     for (const label of [...Object.values(bar), ...Object.values(menu)]) {
       for (const word of label.replace('…', '').split(' ').slice(1)) {
         expect(/^[A-Z]/.test(word) && !PROPER.test(word), `${label}: ${word}`).toBe(false);

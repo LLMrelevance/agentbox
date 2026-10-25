@@ -1,4 +1,4 @@
-// Getting Neo the microphone with one press.
+// Getting the microphone with one press, for a voice note.
 //
 // macOS asks on behalf of the app that opened Agentbox (Terminal, when it is
 // run from a checkout), and once that app has been refused it never shows its

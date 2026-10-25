@@ -48,10 +48,10 @@ describe('what Z says when it is too late', () => {
 });
 
 describe('the wiring in App.tsx', () => {
-  // Every place a task is made: the new-thread card, and Neo's compose.
+  // Every place a task is made.
   it('reads the row fresh before taking a new task back, and refuses when it is answered, everywhere a task is made', () => {
     const places = [...app.matchAll(/'take back the task you just made'/g)].map((m) => m.index);
-    expect(places.length).toBeGreaterThanOrEqual(2);
+    expect(places.length).toBeGreaterThanOrEqual(1);
     for (const at of places) {
       const near = app.slice(at, at + 900);
       expect(near).toMatch(/api\.snapshot\(\)/);

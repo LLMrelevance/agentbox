@@ -9115,48 +9115,6 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
 
-/* NEO, the voice alpha (w-e85fd9144f). The glow on what Neo just did:
-   bloom plus lit from within, at the softer strength approved on 2026-10-15,
-   with a quiet dust halo drawn by renderer/src/neo/glow.ts. A layer of its
-   own over the app, so no section's styles know about it. */
-.neo-glow { position: fixed; z-index: 9000; pointer-events: none; transition: opacity .7s ease; }
-.neo-glow.neo-glow-out { opacity: 0; }
-.neo-glow-bloom, .neo-glow-core { position: absolute; inset: 0; border-radius: var(--radius); animation: neo-breathe 2.6s ease-in-out infinite alternate; }
-.neo-glow-bloom { box-shadow: 0 0 0 1px rgba(255,214,170,.12), 0 0 26px 4px rgba(255,176,120,.15), 0 0 80px 18px rgba(255,176,120,.06); }
-.neo-glow-core { background: radial-gradient(ellipse at 50% 50%, rgba(255,200,140,.06), rgba(255,176,120,.02) 70%, transparent);
-  box-shadow: inset 0 0 34px rgba(255,176,120,.12), inset 0 0 0 1px rgba(255,214,170,.18); }
-.neo-halo { position: absolute; pointer-events: none; }
-@keyframes neo-breathe { from { filter: brightness(.88); } to { filter: brightness(1.1); } }
-/* While Neo is on, the summary's Status, Priority and Owner block steps back,
-   because the orb rests on top of it, and comes forward when the orb is
-   dragged off it (renderer/src/neo/orb-cover.ts says which).
-   It used to come forward on hovering the panel, and the orb sits in that
-   panel's own corner, so reaching for the orb brought the whole block back
-   underneath it (w-5520063011). */
-body.neo-on .ts-panel .ts-foot { opacity: 0; transition: opacity .4s ease; }
-body.neo-on.neo-orb-away .ts-panel .ts-foot { opacity: 1; }
-
-/* Neo's "show" (renderer/src/neo/show.ts): pictures from the open thread over
-   the app, lifted, side by side or full screen. */
-.neo-show { position: fixed; inset: 0; z-index: 9500; display: flex; align-items: center; justify-content: center;
-  background: rgba(10, 8, 7, .72); opacity: 0; transition: opacity .25s ease; }
-.neo-show.in { opacity: 1; }
-.neo-show-full-screen { background: rgba(8, 7, 6, .96); }
-.neo-show-row { display: flex; gap: 24px; align-items: center; justify-content: center; max-width: 92vw; max-height: 86vh; }
-.neo-show-full-screen .neo-show-row { max-width: 98vw; max-height: 94vh; gap: 16px; }
-.neo-show-cell { margin: 0; display: flex; flex-direction: column; gap: 10px; min-width: 0; flex: 1 1 0; align-items: center; }
-.neo-show-cell img { display: block; max-width: 100%; max-height: 78vh; object-fit: contain; border-radius: var(--radius);
-  box-shadow: 0 0 0 1px rgba(255, 214, 170, .12), 0 0 26px 4px rgba(255, 176, 120, .12), var(--shadow-lg); }
-.neo-show-lifted .neo-show-cell img { max-height: 80vh; max-width: 80vw; }
-.neo-show-full-screen .neo-show-cell img { max-height: 88vh; box-shadow: none; }
-.neo-show-cell figcaption { font: 500 10px/1 'Geist Mono', ui-monospace, monospace; letter-spacing: .16em; text-transform: uppercase; color: var(--text-faint); }
-/* Neo's own pick: beside the thread, never over it. No backdrop, and only the
-   panel takes the pointer, so the app under it stays usable. */
-.neo-show.neo-show-peek { inset: auto; top: 72px; right: 24px; width: min(520px, 34vw); max-height: calc(100vh - 260px); background: none; pointer-events: none; display: block; }
-.neo-show-peek .neo-show-row { flex-direction: column; gap: 12px; max-width: none; max-height: none; pointer-events: auto; padding: 12px; overflow-y: auto; max-height: calc(100vh - 260px);
-  background: var(--surface); border: 1px solid rgba(255, 214, 170, .12); border-radius: var(--radius); box-shadow: var(--shadow-lg); }
-.neo-show-peek .neo-show-cell img { max-height: 32vh; box-shadow: 0 0 0 1px rgba(255, 214, 170, .1); }
-
 /* A picture opened from a thread (components/PictureView.tsx), full screen over the app.
    It is a dark room in every theme, like the reader: the picture is what is lit, so the
    ink is --read-paper rather than --text, which turns nearly black on the light theme.

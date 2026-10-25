@@ -1,7 +1,7 @@
 // The app: the agent inbox. Electron shell around a keyboard-first renderer, a
 // file-derived store, and a supervisor of headless sessions.
 
-import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage, systemPreferences, globalShortcut } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, crashReporter, dialog, ipcMain, nativeImage, net, powerMonitor, protocol, screen as electronScreen, shell, session, safeStorage, systemPreferences } from 'electron';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
 import { roomsSetup } from './team/room-setup.mjs';
@@ -46,8 +46,6 @@ import { learnShellDataDirs, recoverShellPath } from './shell-path.mjs';
 import { installNotifier } from './notify.mjs';
 import { createCornerTag } from './corner-tag.mjs';
 import { loadLiquidGlass } from './liquid-glass.mjs';
-import { createNeo } from './neo/index.mjs';
-import { fileReview } from './neo/review.mjs';
 import { DOC_SCHEMES, DocGrants, docPath } from './doc-scheme.mjs';
 import { quietTheFramesScrollbars } from './frame-scrollbars.mjs';
 import { letLocalAppsShowInThePane } from './local-app-frames.mjs';
@@ -58,7 +56,7 @@ import { writeHeldThenReload } from './write-before-reload.mjs';
 import { IS_SHE_TYPING_IN_THE_PAGE, theAppKeepsThisInput, theAppKeepsThisLetterInAPage } from '../shared/artifact-keys.mjs';
 import { NAME, Name, WAS } from '../shared/product-name.mjs';
 import { JOIN_SCHEME, ourLink, tokenFromLink } from '../shared/room-links.mjs';
-import { getMic } from './neo/mic.mjs';
+import { getMic } from './mic.mjs';
 
 // HOW LONG TO WAIT AFTER THE LID OPENS, and the wait is for the network rather
 // than for the wake. `powerMonitor`'s resume event fires while wifi is still
@@ -812,7 +810,7 @@ async function createWindow() {
   // Claude sign-in code (main/ipc.mjs `zero:cloud-clipboard-code`).
   const filingHost = {
     ipcMain: filingIpcMain, app, dialog, readClipboardText: () => clipboard.readText(),
-    // A voice note asks for the microphone on the press of its button, the way Neo does.
+    // A voice note asks for the microphone on the press of its button.
     micAccess: () => (process.platform === 'darwin'
       ? getMic({ systemPreferences, openExternal: (url) => shell.openExternal(url) })
       : 'granted'),
@@ -1036,25 +1034,6 @@ async function createWindow() {
       const builtTag = path.join(appDir, 'renderer', 'dist', 'corner-tag.html');
       if (devTag && !fs.existsSync(builtTag)) tagWindow.loadURL(`${devTag.replace(/\/$/, '')}/corner-tag.html?part=${part}`);
       else tagWindow.loadFile(builtTag, { search: `part=${part}` });
-    },
-  });
-  // NEO, the voice alpha (w-e85fd9144f). Nothing at all unless its switch in
-  // Alpha features is on (main/neo/gate.mjs).
-  createNeo({
-    app, BrowserWindow, ipcMain, screen: electronScreen, powerMonitor, systemPreferences, session, globalShortcut, shell,
-    mainWindow: window, userData: app.getPath('userData'), config,
-    // Every few minutes of talk goes to a review thread in the project this
-    // app is built from, which patches what went wrong (./neo/review.mjs).
-    onReview: ({ files, seconds }) => {
-      const own = store.listProducts().find((p) => p.repoPath && path.resolve(p.repoPath) === path.resolve(appDir));
-      void fileReview({ files, seconds, product: own?.slug ?? null, channels: phoneChannels, stateFile: path.join(app.getPath('userData'), 'neo', 'review.json') }).catch(() => {});
-    },
-    preload: path.join(appDir, 'main', 'neo', 'preload.cjs'),
-    load: (neoWindow) => {
-      const dev = process.env.ZERO_DEV_URL;
-      const built = path.join(appDir, 'renderer', 'dist', 'neo.html');
-      if (dev && !fs.existsSync(built)) neoWindow.loadURL(`${dev.replace(/\/$/, '')}/neo.html`);
-      else neoWindow.loadFile(built);
     },
   });
   // Asked for once by the renderer as it mounts, rather than pushed on

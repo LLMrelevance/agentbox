@@ -290,8 +290,7 @@ function Alpha() {
   if (!w) return <Aside>{NOT_YET}</Aside>;
   return (
     <Group>
-      <SettingSwitch first label="Neo" desc="A voice you wake by tapping ⌘ twice. Takes effect after a restart." k="alphaNeo" copy={w.alpha.neo} />
-      <SettingSwitch label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in." k="alphaRooms" copy={w.alpha.rooms} />
+      <SettingSwitch first label="Rooms" desc="See the people you work with and their agents, with a chat beside them. Needs a team sign-in." k="alphaRooms" copy={w.alpha.rooms} />
     </Group>
   );
 }

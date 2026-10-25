@@ -2628,22 +2628,6 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   };
   // A note being recorded is a draft: the box stays open round it.
   const hasDraft = !!text.trim() || attachments.length > 0 || recording;
-  // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
-  // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
-  const sendRef = useRef(send);
-  sendRef.current = send;
-  const attachedRef = useRef(attachments);
-  attachedRef.current = attachments;
-  useEffect(() => {
-    const take = (e: Event) => {
-      const { key, text: words, answer } = (e as CustomEvent<{ key: string; text: string; answer: (sent: boolean) => void }>).detail;
-      if (key !== draftKey(item) || !attachedRef.current.length) return;
-      answer(true);
-      void sendRef.current(words);
-    };
-    window.addEventListener('neo:send-from-box', take);
-    return () => window.removeEventListener('neo:send-from-box', take);
-  }, [item.product, item.id]);
   // THE SLASH MENU, AND THE MODE THAT IS ALWAYS ON THE SCREEN.
   //
   // It does. Claude Code has no backslash TRIGGER: `/` opens its commands and
