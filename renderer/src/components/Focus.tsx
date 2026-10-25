@@ -2516,7 +2516,11 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     const { dropped } = saveDraftAttachments(item, attachments);
     setTooBig(dropped.length);
   }, [attachments, item.product, item.id]);
-  useEffect(() => { focusAtEnd(ref.current); }, []);
+  // A layout effect, for the reason the New thread card's is one: R opens this
+  // box inside a keydown, and a passive effect can land after the key behind it
+  // has been dispatched, so that key goes nowhere — or into whatever still had
+  // the keyboard (w-abed8ae491).
+  useLayoutEffect(() => { focusAtEnd(ref.current); }, []);
   // AND IT FOLLOWS THE ROW, not just the first row this box was opened on.
   // `useState(item.answerMode)` is an initial value and React keeps the old one
   // when a mounted composer is handed a different item, so navigating between

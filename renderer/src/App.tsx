@@ -7024,7 +7024,10 @@ export default function App() {
              exactly that), so the draft is still here afterwards and the
              project just made is the one the thread is addressed to. */
           onNewProject={() => setNewProject(true)}
-          onClose={() => { setModal(null); setComposeInitial(null); }}
+          // And this is how the project just made reaches the open card, which
+          // read the remembered slot before that project existed (w-abed8ae491).
+          selectProject={pickProject}
+          onClose={() => { setModal(null); setComposeInitial(null); setPickProject(null); }}
           // THE CARD CLOSES ON SEND, NOT ON THE ANSWER (w-461fbd8d2d). On the
           // web and on a phone the answer is a round trip away, and for that
           // long the card sat there as if Send had not worked. It goes now, the
@@ -7034,6 +7037,7 @@ export default function App() {
           onSending={walkCard ? undefined : (how) => {
             setModal(null);
             setComposeInitial(null);
+            setPickProject(null);
             const later = (how.runAt != null && how.runAt > Date.now()) || how.start === 'later';
             const to = how.kind === 'message'
               ? firstNames(how.toMany ?? [how.to ?? ''])
