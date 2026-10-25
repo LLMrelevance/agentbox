@@ -131,7 +131,7 @@ import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
 import { focusAtEnd } from '../focus-at-end';
 import type { Spot } from '../one-thing-at-a-time';
-import { ChoicesFold, QueueFile, QueueNav, readsInPlace } from './OneThingAtATime';
+import { ChoicesFold, ChoicesShow, QueueFile, QueueNav, readsInPlace } from './OneThingAtATime';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -903,7 +903,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
   // One thing at a time keeps its summary on top of the page, so no panel beside it.
   const page = !!queue || !!onePage;
-  // The choices at the foot fold from a small arrow, and stay folded from thread to thread.
+  // The choices at the foot fold away from a small arrow, leave a sign on the reply box, and stay folded from thread to thread.
   const [choicesFolded, setChoicesFolded] = useState(() => { try { return localStorage.getItem(CHOICES_FOLDED) === '1'; } catch { return false; } });
   const foldChoices = () => setChoicesFolded((was) => {
     const now = !was;
@@ -2090,7 +2090,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
               bare
             />
-            <ChoicesFold folded={choicesFolded} onToggle={foldChoices} />
+            <ChoicesFold onFold={foldChoices} />
           </div>
         )}
         {!sentUp && aboveDock}
@@ -2169,7 +2169,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                that appears when she clicks in, not on a box she has not
                touched, and Done is up in the corner row. The one word it
                carries is the model, at its right end (w-e731ca9376): it says
-               what picks up her next message, which is a fact about the box. */
+               what picks up her next message, which is a fact about the box.
+               And with the choices folded away, the sign that they are there
+               (w-65bcefb857). */
             <button className={`dock-pill${folded.draft ? ' dock-pill-kept' : ''}`} onClick={onReply}>
               <span className="dock-pill-text">{folded.text}</span>
               {folded.files && <span className="dock-pill-files">{folded.files}</span>}
@@ -2181,6 +2183,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                 >{modelWord}</span>
               )}
               <span className="dock-pill-key"><kbd>R</kbd></span>
+              {choicesFolded && page && stripShown && !fullScreenDoc && !closeAsk && <ChoicesShow count={options.length} onShow={foldChoices} />}
             </button>
           )}
         </div>

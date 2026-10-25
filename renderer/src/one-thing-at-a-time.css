@@ -52,17 +52,20 @@
 .one-choices > .opt-strip > .opt-row:first-of-type { padding-top: 7px; }
 .one-choices > .opt-strip > .opt-row:last-child { padding-bottom: 7px; }
 .one-choices .opt-text { -webkit-line-clamp: 1; }
-/* The small arrow in the box's corner folds it to its first choice; the keys pick any of them
-   either way, and one picked out with the arrow keys shows. The rows leave the arrow its room. */
+/* The small arrow in the box's corner folds it away. Folded, the reply box
+   carries the sign that it is there; the keys pick any choice either way, and
+   one picked out with the arrow keys brings the box back. */
 .one-choices { position: relative; }
 .one-choices .opt-row { padding-right: 44px; }
 .one-choices-fold { position: absolute; top: 6px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
   border: none; background: transparent; color: var(--text-faint); border-radius: var(--radius); cursor: pointer; transition: color 0.15s, background 0.15s; }
 .one-choices-fold:hover { color: var(--text); background: var(--wash); }
-.one-choices-fold svg { width: 14px; height: 14px; transition: transform 0.18s; }
-.one-choices-folded .one-choices-fold svg { transform: rotate(180deg); }
-.one-choices-folded .opt-row:not(:first-of-type):not(.selected) { display: none; }
-.one-choices-folded > .opt-strip > .opt-row:first-of-type { padding-bottom: 7px; }
+.one-choices-fold svg { width: 14px; height: 14px; }
+.one-choices-folded:not(:has(.opt-row.selected)) { display: none; }
+.one-choices-show { display: inline-flex; align-items: center; gap: 3px; margin: 0 8px 0 -4px; padding: 3px 6px; border-radius: var(--radius);
+  font: 11px var(--mono); color: var(--text-faint); cursor: pointer; transition: color 0.15s, background 0.15s; }
+.one-choices-show:hover { color: var(--text); background: var(--wash); }
+.one-choices-show svg { width: 13px; height: 13px; }
 .one-choices .opt-row.selected .opt-text { -webkit-line-clamp: unset; }
 
 /* The app's toast, on a thread's page: one line in the bar's empty middle,

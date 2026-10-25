@@ -10,16 +10,20 @@
 // At the foot they no longer scroll away, so the same arrow comes back here,
 // on this page's box only.
 //
-// Folded, the box keeps its first choice. The number keys pick any of them
-// either way, and one picked out with the arrow keys shows. The fold stays
-// from thread to thread, since it is how somebody likes to read.
+// Folded, the box goes altogether and the reply box carries a small sign
+// that it can come back: "don't you think it should add just a little
+// indicator to the input field showing that it's condensed and can be
+// expanded, rather than having a whole single option there?" The number keys
+// pick any choice either way, and one picked out with the arrow keys brings
+// the box back. The fold stays from thread to thread, since it is how
+// somebody likes to read.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { ChoicesFold } from '../renderer/src/components/OneThingAtATime.tsx';
+import { ChoicesFold, ChoicesShow } from '../renderer/src/components/OneThingAtATime.tsx';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -27,26 +31,33 @@ const css = read('renderer/src/one-thing-at-a-time.css');
 const focus = read('renderer/src/components/Focus.tsx');
 const visible = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
-describe('the arrow', () => {
-  const open = renderToStaticMarkup(h(ChoicesFold, { folded: false, onToggle: () => {} }));
-  const shut = renderToStaticMarkup(h(ChoicesFold, { folded: true, onToggle: () => {} }));
+describe('the arrow on the box', () => {
+  const arrow = renderToStaticMarkup(h(ChoicesFold, { onFold: () => {} }));
   it('is the old chevron, with no words on it', () => {
-    expect(open).toContain('<path d="M4 6l4 4 4-4"');
-    expect(visible(open)).toBe('');
+    expect(arrow).toContain('<path d="M4 6l4 4 4-4"');
+    expect(visible(arrow)).toBe('');
+    expect(arrow).toMatch(/aria-label="Fold the choices"/);
   });
-  it('says what it does to a screen reader and whether the choices are open', () => {
-    expect(open).toMatch(/aria-label="Fold the choices" aria-expanded="true"/);
-    expect(shut).toMatch(/aria-label="Show all the choices" aria-expanded="false"/);
-  });
-  it('sits in the box\'s corner and turns over when folded', () => {
+  it('sits in the box\'s corner', () => {
     expect(css).toMatch(/\.one-choices-fold \{[^}]*position: absolute; top: 6px; right: 8px;/);
-    expect(css).toMatch(/\.one-choices-folded \.one-choices-fold svg \{ transform: rotate\(180deg\); \}/);
   });
 });
 
 describe('folded', () => {
-  it('the box keeps its first choice, and one picked out with the keys', () => {
-    expect(css).toMatch(/\.one-choices-folded \.opt-row:not\(:first-of-type\):not\(\.selected\) \{ display: none; \}/);
+  const sign = renderToStaticMarkup(h(ChoicesShow, { count: 3, onShow: () => {} }));
+  it('the box goes, unless a choice is picked out with the keys', () => {
+    expect(css).toMatch(/\.one-choices-folded:not\(:has\(\.opt-row\.selected\)\) \{ display: none; \}/);
+  });
+  it('and the reply box carries a small sign: how many, and an arrow up', () => {
+    expect(visible(sign)).toBe('3');
+    expect(sign).toContain('<path d="M4 10l4-4 4 4"');
+    expect(sign).toMatch(/aria-label="Show the 3 choices"/);
+  });
+  it('at its right end, after the R', () => {
+    expect(focus).toMatch(/<span className="dock-pill-key"><kbd>R<\/kbd><\/span>\s*\{choicesFolded && page && stripShown && !fullScreenDoc && !closeAsk && <ChoicesShow count=\{options\.length\} onShow=\{foldChoices\} \/>\}/);
+  });
+  it('which brings the box back without opening the reply', () => {
+    expect(read('renderer/src/components/OneThingAtATime.tsx')).toMatch(/onClick=\{\(e\) => \{ e\.stopPropagation\(\); onShow\(\); \}\}/);
   });
   it('and the fold stays from thread to thread', () => {
     expect(focus).toMatch(/localStorage\.getItem\(CHOICES_FOLDED\) === '1'/);
@@ -54,11 +65,11 @@ describe('folded', () => {
   });
 });
 
-describe('only on this page\'s box', () => {
+describe('only on this page', () => {
   it('drawn beside the choices at the foot', () => {
-    expect(focus).toMatch(/<div className=\{`one-choices\$\{choicesFolded \? ' one-choices-folded' : ''\}`\}>[\s\S]{0,700}<ChoicesFold folded=\{choicesFolded\} onToggle=\{foldChoices\} \/>/);
+    expect(focus).toMatch(/<div className=\{`one-choices\$\{choicesFolded \? ' one-choices-folded' : ''\}`\}>[\s\S]{0,700}<ChoicesFold onFold=\{foldChoices\} \/>/);
   });
   it('and not inside the options block, which the conversation draws without one', () => {
-    expect(read('renderer/src/components/OptionsOffer.tsx')).not.toMatch(/ChoicesFold|one-choices-fold/);
+    expect(read('renderer/src/components/OptionsOffer.tsx')).not.toMatch(/ChoicesFold|ChoicesShow|one-choices-fold/);
   });
 });

@@ -117,12 +117,26 @@ const chevron = (up: boolean) => (
   </svg>
 );
 
-/** The small arrow in the corner of the choices at the foot: folds them to their first, and back. */
-export function ChoicesFold({ folded, onToggle }: { folded: boolean; onToggle: () => void }) {
+/** The small arrow in the corner of the choices at the foot, which folds them away. */
+export function ChoicesFold({ onFold }: { onFold: () => void }) {
   return (
-    <button type="button" className="one-choices-fold" aria-label={folded ? 'Show all the choices' : 'Fold the choices'} aria-expanded={!folded} onClick={onToggle}>
+    <button type="button" className="one-choices-fold" aria-label="Fold the choices" onClick={onFold}>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
     </button>
+  );
+}
+
+/**
+ * With the choices folded, the sign on the reply box that they are there: how
+ * many, and an arrow to bring them back. It rides inside the box's button, as
+ * the model's name does, so it stops the click from opening the reply.
+ */
+export function ChoicesShow({ count, onShow }: { count: number; onShow: () => void }) {
+  return (
+    <span className="one-choices-show" role="button" tabIndex={-1} aria-label={`Show the ${count} choices`} onClick={(e) => { e.stopPropagation(); onShow(); }}>
+      <span className="one-choices-count">{count}</span>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10l4-4 4 4" /></svg>
+    </span>
   );
 }
 
