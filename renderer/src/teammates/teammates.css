@@ -141,7 +141,7 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 
 /* CHATS: your AI teammates, people and groups in one list. Softer than the
    inbox, as the chat is, with the sections folding. */
-.cx-list { padding: 10px 10px 16px; display: flex; flex-direction: column; gap: 1px; }
+.cx-list { padding: 10px 10px 16px; display: flex; flex-direction: column; gap: 1px; background: var(--bg); }
 .cx-search { display: flex; align-items: center; gap: 8px; height: 32px; margin: 0 2px 6px; padding: 0 10px; border-radius: 6px; background: var(--wash); color: var(--text-faint); }
 .cx-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; font: inherit; font-size: 13.5px; color: var(--text); }
 .cx-search input::placeholder { color: var(--text-faint); }
@@ -182,7 +182,7 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-desc .dim { color: var(--text-faint); }
 .tq-doc .rm-compose.tq-compose { margin: 22px 0 0; }
 .tq-doc .tq-error { margin-left: 0; }
-.gr-side.tq-details { padding: 22px 24px; }
+.gr-side.tq-details { padding: 22px 24px; background: var(--bg); }
 .tq-details dl { display: grid; grid-template-columns: 86px minmax(0, 1fr); column-gap: 14px; row-gap: 16px; margin: 0; font-size: 13.5px; line-height: 20px; }
 .tq-details dt { color: var(--text-faint); }
 .tq-details dd { margin: 0; min-width: 0; color: var(--text); display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
@@ -211,3 +211,27 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 
 .tq-log-day { font: 400 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); margin: 14px 0 6px; }
 .tq-log-day:first-of-type { margin-top: 2px; }
+
+/* The Chats page as drawn in round 6 (designs/w-4bd7b5548b/round-6): softer
+   than the inbox, only here, so a group's own chat keeps its look. */
+.cx-row img, .cx-row .rm-pic { border-radius: 50%; }
+.cx-row .tq { border-radius: 6px; }
+.tq-chats .tq-chat .rm-day { display: flex; align-items: center; gap: 12px; margin: 18px 0 14px; }
+.tq-chats .tq-chat .rm-day::before, .tq-chats .tq-chat .rm-day::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.tq-chats .tq-chat .rm-day .rm-label { font: inherit; font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--text-faint); }
+.tq-chats .tq-chat .rm-cm.tq-m .h > span { font-weight: 600; }
+.tq-chats .tq-chat .rm-cm.tq-m .h em { font-family: inherit; font-size: 12px; letter-spacing: 0; font-style: normal; color: var(--text-faint); }
+.tq-chats .tq-chat .rm-cm.tq-m .h .rm-pic { width: 36px; height: 36px; border-radius: 6px; }
+.tq-chats .tq-chat .rm-cm.tq-m .h .tq-pic { width: 36px; height: 36px; border-radius: 6px; }
+.tq-chats .tq-chip { border-radius: 6px; }
+.tq-chats .tq-doc-id .tq, .tq-chats .tq-title .tq { border-radius: 6px; }
+.tq-card { margin-top: 10px; max-width: 520px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 14px 16px; background: var(--surface); }
+.tq-card .q { font-size: 14px; font-weight: 500; color: var(--text); }
+.tq-card .btns { display: flex; gap: 8px; margin-top: 12px; }
+.tq-card .def { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 12.5px; color: var(--text-faint); }
+.tq-btn { height: 30px; padding: 0 12px; border-radius: 5px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--text); font: inherit; font-size: 13.5px; cursor: default; }
+.tq-btn.pri { background: var(--text); color: var(--surface); border-color: var(--text); }
+.tq-btn.pri:hover { opacity: .9; }
+.tq-dot-need { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.tq-pick { position: relative; }
+.tq-pick .prio-menu { top: calc(100% + 6px); bottom: auto; left: -9px; }
