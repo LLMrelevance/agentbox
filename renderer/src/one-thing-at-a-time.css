@@ -52,6 +52,17 @@
 .one-choices > .opt-strip > .opt-row:first-of-type { padding-top: 7px; }
 .one-choices > .opt-strip > .opt-row:last-child { padding-bottom: 7px; }
 .one-choices .opt-text { -webkit-line-clamp: 1; }
+/* The small arrow in the box's corner folds it to its first choice; the keys pick any of them
+   either way, and one picked out with the arrow keys shows. The rows leave the arrow its room. */
+.one-choices { position: relative; }
+.one-choices .opt-row { padding-right: 44px; }
+.one-choices-fold { position: absolute; top: 6px; right: 8px; display: grid; place-items: center; width: 24px; height: 24px; padding: 0;
+  border: none; background: transparent; color: var(--text-faint); border-radius: var(--radius); cursor: pointer; transition: color 0.15s, background 0.15s; }
+.one-choices-fold:hover { color: var(--text); background: var(--wash); }
+.one-choices-fold svg { width: 14px; height: 14px; transition: transform 0.18s; }
+.one-choices-folded .one-choices-fold svg { transform: rotate(180deg); }
+.one-choices-folded .opt-row:not(:first-of-type):not(.selected) { display: none; }
+.one-choices-folded > .opt-strip > .opt-row:first-of-type { padding-bottom: 7px; }
 .one-choices .opt-row.selected .opt-text { -webkit-line-clamp: unset; }
 
 /* The app's toast, on a thread's page: one line in the bar's empty middle,

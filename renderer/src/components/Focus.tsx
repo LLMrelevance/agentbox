@@ -131,7 +131,7 @@ import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
 import { focusAtEnd } from '../focus-at-end';
 import type { Spot } from '../one-thing-at-a-time';
-import { QueueFile, QueueNav, readsInPlace } from './OneThingAtATime';
+import { ChoicesFold, QueueFile, QueueNav, readsInPlace } from './OneThingAtATime';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -570,6 +570,9 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
+/** Whether the choices at the foot of a thread's page are folded, kept across threads. */
+const CHOICES_FOLDED = 'one.choicesFolded';
+
 export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null, onePage = false }: {
   /** One thing at a time (w-65bcefb857): this thread's place in Needs you and the arrows that walk it. */
   queue?: { spot: Spot; onStep: (dir: 1 | -1) => void } | null;
@@ -900,6 +903,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
   // One thing at a time keeps its summary on top of the page, so no panel beside it.
   const page = !!queue || !!onePage;
+  // The choices at the foot fold from a small arrow, and stay folded from thread to thread.
+  const [choicesFolded, setChoicesFolded] = useState(() => { try { return localStorage.getItem(CHOICES_FOLDED) === '1'; } catch { return false; } });
+  const foldChoices = () => setChoicesFolded((was) => {
+    const now = !was;
+    try { localStorage.setItem(CHOICES_FOLDED, now ? '1' : '0'); } catch { /* storage full or off */ }
+    return now;
+  });
   const summaryOffered = summarised && !openDoc && !page;
   // On this page the line saying where an answer went sits in the bar's empty
   // middle, where it covers nothing and takes no row from the answer.
@@ -2070,7 +2080,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       <div className="focus-dock-inner">
         {/* Under a full screen page they come up with the box instead, below. */}
         {page && stripShown && !fullScreenDoc && !closeAsk && (
-          <div className="one-choices">
+          <div className={`one-choices${choicesFolded ? ' one-choices-folded' : ''}`}>
             <OptionsOffer
               ask={ask} askAll={askAll} options={options}
               peekOption={peekOption} askPeek={askPeek}
@@ -2080,6 +2090,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
               bare
             />
+            <ChoicesFold folded={choicesFolded} onToggle={foldChoices} />
           </div>
         )}
         {!sentUp && aboveDock}

@@ -117,6 +117,15 @@ const chevron = (up: boolean) => (
   </svg>
 );
 
+/** The small arrow in the corner of the choices at the foot: folds them to their first, and back. */
+export function ChoicesFold({ folded, onToggle }: { folded: boolean; onToggle: () => void }) {
+  return (
+    <button type="button" className="one-choices-fold" aria-label={folded ? 'Show all the choices' : 'Fold the choices'} aria-expanded={!folded} onClick={onToggle}>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+    </button>
+  );
+}
+
 export function QueueNav({ spot, onStep }: { spot: Spot; onStep: (dir: 1 | -1) => void }) {
   return (
     <span className="one-nav">
