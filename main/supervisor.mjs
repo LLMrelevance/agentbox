@@ -8348,8 +8348,8 @@ export class Supervisor {
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
-      // do its job at all. Same spool, same shape, same fifteen minutes as a
-      // Claude Code worker's (main/codex-approvals.mjs).
+      // do its job at all. Same spool, same shape, and the same wait as a
+      // Claude Code worker's: for her, not for a clock (main/codex-approvals.mjs).
       onApproval: cards.handle,
       // A worker that cannot write to her store does not run.
       requireMcpServer: storeServer?.name ?? null,
@@ -8371,9 +8371,10 @@ export class Supervisor {
     // app-server dying underneath it -- so this is the one hook that covers a
     // stopped run, a preempted one, an archived row and a lost connection
     // without four separate call sites. Without it the question sits on her
-    // screen for fifteen minutes about a command nothing is waiting to run, and
-    // because the front card is always the oldest, it sits in front of every
-    // real card until it expires.
+    // screen about a command nothing is waiting to run, and because the front
+    // card is always the oldest, it sits in front of every real card. No clock
+    // takes it away any more (w-4b00022acb), so this hook is the whole of how a
+    // dead run's card leaves.
     worker.once('exit', () => {
       try { cards.close('the run that asked this has stopped'); } catch (e) { console.warn('zero: could not close a codex worker cards:', e?.message ?? e); }
     });

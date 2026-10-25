@@ -180,8 +180,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // THROW, out of an ipc handler and out of the ⌘Y `before-input-event`
   // listener, which is worse than either outcome here. A Codex worker is parked
   // on a promise in this process, so it is told the refusal directly and
-  // unblocks; a Claude Code worker has only the file, so it denies on its own
-  // deadline, which is the same answer fifteen minutes later. Nothing on this
+  // unblocks; a Claude Code worker has only the file, so it goes on waiting on
+  // its own card, which stays on screen and answerable. Nothing on this
   // path can turn a failure into an allow, and the deny falls out of the SAME
   // two calls the yes does rather than a second door beside them: `allow` and
   // `note` stop meaning what she pressed the moment the write fails, and start

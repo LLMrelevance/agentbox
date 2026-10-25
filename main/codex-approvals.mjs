@@ -16,14 +16,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import { appendSpoolLine, cardDigest, removeSpoolEntry, spoolDir, spoolEntryExists, writeSpoolFile } from './approvals.mjs';
 
-// The transport closes its own request on the same deadline, so the timeout is
-// imported rather than copied.
-import { APPROVAL_TIMEOUT_MS, REFUSAL_DECISION } from './codex-app-server.mjs';
+import { REFUSAL_DECISION } from './codex-app-server.mjs';
 
 import { fileVerbWord } from './codex.mjs';
 import { Name, isOurSlug } from '../shared/product-name.mjs';
 
-/** How often a waiting card looks for a forged answer file. */
+/** How often a waiting card sweeps a forged answer and puts itself back on screen. */
 export const POLL_MS = 2_000;
 
 const ACCEPT_DECISION = 'accept';
@@ -205,18 +203,26 @@ export function codexApprovalCard(method, params, seen = null) {
 
 /**
  * The Codex side of the approval spool, one per supervisor and shared by every
- * Codex worker. `uuid`, `now`, `timeoutMs` and `pollMs` are injectable for tests.
+ * Codex worker. `uuid`, `now` and `pollMs` are injectable for tests.
+ *
+ * A CARD WAITS FOR THE PERSON IT ASKS, AND NO CLOCK ANSWERS FOR THEM
+ * (w-4b00022acb). There was a fifteen-minute deadline here, and what it sent
+ * at the end of it was a deny the turn could not tell from theirs: work nobody
+ * had refused came back refused. It was safe only while a waiting card was
+ * invisible, and it is not now, because the row reads Asking and sits in Needs
+ * you (w-fe48447cab). So what settles a card is always an event: their answer,
+ * the worker stopping (`close` on its scope), the app shutting down, the
+ * connection breaking.
  */
 export function createCodexApprovals({
   storeRoot,
-  timeoutMs = APPROVAL_TIMEOUT_MS,
   pollMs = POLL_MS,
   uuid = () => crypto.randomUUID(),
   now = () => Date.now(),
   onChange = null,
 } = {}) {
   const dir = spoolDir(storeRoot);
-  const open = new Map(); // id -> { request, scope, decide, deadline, poll }
+  const open = new Map(); // id -> { request, scope, decide, poll }
 
   /**
    * The promise main/codex-app-server.mjs holds the server request open on.
@@ -285,32 +291,53 @@ export function createCodexApprovals({
       scope: context?.scope ?? null,
       decide(allow, note, extra) {
         if (!open.delete(id)) return false;
-        clearTimeout(entry.deadline);
         clearInterval(entry.poll);
         finish(id, request, { allow: !!allow, note: note ?? null, at: now(), ...extra });
         resolve(allow ? ACCEPT_DECISION : REFUSAL_DECISION);
         return true;
       },
     };
-    entry.deadline = setTimeout(() => entry.decide(false, null, { timeout: true }), timeoutMs);
-    entry.deadline?.unref?.();
     // The real answer comes through `settle`, so an answer file is a worker's
-    // forgery and is deleted unread.
-    entry.poll = setInterval(() => sweepForgery(id), pollMs);
+    // forgery and is deleted unread. The same beat puts the request back if
+    // anything took it out of the spool while this card was still waiting.
+    entry.poll = setInterval(() => tend(id), pollMs);
     entry.poll?.unref?.();
     open.set(id, entry);
     onChange?.();
   });
 
-  function sweepForgery(id) {
-    if (!open.has(id)) return;
+  /**
+   * One beat of a waiting card: sweep an answer nobody signed, and put the
+   * request back on screen if it has gone.
+   *
+   * THE SPOOL REAPS WHAT NOBODY IS WAITING ON, AND THIS IS HOW IT KNOWS.
+   * `listPending` cannot read this map, and a card that waits for a person
+   * outlives its REQUEST_TTL_MS, so whoever is waiting keeps its own request
+   * there and the sweep only ever takes one nobody is holding up.
+   */
+  function tend(id) {
+    const entry = open.get(id);
+    if (!entry) return;
     const forged = `${id}.answer.json`;
     // These helpers also catch a dangling link, which `existsSync` misses, and
     // a directory squatting the name, which `unlink` cannot remove.
-    if (!spoolEntryExists(dir, forged)) return;
-    removeSpoolEntry(dir, forged);
-    console.warn(`zero: an answer file appeared for approval ${id} that the founder did not write; it has been deleted and the card is still waiting`);
-    onChange?.();
+    if (spoolEntryExists(dir, forged)) {
+      removeSpoolEntry(dir, forged);
+      console.warn(`zero: an answer file appeared for approval ${id} that the founder did not write; it has been deleted and the card is still waiting`);
+      onChange?.();
+    }
+    const name = `${id}.request.json`;
+    if (spoolEntryExists(dir, name)) return;
+    // Written from the request this process has held all along, never read back
+    // off the disk: the card that comes back is the card that went.
+    if (writeSpoolFile(dir, name, JSON.stringify(entry.request))) { onChange?.(); return; }
+    // Failing here leaves the worker parked with nothing on screen, which is
+    // the one way the wait goes bad, so it is said out loud. Once per card:
+    // this beat runs every two seconds.
+    if (!entry.saidItCouldNotGoBack) {
+      entry.saidItCouldNotGoBack = true;
+      console.warn(`zero: approval ${id} left the spool and could not be put back, so the worker waiting on it has no card on screen`);
+    }
   }
 
   /** Writes one audit line per decision and removes the request and answer files. */

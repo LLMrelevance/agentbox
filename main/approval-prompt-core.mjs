@@ -6,8 +6,10 @@
 // sessions wrote everything and bounced the actual run back to the founder
 // as a paste (2026-08-05).
 //
-// Deny is the default in every failure mode: timeout, spool error, malformed
-// answer. An approval can only come from the founder's explicit file.
+// Deny is the default in every failure mode: the run ending, a spool error, a
+// malformed answer. An approval can only come from the founder's explicit file,
+// and a silence is not one: the question waits for her rather than being
+// answered by a clock.
 //
 // EVERY TOUCH OF THE SPOOL GOES THROUGH main/approvals.mjs, which is where the
 // rule that this directory is worker-writable is written down and enforced --
@@ -24,7 +26,6 @@ import crypto from 'node:crypto';
 import readline from 'node:readline';
 import { answerIsHers, appendSpoolLine, cardDigest, readSpoolJson, removeSpoolEntry, spoolEntryExists, writeSpoolFile } from './approvals.mjs';
 
-const TIMEOUT_MS = 15 * 60_000;
 const POLL_MS = 2_000;
 
 // A QUESTION IS NOT AN APPROVAL. Workers launch without AskUserQuestion
@@ -82,8 +83,13 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
         return { behavior: 'deny', message: 'the approvals spool would not take this request, so nothing was put in front of the founder' };
       }
       const answerName = `${id}.answer.json`;
-      const deadline = Date.now() + TIMEOUT_MS;
-      while (!closed && Date.now() < deadline) {
+      let saidItCouldNotGoBack = false;
+      // A QUESTION WAITS FOR ITS ANSWER (w-4b00022acb). This gave up after
+      // fifteen minutes and told the run it had been refused, which is not
+      // what a silence means. The thread reads Asking and sits in Needs you
+      // while this waits (w-fe48447cab), and the run that asked is the bound:
+      // its end closes this channel and the loop stops with it.
+      while (!closed) {
         // `lstat` rather than `existsSync`, so this sees exactly what the app's
         // own `listPending` sees: an entry by that name, whatever it is.
         if (spoolEntryExists(SPOOL, answerName)) {
@@ -126,17 +132,24 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
           if (answer.allow) return { behavior: 'allow', updatedInput: args.input ?? {} };
           return { behavior: 'deny', message: answer.note || 'The founder declined this action. Work with what you are already allowed to do, or park the remainder as a review.' };
         }
+        // THE SPOOL REAPS WHAT NOBODY IS WAITING ON, AND THIS IS HOW IT KNOWS.
+        // The app's `listPending` cannot see this loop, and this loop outlives
+        // its REQUEST_TTL_MS, so whoever waits keeps their own request there.
+        // Written from the `request` this process has held all along, never
+        // read back off the disk, so what comes back is the card that went.
+        if (!spoolEntryExists(SPOOL, `${id}.request.json`)
+          && !writeSpoolFile(SPOOL, `${id}.request.json`, JSON.stringify(request))
+          && !saidItCouldNotGoBack) {
+          // Failing here leaves this run parked with nothing on screen, which
+          // is the one way the wait goes bad, so it is said out loud. Once:
+          // this loop comes round every two seconds.
+          saidItCouldNotGoBack = true;
+          warn(`zero: approval ${id} left the spool and could not be put back, so this run is waiting with no card on screen`);
+        }
         await nap();
       }
-      if (closed) {
-        finish(id, request, { allow: false, gone: true });
-        return { behavior: 'deny', message: 'the run that asked has ended' };
-      }
-      finish(id, request, { allow: false, timeout: true });
-      return {
-        behavior: 'deny',
-        message: 'No answer from the founder within 15 minutes. Do not retry the same request this session: finish what your grants allow, and file the rest as a review with the exact commands.',
-      };
+      finish(id, request, { allow: false, gone: true });
+      return { behavior: 'deny', message: 'the run that asked has ended' };
     } catch (err) {
       return { behavior: 'deny', message: `approvals channel error: ${err.message}` };
     }
@@ -162,7 +175,7 @@ export function serveApprovals({ env = process.env, input = process.stdin, outpu
     } else if (method === 'tools/list') {
       send({ jsonrpc: '2.0', id, result: { tools: [{
         name: 'approval_prompt',
-        description: 'Asks the founder, live in her inbox, to approve one gated action. She answers within minutes when present; a 15-minute silence is a deny. Use only when the work genuinely cannot proceed without it.',
+        description: 'Asks the founder, live in her inbox, to approve one gated action. The run stops here until she answers, however long that takes. Use only when the work genuinely cannot proceed without it.',
         inputSchema: {
           type: 'object',
           properties: {
