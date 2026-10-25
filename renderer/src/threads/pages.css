@@ -529,10 +529,12 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-offer-go:hover { background: var(--bg-hover); }
 .th-offer-go svg { width: 14px; height: 14px; }
 .th-card.th-offer-card { cursor: default; background: none; border-style: dashed; }
-.th-offer-card .m { gap: 8px; }
+/* space-between, not an auto margin: a button that wraps onto its own line then starts at the left. */
+.th-offer-card .m { gap: 10px 8px; flex-wrap: wrap; justify-content: space-between; }
+.th-offer-count { display: inline-flex; align-items: center; gap: 8px; }
 .th-offer-card .m .p { flex: none; }
 .th-offer-card .m svg { width: 13px; height: 13px; flex: none; }
-.th-offer-card-go { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--accent); cursor: pointer; }
+.th-offer-card-go { flex: none; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; border: 0; padding: 0; background: none; font: inherit; letter-spacing: inherit; text-transform: inherit; color: var(--accent); cursor: pointer; }
 .th-card .m .th-card-wait { margin-left: 8px; text-transform: none; letter-spacing: 0; }
 
 /* WHY A THREAD IS NOT IN THE CLOUD, on hovering its Status (w-de59f3ff12, ../where-why.ts).

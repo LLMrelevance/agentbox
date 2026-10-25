@@ -150,7 +150,7 @@ function CloudOfferCard() {
   const { offer, onGo } = at;
   return <div className="th-card th-offer-card">
     <div className="t">{offer.say.replace(/\.$/, '')}</div>
-    <div className="m"><CloudIcon /><span className="p">{offer.waiting.replace(/ (is|are) waiting\.$/, ' waiting').replace(/threads? /, '')}</span>
+    <div className="m"><span className="th-offer-count"><CloudIcon /><span className="p">{offer.waiting.replace(/ (is|are) waiting\.$/, ' waiting').replace(/threads? /, '')}</span></span>
       {offer.go && <button type="button" className="th-offer-card-go" onClick={() => onGo(offer.go!)}>{offer.go.act === 'pay' ? offer.go.label.replace(/ · .*/, '') : 'Start in the cloud'}<span aria-hidden="true">→</span></button>}</div>
   </div>;
 }
