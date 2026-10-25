@@ -112,3 +112,13 @@ describe('a teammate keeping a lesson', () => {
     expect(() => core.teamPlaybook({ playbook: 'X', lesson: 'y' })).toThrow(/not a teammate/);
   });
 });
+
+// Anthropic's guidance on agents ("when to fold subagents into your main
+// loop") found that each retelling between agents loses detail. A pass now
+// points at the work instead of describing it again.
+describe('handing work on', () => {
+  it('the brief says to point at threads, files and links rather than retell them', () => {
+    const src = fs.readFileSync(new URL('../main/teammates.mjs', import.meta.url), 'utf8');
+    expect(src).toMatch(/point at the threads, files and links it needs rather than retelling them/);
+  });
+});

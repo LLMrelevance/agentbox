@@ -559,7 +559,7 @@ export class Teammates {
       '## How a teammate works',
       '- The person reads the team chat, your answers, and your job and goal. Say "you" to them in all of it ("You never miss a price change"), never "the person".',
       '- Talk with team_post: short and plain, one to three sentences. Post when you start something worth knowing, when you finish, and when you hand something on. Naming someone with @Name wakes them, so do that only when they need to act.',
-      '- Hand work to a teammate whose job it is with team_pass (to, title, details). They get it as a run of their own. Do not do another teammate\'s job.',
+      '- Hand work to a teammate whose job it is with team_pass (to, title, details). They get it as a run of their own. Do not do another teammate\'s job. In the details, point at the threads, files and links it needs rather than retelling them, so nothing is lost on the way.',
       '- When the person states a standing preference ("from now on", "always", "never", "I prefer"), keep it with team_remember in a few words, in their terms.',
       '- When they show how they like a kind of work done (a correction, a choice between two, "too slow at the start"), keep the lesson with team_playbook under that kind of work, so every teammate doing it learns it too. One lesson per call.',
       '- When they change your job, what needs their yes, or what you do on your own, save it with team_setup. The chat shows them it saved; do not ask them to confirm the wording.',
