@@ -43,6 +43,23 @@ export function earlierCount(events: AgentEvent[], outcome: ItemOutcome | null, 
   return outcome ? messages : Math.max(0, messages - (newestAnswer(events, null) ? 1 : 0));
 }
 
+/**
+ * Where the page starts on a thread that has been answered since its newest
+ * answer, by a reply or a pick: at that answer, so the question stays in view
+ * above what was said or picked and the agent's work since. -1 when the answer
+ * is still the newest word, or there is none.
+ */
+export function standsAt(events: AgentEvent[], newest: { at: number } | null): number {
+  if (!newest) return -1;
+  const answered = events.some((e) => e.at > newest.at && (said(e) ? e.who === 'you' : !!e.yours));
+  return answered ? events.findIndex((e) => said(e) && e.who !== 'you' && e.at === newest.at) : -1;
+}
+
+/** How many messages the fold holds above the one the page is drawn from. */
+export function earlierThan(events: AgentEvent[], from: number): number {
+  return events.slice(0, from).filter(said).length;
+}
+
 /** An answer opening with a line that is bold and nothing else wears it as its headline. */
 export function splitHeadline(text: string): { headline: string | null; rest: string } {
   const m = /^\s*\*\*([^*\n]+)\*\*[ \t]*(?:\n|$)/.exec(text);

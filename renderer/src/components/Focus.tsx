@@ -568,9 +568,11 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null, onePage = false }: {
   /** One thing at a time (w-65bcefb857): this thread's place in Needs you and the arrows that walk it. */
   queue?: { spot: Spot; onStep: (dir: 1 | -1) => void } | null;
+  /** Drawn on the one-at-a-time page outside Needs you too: every thread with an agent. */
+  onePage?: boolean;
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -898,10 +900,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   useEffect(() => { if (openDoc) setOpenThread(null); }, [openDoc]);
   const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
   // One thing at a time keeps its summary on top of the page, so no panel beside it.
-  const summaryOffered = summarised && !openDoc && !queue;
-  // In the queue the line saying where an answer went sits in the bar's empty
+  const page = !!queue || !!onePage;
+  const summaryOffered = summarised && !openDoc && !page;
+  // On this page the line saying where an answer went sits in the bar's empty
   // middle, where it covers nothing and takes no row from the answer.
-  const sentUp = !!queue && !!cornerHeaderTarget && !onPhone();
+  const sentUp = page && !!cornerHeaderTarget && !onPhone();
   const summaryShown = summaryOffered && summaryOpen;
   useSummaryShortcut(toggleSummary, summaryOffered);
   useEffect(() => {
@@ -1730,7 +1733,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               item={item}
               chat={direct}
               // One thing at a time: the summary on top and the newest answer, the rest behind one line.
-              queue={queue ? { context: item.problem ?? null } : undefined}
+              queue={page ? { context: item.problem ?? null } : undefined}
               /*
                * WHICH CODING AGENT THIS ROW RUNS ON, because one sentence in the
                  conversation depends on it: `blocked` after one of Claude Code's
@@ -1836,7 +1839,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
           />
         )}
         {/* One at a time draws them at the foot instead, apart from the reply box. */}
-        {offerInPane && (queue || closeAsk ? null : (
+        {offerInPane && (page || closeAsk ? null : (
           <OptionsOffer
             ask={ask} askAll={askAll} options={options}
             peekOption={peekOption} askPeek={askPeek}
@@ -1895,8 +1898,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
           a file nothing can read gets none. The big review card below is
           only the review lab's sample now. */}
       {/* One thing at a time reads a page or a note in place rather than as a tile. */}
-      {inlineArtifacts && !previewSample && queue && previewPaths.filter(readsInPlace).map((path) => <QueueFile key={path} product={product} path={path} md={md} onOpen={() => onOpenArtifact?.(path, 'focus')} />)}
-      {!queue && inlineArtifacts && !previewSample && <MessageFiles product={product} paths={previewPaths} revision={item.updatedAt} openDoc={openDoc} onOpen={path => onOpenArtifact?.(path, 'beside')} />}
+      {inlineArtifacts && !previewSample && page && previewPaths.filter(readsInPlace).map((path) => <QueueFile key={path} product={product} path={path} md={md} onOpen={() => onOpenArtifact?.(path, 'focus')} />)}
+      {!page && inlineArtifacts && !previewSample && <MessageFiles product={product} paths={previewPaths} revision={item.updatedAt} openDoc={openDoc} onOpen={path => onOpenArtifact?.(path, 'beside')} />}
       {inlineArtifacts && previewSample && <div className="artifact-entry-list" aria-label="Attachments">{previewPaths.map(path =>
         <DirectReview key={path} product={product} path={path} revision={item.updatedAt} open={openDoc === path}
           onOpen={()=>onOpenArtifact?.(path, 'beside')}
@@ -2024,7 +2027,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     <div className="focus-dock">
       <div className="focus-dock-inner">
         {/* Under a full screen page they come up with the box instead, below. */}
-        {queue && stripShown && !fullScreenDoc && !closeAsk && (
+        {page && stripShown && !fullScreenDoc && !closeAsk && (
           <div className="one-choices">
             <OptionsOffer
               ask={ask} askAll={askAll} options={options}

@@ -65,7 +65,7 @@ describe('the summary under the name', () => {
 
 describe('the sent line', () => {
   it('sits in the empty middle of the top bar, beside where you are in the queue', () => {
-    expect(focus).toMatch(/const sentUp = !!queue && !!cornerHeaderTarget && !onPhone\(\);/);
+    expect(focus).toMatch(/const sentUp = page && !!cornerHeaderTarget && !onPhone\(\);/);
     expect(focus).toMatch(/<span className="ts-top">\{sentUp && aboveDock\}\{queue && <QueueNav/);
   });
   it('and not above the reply box, where it took a row of reading', () => {

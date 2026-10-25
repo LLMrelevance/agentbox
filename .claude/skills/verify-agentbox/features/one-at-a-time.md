@@ -1,8 +1,9 @@
 # One thing at a time
 
-Every thread in Needs you opens on this page, however it was opened: the answer
-moves them to the next, and the last answer lands them on the empty inbox. A
-thread anywhere else opens on the full thread page.
+Every thread with an agent opens on this page. In Needs you it also shows the
+place in the queue and the arrows, an answer moves them to the next, and the
+last answer lands them on the empty inbox. A thread they have written to since
+its answer is drawn from that message down, the agent's work under it.
 
 ## Sub-features
 
@@ -17,7 +18,7 @@ thread anywhere else opens on the full thread page.
 ## How to get to it (user POV)
 
 - Open any thread on Needs you.
-- A thread in In progress, Later or Done opens on the full thread page.
+- A thread in In progress, Later or Done opens on the same page, without the place in the queue.
 
 ## Driving it with live.mjs
 

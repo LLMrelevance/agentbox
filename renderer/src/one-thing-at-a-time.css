@@ -54,5 +54,13 @@
 .one-choices .opt-text { -webkit-line-clamp: 1; }
 .one-choices .opt-row.selected .opt-text { -webkit-line-clamp: unset; }
 
+/* The app's toast, on a thread's page: one line in the bar's empty middle,
+   first in the corner, instead of a card over the reply box. Specific enough
+   to beat the rules that lift the corner card off an open reply box. */
+.app.one-at-a-time .toast.toast-in-bar { position: relative; inset: auto; order: -1; width: auto; max-width: 520px; min-width: 0; margin-right: 6px;
+  grid-template-columns: minmax(0, auto) minmax(0, auto) auto; grid-template-areas: "title line keys"; column-gap: 12px;
+  padding: 4px 8px 5px 12px; background: none; box-shadow: none; font-size: 12.5px; }
+.app.one-at-a-time .toast.toast-in-bar .toast-title { -webkit-line-clamp: 1; font-size: 12.5px; font-weight: 400; }
+
 /* Where the last answer went, in the bar's empty middle beside the place in the queue. */
 .ts-top > .sent-line { margin: 0 16px 0 0; padding: 2px 4px 2px 12px; min-width: 0; max-width: 460px; background: none; font-size: 12.5px; }

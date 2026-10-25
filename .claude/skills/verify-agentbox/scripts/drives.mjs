@@ -338,7 +338,7 @@ export const DRIVES = {
     },
   },
   'one-at-a-time': {
-    what: 'Every thread in Needs you opens one thing at a time: Enter or a click opens the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox, and a thread in In progress keeps the full page',
+    what: 'Every thread in Needs you opens one thing at a time: Enter or a click opens the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox, and a thread in In progress opens on the same page without the queue',
     notInstalled: 'it rewrites the stand-in world, which only the browser copy reads',
     async run({ tab, state, claim, capture }) {
       // Every answer ends with choices; replies are held back once the three
@@ -484,12 +484,14 @@ export const DRIVES = {
         const all = await until(() => { const r = ours(); return r.every((x) => x.status === 'done' || /^Option 1:|Keep it for 30 days/.test(String(x.answer ?? ''))) ? r : null; }, 15_000);
         claim(all, 'every thread holds what was done to it: a pick, a reply or a close');
 
-        // Out of Needs you, a thread keeps the full page.
+        // Out of Needs you, a thread opens on the same page, without the place in the queue.
         await clickTab(tab, /^in progress/i);
         await tab.until(`!!(${ourRow})`, { why: 'In progress to list a picked thread', ms: 10_000 }).catch(() => false);
         await tab.evaluate(`${ourRow}?.click()`);
-        const full = await tab.until(`!!document.querySelector('.thread-crumb-name') && !document.querySelector('.app.one-at-a-time')`, { why: 'an In progress thread to open', ms: 8000 }).catch(() => false);
-        claim(full, 'a thread in In progress opens on the full page, not this one');
+        const same = await tab.until(`!!document.querySelector('.app.one-at-a-time .one-sum > .one-title') && !document.querySelector('.one-pos') && !document.querySelector('.ts-panel')`, { why: 'an In progress thread to open', ms: 8000 }).catch(() => false);
+        claim(same, 'a thread in In progress opens on the same page, without the place in the queue');
+        const floating = await tab.evaluate(`[...document.querySelectorAll('.toast')].filter((t) => getComputedStyle(t).position === 'fixed').length`);
+        claim(floating === 0, 'no toast floats over the page; any is in the bar', `${floating} floating`);
         await capture('in-progress');
         await tab.press('Escape');
       } finally {
