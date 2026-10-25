@@ -41,3 +41,27 @@ export function pickLandsHere(arrival: Arrival, here: string, now: number): bool
  */
 export const AIMED_AT_THE_THREAD_YOU_LEFT =
   'That number was for the thread you just left. Press it again to answer this one.';
+
+// AND A CLICK IS AIMED THE SAME WAY, at a place rather than at a thread.
+//
+// The strip stands at the foot of a turn in the scrolling pane, so a line
+// arriving above it while a run writes carries every row down the window: the
+// pointer put on row 2 is over row 1 by the time the button goes down, and
+// that press sends. So an option that jumped under the pointer does not take
+// the next click. The refusal needs the pointer to have been ON the strip when
+// it moved, so a click you walk over to after the move is never refused.
+
+/** How far the strip has to jump to count as having moved. Layout settles by
+ *  fractions of a pixel; this is a row's worth of nothing. */
+export const MOVED_PX = 4;
+
+/** Whether a click now lands on the row you were looking at. `movedAt` is when
+ *  the strip last jumped under the pointer, or null if it has not. */
+export function clickLandsOnTheRowYouSaw(movedAt: number | null, now: number): boolean {
+  if (movedAt === null) return true;
+  return now - movedAt >= PICK_SETTLES_MS;
+}
+
+/** Said when one is refused, and it is true: the next click goes through. */
+export const THE_OPTIONS_MOVED =
+  'The options moved under your pointer. Click the one you want again.';

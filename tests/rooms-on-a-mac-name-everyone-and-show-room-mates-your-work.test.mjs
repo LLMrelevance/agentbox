@@ -97,12 +97,13 @@ describe("a room-mate's work", () => {
     expect(mine().wall.find((c) => c.id === w.jun.id)).toMatchObject({ agents: 1, workingOn: null, workingPrivate: true, activity: null });
   });
 
-  it("Jun, on no team, shows Maya what he is working on and his activity", async () => {
+  // His list of threads reaches nobody since 2026-10-25 (tests/a-persons-page-shows-none-of-their-threads).
+  it("Jun, on no team, shows Maya what he is working on and none of his other threads", async () => {
     const w = world();
     const { mine } = await together(w);
     const jun = mine().wall.find((c) => c.id === w.jun.id);
     expect(jun.workingOn).toBe('Make the checkout faster');
-    expect(jun.activity.map((a) => [a.state, a.title])).toEqual([['waiting', 'Pick a font for the receipts'], ['running', 'Make the checkout faster']]);
+    expect(jun.activity).toBeNull();
   });
 
   it('turning off his activity takes it off his card for Maya', async () => {
@@ -128,12 +129,11 @@ describe('coming back', () => {
     expect(mine().wall.some((c) => c.id === w.jun.id)).toBe(true);
   });
 
-  // A switch turned off keeps the value off the cloud, as the others do.
-  it('turning my activity off takes it off the cloud at once, not on the next pass', async () => {
+  it('my Mac puts no list of threads on the cloud, with my activity on or off', async () => {
     const w = world();
     await together(w);
     const rows = async () => (await w.maya.backend.roomPresence([w.jun.id])).map((r) => r.activity.length);
-    expect(await rows()).toEqual([2]);
+    expect(await rows()).toEqual([0]);
     await w.jun.rooms.saveProfile({ show_activity: false });
     expect(await rows()).toEqual([0]);
   });

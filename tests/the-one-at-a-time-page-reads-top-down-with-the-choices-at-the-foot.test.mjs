@@ -26,9 +26,9 @@ const noop = () => {};
 describe('the summary on top', () => {
   const draw = (p) => renderToStaticMarkup(h(QueueSummary, { onToggle: noop, open: false, ...p }));
 
-  it('puts Context beside your last message, each label running into its text', () => {
-    const html = draw({ context: 'Funding deadlines in the next 3 weeks.', you: { at: Date.parse('2026-10-22T18:42:00'), text: 'Can you figure out the deadlines' }, earlier: 1 });
-    expect(visible(html)).toMatch(/^Context Funding deadlines in the next 3 weeks\. You, .+ Can you figure out the deadlines/);
+  it('is the Context, its label running into its text', () => {
+    const html = draw({ context: 'Funding deadlines in the next 3 weeks.', earlier: 1 });
+    expect(visible(html)).toMatch(/^Context Funding deadlines in the next 3 weeks\. Show 1 earlier message$/);
   });
   it('opens the earlier messages from one line, counted', () => {
     expect(visible(draw({ context: 'c', you: null, earlier: 8 }))).toContain('Show 8 earlier messages');
@@ -40,20 +40,18 @@ describe('the summary on top', () => {
     expect(visible(draw({ context: 'c', you: null, earlier: 0, steps: false }))).not.toMatch(/Show/);
   });
   it('draws only what it has', () => {
-    const html = draw({ context: null, you: { at: 1, text: 'only mine' }, earlier: 0 });
-    expect(visible(html)).not.toContain('Context');
-    expect(visible(html)).toContain('only mine');
+    expect(visible(draw({ context: null, earlier: 0 }))).toBe('');
   });
   it('keeps a label on one line when the text beside it is one long link', () => {
-    // Drawn on a real thread whose last message was a bare x.com link: the
-    // link could not break, so "3:46AM" fell to a line of its own under
-    // "You, Yesterday".
+    // Drawn on a real thread whose last message, then shown beside the
+    // Context, was a bare x.com link: the link could not break, so "3:46AM"
+    // fell to a line of its own under "You, Yesterday".
     const css = read('renderer/src/one-thing-at-a-time.css');
     expect(css).toMatch(/\.one-col \{[^}]*overflow-wrap: anywhere/);
     expect(css).toMatch(/\.one-lab \{[^}]*white-space: nowrap/);
   });
   it('says nothing with a colon or a dash', () => {
-    const words = visible(draw({ context: 'c', you: { at: Date.now(), text: 't' }, earlier: 3 })).replace(/\d{1,2}:\d{2}/g, '');
+    const words = visible(draw({ context: 'c', earlier: 3 }));
     expect(words).not.toMatch(/[:—–]/);
   });
 });
@@ -88,8 +86,8 @@ describe('a page or a note the answer names is read in place', () => {
   });
   it('and the thread page draws them in this mode in place of the tiles', () => {
     const focus = read('renderer/src/components/Focus.tsx');
-    expect(focus).toContain('inlineArtifacts && !previewSample && queue && previewPaths.filter(readsInPlace).map((path) => <QueueFile');
-    expect(focus).toContain('{!queue && inlineArtifacts && !previewSample && <MessageFiles');
+    expect(focus).toContain('inlineArtifacts && !previewSample && page && previewPaths.filter(readsInPlace).map((path) => <QueueFile');
+    expect(focus).toContain('{!page && inlineArtifacts && !previewSample && <MessageFiles');
   });
 });
 
@@ -132,13 +130,13 @@ describe('where the app wires it', () => {
   });
   it('the thread page takes the queue, and wears no summary panel in it', () => {
     expect(app).toMatch(/queue=\{queueSpot \?/);
-    expect(focus).toMatch(/const summaryOffered = [^\n]*!queue/);
+    expect(focus).toMatch(/const summaryOffered = [^\n]*!page/);
   });
   it('the choices go to the foot, apart from the reply box, without their heading', () => {
-    expect(focus).toContain('{offerInPane && (queue || closeAsk ? null : (');
+    expect(focus).toContain('{offerInPane && (page || closeAsk ? null : (');
     // Under a full screen page they come up with the box instead
     // (tests/a-full-screen-page-in-one-at-a-time-shows-no-options-until-the-box-opens).
-    expect(focus).toMatch(/\{queue && stripShown && !fullScreenDoc && !closeAsk && \(\s*<div className="one-choices">\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
+    expect(focus).toMatch(/\{page && stripShown && !fullScreenDoc && !closeAsk && \(\s*<div className="one-choices">\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
   });
   it('the conversation folds behind the summary', () => {
     expect(thread).toMatch(/<QueueSummary/);
