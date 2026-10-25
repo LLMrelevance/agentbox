@@ -578,10 +578,11 @@ export function ThreadComposer({
     if (!mate || !words || sending || !onToTeammate) return;
     setSending(true);
     setError(null);
+    const taken = markComposeDraftSending();
     const err = await onToTeammate(mate, words, product?.slug ?? null);
     setSending(false);
-    if (err) setError(err);
-    else { setText(''); onClose(); }
+    if (err) { restoreComposeDraft(taken); setError(err); }
+    else { dropComposeDraft(taken); setText(''); onClose(); }
   };
   const send = () => (person && sendAs === 'message' ? sendMessage() : sendTask());
   // ⌘↵ SENDS WHEREVER THE CURSOR IS while the card is open (w-9f6975906c).
