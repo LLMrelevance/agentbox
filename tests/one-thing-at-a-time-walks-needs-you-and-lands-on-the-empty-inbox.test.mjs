@@ -8,12 +8,12 @@
 // left the advance opens nothing and the list is what is on the screen.
 //
 // The page shows the newest answer whole and folds the rest behind "Show N
-// earlier messages"; these are the rules that pick the answer, your last
-// message and the count, measured against real conversation shapes.
+// earlier messages"; these are the rules that pick the answer and the count,
+// measured against real conversation shapes.
 import { describe, it, expect } from 'vitest';
 import { nextAfterAdvance, replyMovesOn } from '../renderer/src/advance.ts';
 import {
-  spotIn, stepIn, newestAnswer, yourLast, earlierCount, splitHeadline, repeatsTitle,
+  spotIn, stepIn, newestAnswer, earlierCount, splitHeadline,
 } from '../renderer/src/one-thing-at-a-time.ts';
 
 const rows = [
@@ -77,36 +77,6 @@ describe('the newest answer', () => {
   });
   it('is nothing when only you have spoken', () => {
     expect(newestAnswer([you(1, 'go'), work(2)], null)).toBeNull();
-  });
-});
-
-describe('your last message', () => {
-  it('is the newest thing you said, a picked option included', () => {
-    expect(yourLast([you(1, 'first'), it_(5, 'ok'), you(9, 'Option 2: Hold it')], null)).toEqual({ at: 9, text: 'Option 2: Hold it' });
-  });
-  it('is not a teammate\'s message on a shared thread', () => {
-    expect(yourLast([you(1, 'mine'), you(5, 'theirs', { by: 'p-maya' })], 'p-me')).toEqual({ at: 1, text: 'mine' });
-    expect(yourLast([you(1, 'mine', { by: 'p-me' })], 'p-me')).toEqual({ at: 1, text: 'mine' });
-  });
-  it('falls back to the ask typed on the row above', () => {
-    expect(yourLast([it_(5, 'ok')], null, { at: 2, text: 'the ask' })).toEqual({ at: 2, text: 'the ask' });
-  });
-});
-
-describe('your last message is left out when the title already says it', () => {
-  // Measured in the browser copy: a thread with no short title is named by its
-  // first message, so the summary repeated the bar word for word.
-  it('when it is the title', () => {
-    expect(repeatsTitle('Choose where the release notes live', 'Choose where the release notes live')).toBe(true);
-  });
-  it('when the title was cut from it', () => {
-    expect(repeatsTitle('Can you figure out the deadlines for the YC and A16Z Speed Run accelerators and see if there are any', 'Can you figure out the deadlines for the YC and A16Z…')).toBe(true);
-  });
-  it('not when the title is the short one and your message says more', () => {
-    expect(repeatsTitle('Can you figure out the deadlines for the YC and A16Z Speed Run accelerators', 'Find accelerator funding deadlines')).toBe(false);
-  });
-  it('not when a short title merely starts the same way', () => {
-    expect(repeatsTitle('Ship it, then tell me', 'Ship')).toBe(false);
   });
 });
 
