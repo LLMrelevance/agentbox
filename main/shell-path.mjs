@@ -4,7 +4,20 @@
 // network and locale names under NETWORK and LOCALE are all that is ever read,
 // and workers still pass through their billing scrub.
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
+
+// The shell a person actually has. `$SHELL` when that file exists, then zsh,
+// bash, and sh. A machine with no zsh used to spawn `/bin/zsh`: the terminal
+// never came up, and the self-update never built.
+export function loginShell(env = process.env, exists = fs.existsSync) {
+  const preferred = env.SHELL;
+  if (preferred && exists(preferred)) return preferred;
+  for (const candidate of ['/bin/zsh', '/bin/bash', '/bin/sh']) {
+    if (exists(candidate)) return candidate;
+  }
+  return preferred || '/bin/sh';
+}
 
 const MARKER = '\0agentbox-path\0';
 function runShell(file, args, options) {
