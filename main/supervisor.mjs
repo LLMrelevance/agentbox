@@ -135,7 +135,7 @@ import {
 } from '../shared/engines.mjs';
 import { createCodexAppServer } from './codex-app-server.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
-import { CodexUsage } from './codex-usage.mjs';
+import { CodexUsage, codexAccountReadings } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { cloudCodexMode } from './cloud-permission.mjs';
@@ -8899,6 +8899,16 @@ export class Supervisor {
   /** The same, read again rather than off the cache (`CodexUsage.refreshNow`). */
   refreshCodexUsage() {
     return this._codexUsage().refreshNow();
+  }
+
+  /** Every Codex login's own reading, for the Settings page. */
+  codexAccountUsage() {
+    return codexAccountReadings({
+      profiles: this._codexProfiles(),
+      homeOf: (profile) => this._codexProfileHome(profile),
+      current: this.refreshCodexUsage(),
+      currentHome: this._codexUsageHome(),
+    });
   }
 
   /**

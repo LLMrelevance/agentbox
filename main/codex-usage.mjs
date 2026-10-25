@@ -66,6 +66,22 @@ import { loggedCodexLimits } from './codex-usage-file.mjs';
 
 const LOG_EVERY_MS = 30_000;
 
+/**
+ * Every Codex login's own reading, for the Settings page: each out of the
+ * session logs under its own home, and the one in use from `current`, which
+ * the push keeps newer while it works. A login that has never run here gets
+ * no limits rather than zeroes.
+ */
+export function codexAccountReadings({ profiles, homeOf, current = null, currentHome = null, now = Date.now(), readLog = loggedCodexLimits }) {
+  return profiles.map((profile) => {
+    const home = homeOf(profile);
+    if (current?.limits?.length && home === currentHome) return { profile, limits: current.limits, at: current.at };
+    const reading = readLog(home, { now });
+    const limits = codexLimits(reading?.snapshot);
+    return limits.length ? { profile, limits, at: reading.at } : { profile };
+  });
+}
+
 export class CodexUsage {
   /**
    * @param {object} how @param { => string|null} how.home Which CODEX_HOME the

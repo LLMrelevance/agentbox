@@ -1605,14 +1605,16 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // THE CODEX FIGURE, ASKED FOR AGAIN. It is held here rather than read off the
   // snapshot because that is where the refresh answers.
   const [codexReading, setCodexReading] = useState<Usage | null>(null);
+  const [codexReadings, setCodexReadings] = useState<AccountUsageReading[]>([]);
   const [codexRefreshing, setCodexRefreshing] = useState(false);
   const refreshCodex = useCallback(async () => {
     setCodexRefreshing(true);
     try {
-      const r = await api.refreshUsage('codex');
+      const [r, readings] = await Promise.all([api.refreshUsage('codex'), api.accountUsage({ engine: 'codex' })]);
       // A refusal draws nothing of its own: the empty row below already says
       // why there is nothing.
       if (r.ok && r.reading) setCodexReading(r.reading);
+      setCodexReadings(readings);
     } finally { setCodexRefreshing(false); }
   }, []);
   // Asked once on opening, so a figure Codex has already written down is on the
@@ -1751,7 +1753,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     // Each login's own reading, never another's, and the cloud's when it is the same subscription and newer.
     // Codex's is the newer of the snapshot's and what Refresh just fetched.
     const accounts = engine === 'codex'
-      ? codexAccountsOnce({ here: agent.accounts, cloud: cloudLogins, current: newerReading(agent.reading, codexReading) })
+      ? codexAccountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: codexReadings, current: newerReading(agent.reading, codexReading) })
       : accountsOnce({ here: agent.accounts, cloud: cloudLogins, readings: accountReadings, current: agent.reading });
     const tiles = accounts.map((a) => {
       const tile = accountTile(a, {
@@ -1761,9 +1763,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         cloud: !!cloud?.setUp, onCloudSignIn: engine === 'claude' ? onCloudSignIn : undefined,
       });
       if (engine !== 'codex' || a.limits?.length) return tile;
-      // Codex reads only the account in use, and only once it has worked, so
-      // another has no reading to promise and this one says why it has none.
-      return tile.inUse ? { ...tile, none: 'Codex reports usage as it works' } : { ...tile, meters: false };
+      // Codex writes an account's usage down only once it has worked.
+      return { ...tile, none: tile.inUse ? 'Codex reports usage as it works' : 'No reading until this account runs' };
     });
     const lastRead = Math.max(0, ...tiles.map((a) => a.checkedAt ?? 0));
     const checked = lastRead ? usageCheckedAt(lastRead, now) : '';

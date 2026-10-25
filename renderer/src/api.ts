@@ -226,6 +226,19 @@ function fixtureAccountUsage(): AccountUsageReading[] {
   ];
 }
 
+// &codexaccounts=two: the Plus login not in use has its own session and week.
+function fixtureCodexAccountUsage(): AccountUsageReading[] {
+  if (params.get('codexaccounts') !== 'two') return [];
+  const now = Date.now();
+  const window = (span: 'session' | 'week', percent: number, resetsAt: number) => ({
+    span, qualifier: null, name: span === 'session' ? 'This session' : 'This week', percent, resetsText: null, resetsOn: null, resetsAt, zone: null,
+  });
+  return [
+    ...(codexMonth ? [{ profile: 'default', limits: codexMonth, at: now }] : []),
+    { profile: 'codex-2', at: now - 3 * 3_600_000, limits: [window('session', 12, now + 2 * 3_600_000), window('week', 31, now + 4 * 86_400_000)] },
+  ];
+}
+
 function fixtureWrite(scope: 'project' | 'workspace', p: any): Settings {
   const w = fixtureSettingsState.workspace;
   if (scope === 'workspace') {
@@ -517,9 +530,9 @@ export const api = {
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 
-  /** Every Claude login's own usage, for Settings. Empty from a main process that predates it. */
-  async accountUsage(p: { refresh?: boolean } = {}): Promise<AccountUsageReading[]> {
-    if (useFixtures) return fixtureAccountUsage();
+  /** Every Claude or Codex login's own usage, for Settings. Empty from a main process that predates it. */
+  async accountUsage(p: { refresh?: boolean; engine?: 'claude' | 'codex' } = {}): Promise<AccountUsageReading[]> {
+    if (useFixtures) return p.engine === 'codex' ? fixtureCodexAccountUsage() : fixtureAccountUsage();
     if (!window.zero?.accountUsage) return [];
     try { return (await window.zero.accountUsage(p)).readings ?? []; } catch { return []; }
   },

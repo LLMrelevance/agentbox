@@ -306,8 +306,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     env: () => supervisor._workerEnv(DEFAULT_ENGINE),
     onReading: (profile, reading) => supervisor.noteUsageReading(profile, reading),
   });
-  ipcMain.handle('zero:account-usage', async (event, { refresh = false } = {}) => {
+  ipcMain.handle('zero:account-usage', async (event, { refresh = false, engine = DEFAULT_ENGINE } = {}) => {
     if (event.senderFrame?.parent || (event.sender && event.sender !== window.webContents)) throw Error('Usage is only available in the main app window.');
+    // Codex's are files on this computer, read on every ask.
+    if (engine === 'codex') return { readings: supervisor.codexAccountUsage() };
     const profiles = effectiveProfiles(config.authProfiles, { home: config.home });
     // The cloud's logins too; a look takes a sandbox session, so the page is
     // not held for it and redraws off the snapshot when it lands.
