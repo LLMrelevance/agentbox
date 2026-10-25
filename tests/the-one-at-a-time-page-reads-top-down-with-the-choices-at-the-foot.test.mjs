@@ -1,0 +1,168 @@
+// THE ONE-AT-A-TIME PAGE READS TOP DOWN, WITH THE CHOICES AT THE FOOT (w-65bcefb857).
+//
+// Approved in round six of that thread, drawn on real threads: the short title
+// in the top bar with "1 of 5" and up and down arrows beside the menu; Context
+// and your last message side by side, their labels running into the text; a
+// line that opens every earlier message, commands included; the agent's newest
+// answer with its bold first line as the headline; and the choices drawn as
+// the app draws them, see-through and apart from the reply box, at the foot of
+// every page. No summary panel beside it, no key row, no end page.
+//
+// Measured by rendering the pieces and by reading where the app wires them.
+import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createElement as h } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { QueueSummary, QueueAnswer, QueueNav, QueueFile } from '../renderer/src/components/OneThingAtATime.tsx';
+import { OptionsOffer } from '../renderer/src/components/OptionsOffer.tsx';
+import { StateTabs } from '../renderer/src/threads/Pages.tsx';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const read = (rel) => fs.readFileSync(path.join(root, rel), 'utf8');
+const visible = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+const noop = () => {};
+
+describe('the summary on top', () => {
+  const draw = (p) => renderToStaticMarkup(h(QueueSummary, { onToggle: noop, open: false, ...p }));
+
+  it('puts Context beside your last message, each label running into its text', () => {
+    const html = draw({ context: 'Funding deadlines in the next 3 weeks.', you: { at: Date.parse('2026-10-22T18:42:00'), text: 'Can you figure out the deadlines' }, earlier: 1 });
+    expect(visible(html)).toMatch(/^Context Funding deadlines in the next 3 weeks\. You, .+ Can you figure out the deadlines/);
+  });
+  it('opens the earlier messages from one line, counted', () => {
+    expect(visible(draw({ context: 'c', you: null, earlier: 8 }))).toContain('Show 8 earlier messages');
+    expect(visible(draw({ context: 'c', you: null, earlier: 1 }))).toContain('Show 1 earlier message');
+    expect(visible(draw({ context: 'c', you: null, earlier: 8, open: true }))).toContain('Hide earlier messages');
+  });
+  it('offers the agent\'s steps when there are no earlier messages but there are steps', () => {
+    expect(visible(draw({ context: 'c', you: null, earlier: 0, steps: true }))).toContain('Show what the agent did');
+    expect(visible(draw({ context: 'c', you: null, earlier: 0, steps: false }))).not.toMatch(/Show/);
+  });
+  it('draws only what it has', () => {
+    const html = draw({ context: null, you: { at: 1, text: 'only mine' }, earlier: 0 });
+    expect(visible(html)).not.toContain('Context');
+    expect(visible(html)).toContain('only mine');
+  });
+  it('keeps a label on one line when the text beside it is one long link', () => {
+    // Drawn on a real thread whose last message was a bare x.com link: the
+    // link could not break, so "3:46AM" fell to a line of its own under
+    // "You, Yesterday".
+    const css = read('renderer/src/one-thing-at-a-time.css');
+    expect(css).toMatch(/\.one-col \{[^}]*overflow-wrap: anywhere/);
+    expect(css).toMatch(/\.one-lab \{[^}]*white-space: nowrap/);
+  });
+  it('says nothing with a colon or a dash', () => {
+    const words = visible(draw({ context: 'c', you: { at: Date.now(), text: 't' }, earlier: 3 })).replace(/\d{1,2}:\d{2}/g, '');
+    expect(words).not.toMatch(/[:—–]/);
+  });
+});
+
+describe('the answer', () => {
+  const md = (t) => h('div', { className: 'md' }, t);
+  it('wears its bold first line as the headline and the rest as written', () => {
+    const html = renderToStaticMarkup(h(QueueAnswer, { text: '**Ship it?**\n\nAll green.', md }));
+    expect(html).toMatch(/<h1 class="one-q">Ship it\?<\/h1>/);
+    expect(html).toContain('All green.');
+  });
+  it('is drawn as written when it opens with no bold line', () => {
+    const html = renderToStaticMarkup(h(QueueAnswer, { text: 'Plain.', md }));
+    expect(html).not.toContain('<h1');
+    expect(html).toContain('Plain.');
+  });
+});
+
+describe('a page or a note the answer names is read in place', () => {
+  // Asked in round three: "we need to be able to read files really well
+  // inline, not as a separate artifact on the side." Measured in the browser
+  // copy: the thread page drew the review page as a small tile that read
+  // "Preview unavailable".
+  const md = (t) => h('div', null, t);
+  it('heads it with its name and a way to open it full screen', () => {
+    const html = renderToStaticMarkup(h(QueueFile, { product: 'p', path: '/a/designs/w-1/review.html', md, onOpen: noop }));
+    expect(visible(html)).toBe('review.html Open full screen');
+    expect(html).toContain('one-file one-page');
+  });
+  it('tells a note from a page', () => {
+    expect(renderToStaticMarkup(h(QueueFile, { product: 'p', path: 'reports/listings.md', md, onOpen: noop }))).toContain('one-file one-note');
+  });
+  it('and the thread page draws them in this mode in place of the tiles', () => {
+    const focus = read('renderer/src/components/Focus.tsx');
+    expect(focus).toContain('inlineArtifacts && !previewSample && queue && previewPaths.filter(readsInPlace).map((path) => <QueueFile');
+    expect(focus).toContain('{!queue && inlineArtifacts && !previewSample && <MessageFiles');
+  });
+});
+
+describe('the corner', () => {
+  it('says where you are and steps up and down', () => {
+    const html = renderToStaticMarkup(h(QueueNav, { spot: { pos: 2, total: 5, index: 1 }, onStep: noop }));
+    expect(visible(html)).toBe('2 of 5');
+    expect(html).toContain('aria-label="Previous thread (K)"');
+    expect(html).toContain('aria-label="Next thread (J)"');
+  });
+  it('greys the arrow with nothing past it', () => {
+    const first = renderToStaticMarkup(h(QueueNav, { spot: { pos: 1, total: 2, index: 0 }, onStep: noop }));
+    expect(first).toMatch(/aria-label="Previous thread \(K\)"[^>]*disabled/);
+    const last = renderToStaticMarkup(h(QueueNav, { spot: { pos: 2, total: 2, index: 1 }, onStep: noop }));
+    expect(last).toMatch(/aria-label="Next thread \(J\)"[^>]*disabled/);
+  });
+});
+
+describe('the choices', () => {
+  const offer = (bare) => renderToStaticMarkup(h(OptionsOffer, {
+    ask: 'Should I ship it?', askAll: 'Should I ship it?', options: [{ n: 1, text: 'Ship it (recommended)', recommended: true }, { n: 2, text: 'Hold it' }],
+    peekOption: null, askPeek: false, selectedOption: null, selRef: { current: null }, onPick: noop, onOptionEnter: noop, onAskEnter: noop, setPeek: noop, setAskPeek: noop, bare,
+  }));
+  it('drop their heading on this page, where the question is the headline', () => {
+    expect(offer(true)).not.toContain('opt-head');
+    expect(offer(true)).toContain('Ship it');
+  });
+  it('and keep it everywhere else', () => {
+    expect(offer(false)).toContain('opt-head');
+  });
+});
+
+describe('the way in', () => {
+  const tabs = (p) => visible(renderToStaticMarkup(h(StateTabs, { view: 'inbox', counts: { inbox: 3 }, onView: noop, ...p })));
+  it('is a quiet button on Needs you, naming its key', () => {
+    expect(tabs({ onOneAtATime: noop })).toContain('One at a time Space');
+  });
+  it('and is not drawn without a way in', () => {
+    expect(tabs({})).not.toContain('One at a time');
+  });
+});
+
+describe('where the app wires it', () => {
+  const app = read('renderer/src/App.tsx');
+  const focus = read('renderer/src/components/Focus.tsx');
+  const thread = read('renderer/src/components/ItemThread.tsx');
+
+  it('Space starts it from the top of Needs you, and Enter still opens the whole thread', () => {
+    expect(app).toMatch(/case ' ':[^\n]*startOneAtATime\(\)/);
+    expect(app).toMatch(/case 'Enter':[^\n]*setFocused\(pointed\)/);
+  });
+  it('the button is offered where the rule says', () => {
+    expect(app).toMatch(/onOneAtATime=\{queueStartsHere\(/);
+  });
+  it('an answer moves on in the queue, the last one included', () => {
+    expect(app).toMatch(/oneAtATime\s*\?\s*queueMovesOn\(/);
+  });
+  it('the advance turns it off when there is nothing left, and leaving does too', () => {
+    expect(app).toMatch(/if \(!next\) \{ setOneAtATime\(false\); return; \}/);
+    expect(app).toMatch(/if \(!focused && !advanceRef\.current\) setOneAtATime\(false\)/);
+  });
+  it('the thread page takes the queue, and wears no summary panel in it', () => {
+    expect(app).toMatch(/queue=\{queueSpot \?/);
+    expect(focus).toMatch(/const summaryOffered = [^\n]*!queue/);
+  });
+  it('the choices go to the foot, apart from the reply box, without their heading', () => {
+    expect(focus).toContain('{offerInPane && (queue || closeAsk ? null : (');
+    expect(focus).toContain('{offerInDock && (queue || closeAsk ? null : (');
+    expect(focus).toMatch(/\{queue && stripShown && !closeAsk && \(\s*<div className="one-choices">\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
+  });
+  it('the conversation folds behind the summary', () => {
+    expect(thread).toMatch(/<QueueSummary/);
+    expect(thread).toMatch(/<QueueAnswer/);
+  });
+});

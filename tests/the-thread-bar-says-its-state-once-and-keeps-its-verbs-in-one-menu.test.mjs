@@ -149,7 +149,8 @@ describe('the right side is the dots', () => {
     const focus = prose(read('renderer/src/components/Focus.tsx'));
     const portals = focus.match(/createPortal\([^\n]*cornerHeaderTarget\)/g);
     expect(portals).toHaveLength(1);
-    expect(portals[0]).toMatch(/<span className="ts-top">\{threadMenu\}<\/span>/);
+    // One thing at a time (w-65bcefb857) puts its place and arrows beside the dots, in that mode only.
+    expect(portals[0]).toMatch(/<span className="ts-top">(\{queue && <QueueNav spot=\{queue\.spot\} onStep=\{queue\.onStep\} \/>\})?\{threadMenu\}<\/span>/);
     expect(focus).not.toMatch(/doneButton|terminalHeaderTarget|done-mark/);
   });
 
