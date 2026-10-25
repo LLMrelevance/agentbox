@@ -86,12 +86,12 @@ export function answerIsHers(id, answer, publicKey = approvalPublicKey()) {
 }
 
 /**
- * How long a request file may outlive anyone who could answer it. Both engines
- * give up after fifteen minutes (approval-prompt-server.mjs `TIMEOUT_MS`,
- * codex-approvals.mjs `timeoutMs`), so anything older is a forgery or a dead
- * worker's leftover. A minute over and never under, because early removes a
- * live card. Checked against both constants by
- * tests/a-card-a-worker-forged-cannot-hold-the-front-of-her-stack.test.mjs.
+ * How long a request file may sit here with nobody waiting on it. A forgery and
+ * a dead worker's leftover leave this way, and they are the only two things
+ * that should: a card still being waited on is kept here by whoever is waiting,
+ * which is a beat of main/codex-approvals.mjs `tend` and of
+ * approval-prompt-core.mjs's own loop. Neither gives up on a clock any more
+ * (w-4b00022acb), so this is no longer a deadline shadowing theirs.
  */
 export const REQUEST_TTL_MS = 16 * 60_000;
 
@@ -247,7 +247,7 @@ export function listPending(storeRoot, { now = Date.now } = {}) {
     const key = prefix + id;
     const seen = seenAt.get(key);
     if (at - seen.at > REQUEST_TTL_MS) {
-      console.warn(`zero: approval ${id} outlasted every deadline that could have answered it; it has been taken out of the spool`);
+      console.warn(`zero: approval ${id} sat in the spool with nothing waiting on it for ${Math.round(REQUEST_TTL_MS / 60_000)} minutes; it has been taken out`);
       removeSpoolEntry(dir, f);
       removeSpoolEntry(dir, `${id}.answer.json`);
       continue;

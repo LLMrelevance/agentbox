@@ -87,14 +87,15 @@ export function clip(text, max = 120) {
 // main/notify.mjs resets this the moment she has the window, so the next time
 // she walks away she can be told again.
 //
-// THE ONE EXCEPTION, and it is here because an approval card has a clock on it.
-// A finished agent waits as long as it takes. An approval is a worker frozen
-// mid-run with her as the only way through, and it is DENIED AUTOMATICALLY
-// after fifteen minutes (TIMEOUT_MS, main/approval-prompt-server.mjs). If the
-// first banner of the stretch was a finished agent, an approval landing twenty
-// minutes later would die unheard under a strict one-and-done rule. So an
-// approval gets to speak once more, and that is the cap: at most two in one
-// stretch away, never more.
+// THE ONE EXCEPTION, and it is here because an approval is the one thing in the
+// inbox that nothing else can move. A finished agent has said its piece and the
+// thread is readable without her. An approval is a worker frozen mid-run with
+// her as the only way through, and it waits exactly that long: no clock answers
+// it (main/codex-approvals.mjs). If the first banner of the stretch was a
+// finished agent, an approval landing twenty minutes later would die unheard
+// under a strict one-and-done rule, and the run would still be standing there
+// when she got back. So an approval gets to speak once more, and that is the
+// cap: at most two in one stretch away, never more.
 export function shouldSpeak({ spoke = false, spokeAsk = false, waiting = [] } = {}) {
   const items = (waiting ?? []).filter(Boolean);
   if (!items.length) return false;

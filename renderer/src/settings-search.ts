@@ -68,7 +68,8 @@ const ENTRIES: Entry[] = [
   { page: 'claude', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'claude code cloud remote accounts limit' },
   { page: 'claude', label: 'Permission mode', anchor: 'permissions', words: 'claude code permissions bypass ask allow plan accept edits' },
   { page: 'codex', label: 'Usage', anchor: 'usage', words: 'codex limits plan left remaining quota' },
-  { page: 'codex', label: 'Signed in', anchor: 'accounts', words: 'codex account accounts login subscription add email' },
+  { page: 'codex', label: 'Signed in', anchor: 'usage', words: 'codex account accounts login subscription add email this computer local' },
+  { page: 'codex', label: 'Cloud accounts', anchor: 'cloud-accounts', words: 'codex cloud remote accounts limit' },
   { page: 'codex', label: 'Permission mode', anchor: 'permissions', words: 'codex permissions sandbox read only full access' },
   // The Memory group folded into the Agents card (w-e5225b62ba), so these three
   // land on `at-once` together. An anchor naming a group that no longer exists

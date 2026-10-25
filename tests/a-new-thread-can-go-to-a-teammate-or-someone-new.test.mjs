@@ -63,7 +63,8 @@ describe('starting one from the Teammates page', () => {
     expect(page).toMatch(/call\('describe', \{ \.\.\.args, greeted: true, product: where\.slug \}\)/);
     expect(page).toMatch(/onClick=\{\(\) => \{ void make\(\{ starter: a\.starter \}\); \}\}/);
     expect(page).toMatch(/onSend=\{\(text\) => make\(\{ text \}\)\}/);
-    expect(page).toMatch(/<span className="l">Runs on<\/span>/);
+    // The agent is picked in its About now, beside the model (round 6).
+    expect(page).toMatch(/<dt>Runs on<\/dt>/);
   });
   it('says when it works, and on which agent, beside its goal', () => {
     expect(page).toMatch(/`Works \$\{t\.worksLabel\}` : 'Works when someone writes to it'/);

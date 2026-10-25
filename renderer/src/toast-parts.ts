@@ -15,6 +15,15 @@ type Here = { product: string; id: string } | null;
 // middle is the toast explaining something and keeps its words.
 const UNDO_TAIL = / · (?:press )?Z to undo$/;
 
+/**
+ * THE TAIL ITSELF, for an action that writes straight away and raises its own
+ * toast; anything held behind the grace window gets it from `deferCommit`. It
+ * is a flag and not copy, because `toastParts` takes it off again and the Undo
+ * cap is what reaches the screen. Four actions forgot it and so looked as
+ * though they could not be taken back at all (F-50).
+ */
+export const SAYS_UNDO = ' · press Z to undo';
+
 export function toastParts(text: string): { line: string; undo: boolean } {
   return UNDO_TAIL.test(text)
     ? { line: text.replace(UNDO_TAIL, ''), undo: true }

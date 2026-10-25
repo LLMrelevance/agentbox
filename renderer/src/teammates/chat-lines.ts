@@ -145,3 +145,40 @@ export function roleLabel(role: string | null | undefined): string {
   const r = (role ?? '').trim();
   return r ? r[0].toUpperCase() + r.slice(1) : '';
 }
+
+// What it saved, shown in your chat with it as one quiet line.
+export const SAVED_VERBS = new Set(['learned', 'updated', 'lesson']);
+
+// A teammate's chat with you: your words to it, its words to you, what it sent
+// you, what it saved, and work it holds for you. Everything else is its Log.
+function betweenYou(e: ChatEntry, id: string): boolean {
+  if (e.kind === 'run') return e.teammate === id && (e.verb === 'sent' || e.verb === 'answered');
+  if (e.kind === 'msg') {
+    if (e.from === 'you') return toList(e.to).includes(id);
+    return e.from === id && toList(e.to).every((x) => x === 'you');
+  }
+  if (e.kind === 'act') return e.from === id && (SAVED_VERBS.has(e.verb ?? '') || e.verb === 'hops' || e.verb === 'limit');
+  return false;
+}
+
+export function chatWith(view: TeammatesView | null | undefined, id: string): ChatEntry[] {
+  return chatEntries(view, id).filter((e) => betweenYou(e, id));
+}
+
+export function logOf(view: TeammatesView | null | undefined, id: string): ChatEntry[] {
+  return chatEntries(view, id).filter((e) => !betweenYou(e, id));
+}
+
+// Which sections of the Chats list you folded, kept as a JSON list.
+export const FOLD_KEY = 'zero.chats.folded';
+export function foldedSet(raw: string | null): Set<string> {
+  try {
+    const list = JSON.parse(raw ?? '[]');
+    return new Set(Array.isArray(list) ? list.filter((x) => typeof x === 'string') : []);
+  } catch { return new Set(); }
+}
+export function toggleFold(raw: string | null, key: string): string {
+  const set = foldedSet(raw);
+  if (set.has(key)) set.delete(key); else set.add(key);
+  return JSON.stringify([...set]);
+}

@@ -62,7 +62,7 @@
 // would be this app telling her to do the one thing it refuses to do.
 import { NAME, Name } from '../shared/product-name.mjs';
 import { harnessDefinition } from './harness-definitions.mjs';
-import { instantIn, wallIn } from './usage.mjs';
+import { instantIn, resetDay, wallIn } from './usage.mjs';
 
 // A CLAUDE CODE TOO OLD FOR THE LINE AGENTBOX STARTS IT WITH. Its argument
 // parser refuses the line before a single request, in one of two shapes,
@@ -296,8 +296,14 @@ export function troubleCause(raw) {
 // workspace policy prints, so the text alone cannot tell them apart. The
 // login's own file can: `plan` is main/claude-plan.mjs's reading of it, and
 // `ended` is its billing gone to "none". Anything else keeps its cause.
-export function refineCause(cause, plan) {
-  return cause === 'org-blocked' && plan?.ended ? 'subscription-ended' : cause;
+// A LOGIN THAT RAN OUT AND ONE NOBODY EVER MADE REFUSE IN THE SAME WORDS, and
+// the second is what somebody who skipped setup meets: "Sign that account back
+// in" about an account they never had. `everSignedIn` is the caller's reading
+// of the login's own files; false only where that reading is proof.
+export function refineCause(cause, plan, { everSignedIn = true } = {}) {
+  if (cause === 'org-blocked' && plan?.ended) return 'subscription-ended';
+  if (cause === 'signed-out' && !everSignedIn) return 'no-plan';
+  return cause;
 }
 
 // THE CLOCK A LIMIT LINE NAMES, AND THE ZONE IT NAMED IT IN.
@@ -331,6 +337,14 @@ function clockWords(h, min) {
   return `${h % 12 || 12}${min ? `:${String(min).padStart(2, '0')}` : ''}${h < 12 ? 'am' : 'pm'}`;
 }
 
+// "3:15pm" today, "Wed 2:30pm" this week, "Wed Oct 28 1:05pm" further out,
+// the same day words the account meters use.
+function momentWords(ms, from) {
+  const d = new Date(ms);
+  const day = resetDay(ms, from);
+  return `${day ? `${day} ` : ''}${clockWords(d.getHours(), d.getMinutes())}`;
+}
+
 // WHEN THE LIMIT LETS GO, IN THE CLOCK SHE IS LOOKING AT.
 //
 // carries the one thing she actually wants to know, and we were throwing it
@@ -342,7 +356,12 @@ function clockWords(h, min) {
 // there.
 export function limitResetsAt(raw, from = Date.now()) {
   const clock = resetClock(raw);
-  if (!clock) return null;
+  if (!clock) {
+    // A reset on another day ("resets Oct 22 at 4pm", Codex's "try again at
+    // Oct 28th, 2026 1:05 PM") has no bare hour to quote.
+    const moment = limitResetMoment(raw, from);
+    return moment == null ? null : momentWords(moment, from);
+  }
   if (clock.offset == null) return clockWords(clock.h, clock.min);
   const at = new Date(limitResetMoment(raw, from));
   return clockWords(at.getHours(), at.getMinutes());
@@ -435,7 +454,7 @@ export function needsHerHands(cause) {
   // until she does spends nothing but a reply's tries.
   // A Codex signed in with a key is hers as well, and `codex login` rewrites
   // auth.json, which is what brings a benched account back.
-  return cause === 'signed-out' || cause === 'org-blocked' || cause === 'subscription-ended' || cause === 'too-old' || cause === 'api-key';
+  return cause === 'signed-out' || cause === 'no-plan' || cause === 'org-blocked' || cause === 'subscription-ended' || cause === 'too-old' || cause === 'api-key';
 }
 
 // THE ONE COMMAND THAT UPDATES IT, WHEREVER IT CAME FROM. `claude update`
@@ -449,6 +468,7 @@ const UPDATE = `run claude update in a terminal (${Name} needs version ${CLAUDE.
 // about, which is her agents, and the reason follows it in plain words.
 export function troubleSentence(cause) {
   if (cause === 'signed-out') return 'No agents can start. Your Claude login has run out.';
+  if (cause === 'no-plan') return 'No agents can start. No AI plan is set up on this computer.';
   if (cause === 'org-blocked') return 'No agents can start. Your organization has turned Claude Code off.';
   if (cause === 'subscription-ended') return 'No agents can start. Your Claude subscription has ended.';
   if (cause === 'at-limit') return 'No agents can start. Your Claude plan is at its limit.';
@@ -466,6 +486,7 @@ export function troubleRemedy(cause) {
   // ). "Sign in to Claude again" is a thing to go and work out; /login is a
   // thing to type.
   if (cause === 'signed-out') return 'Open Claude in a terminal, type /login, and they pick straight back up.';
+  if (cause === 'no-plan') return `Set one up ${SET_UP_A_PLAN} and they pick straight up.`;
   if (cause === 'org-blocked') return 'Ask an admin of that Claude workspace to turn Claude Code back on.';
   if (cause === 'subscription-ended') return 'Renew it at claude.ai and they pick straight up.';
   if (cause === 'at-limit') return 'They start again on their own when it resets.';
@@ -667,8 +688,16 @@ const DEAD_RUN_OPENERS = {
   'api-key': `is signed in with an API key, which ${Name} never bills, so nothing has been done.`,
   'codex-config': 'could not read its config.toml, so nothing has been done on this task.',
   'open-elsewhere': 'has this conversation open in another window, so nothing has been done here.',
+  // THE ONE OPENER WITH NO ENGINE IN FRONT OF IT: somebody who has set nothing
+  // up has never heard of Codex, and the plan screens never say the word.
+  'no-plan': 'No AI plan is set up on this computer, so nothing has been done on this task.',
   unknown: 'stopped before it did anything, so this task has not been started.',
 };
+
+// WHERE A PLAN GETS SET UP: the bar across the top of the inbox (`PlanBar`),
+// which is the only way back into setup. Said once, for the four places that
+// point at it.
+const SET_UP_A_PLAN = 'at the top of your inbox';
 
 // The same, for a run that used a tool before it died, so "nothing has been
 // done" would be false. Kept out of DEAD_RUN_OPENERS so `deadRunCause` does
@@ -731,6 +760,7 @@ function dayWords(ms) {
 // same words `deadRunSentence` uses for each cause. Null when the reply is all.
 function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
   if (cause === 'signed-out') return 'Sign that account back in.';
+  if (cause === 'no-plan') return `Set up a plan ${SET_UP_A_PLAN}.`;
   if (cause === 'org-blocked') return 'Only an admin of that Claude workspace can turn it back on.';
   if (cause === 'subscription-ended') return 'Renew it at claude.ai.';
   if (cause === 'at-limit') return resetsAt ? `The limit resets at ${resetsAt}.` : 'Wait for the limit to reset.';
@@ -771,7 +801,10 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
 // `partway` is a run that was picking up a thread an earlier run worked on: it
 // may have done nothing itself, but the task has been started. A cause with no
 // partway words stopped this run before it began, and keeps its own opener.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null } = {}) {
+//
+// `retryAt` is when the rest ladder starts it again (`restingUntil` in
+// main/supervisor.mjs), named only on the causes that wait for nothing else.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null, retryAt = null, now = Date.now() } = {}) {
   if (usedATool && !WORKED_OPENERS[cause]) cause = 'unknown';
   const worked = usedATool || (partway && !!WORKED_OPENERS[cause]);
   // A LIMIT IS A FACT ABOUT ONE LOGIN, so that is the one cause whose opener
@@ -781,7 +814,9 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? `hit its usage limit on ${account} partway through, so this task is not finished.`
       : `is at its usage limit on ${account}, so nothing has been done on this task.`)
     : null;
-  const opener = `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS[cause] ?? WORKED_OPENERS.unknown : DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown)}`;
+  const opener = cause === 'no-plan'
+    ? DEAD_RUN_OPENERS['no-plan']
+    : `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS[cause] ?? WORKED_OPENERS.unknown : DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown)}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 
@@ -790,11 +825,14 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
     return `${opener}${again} ${fix ? `${fix} Then reply` : 'Reply'} here to start it again.`;
   }
 
+  const when = retryAt > now ? ` at ${momentWords(retryAt, now)}` : '';
   // THE TIME THE LIMIT PRINTED, when there is one. "when the limit resets"
   // leaves her with a question; "at 6pm" is an answer, and it is the CLI's own
   // word for it rather than anything we worked out.
   const next = cause === 'signed-out'
     ? ' Sign that account back in and it picks straight up.'
+    : cause === 'no-plan'
+      ? ` Set one up ${SET_UP_A_PLAN} and it picks straight up.`
     : cause === 'org-blocked'
       ? ' Only an admin of that Claude workspace can turn it back on.'
       : cause === 'subscription-ended'
@@ -810,7 +848,7 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       : cause === 'open-elsewhere'
       ? ` Close it there and ${Name} tries again on its own.`
       : cause === 'interrupted'
-        ? ` ${Name} runs it again on its own.`
+        ? ` ${Name} runs it again on its own${when}.`
         : cause === 'model-not-on-plan'
           ? (planEnded
             ? ` That account's ChatGPT subscription ended on ${dayWords(planEnded)}, and the free plan does not include ${model || 'this model'}. Renew it at chatgpt.com, or pick another model for this task.`
@@ -820,10 +858,10 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
         : cause === 'network'
           ? ` It will keep failing until this is fixed: if your company uses a proxy or its own certificate, ${NETWORK_FIX} and reopen ${Name}.`
         : worked
-          ? ` ${Name} tries it again on its own.`
+          ? ` ${Name} tries it again on its own${when}.`
         : cause === 'workspace'
           ? ` ${Name} keeps trying, and it will keep failing the same way until this is fixed.`
-        : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own.`;
+        : ` ${UNNAMED_CHECK[engineWord] ?? ''}${Name} tries again on its own${when}.`;
 
   return `${opener}${again}${next}`;
 }
@@ -953,6 +991,7 @@ export function deadRunCause(text) {
 // where the shape has no room for a sentence, which is most of them.
 export function causeWord(cause) {
   if (cause === 'signed-out') return 'a signed-out login';
+  if (cause === 'no-plan') return 'no plan to run on';
   if (cause === 'org-blocked') return 'an organization that blocks Claude Code';
   if (cause === 'subscription-ended') return 'an ended Claude subscription';
   if (cause === 'at-limit') return 'your Claude limit';
@@ -972,6 +1011,7 @@ export function causeWord(cause) {
 export function causeWhat(cause, count) {
   const n = Math.max(0, Math.trunc(count ?? 0));
   if (cause === 'signed-out') return `${n} stopped by a signed-out Claude login`;
+  if (cause === 'no-plan') return `${n} waiting on a plan to run on`;
   if (cause === 'org-blocked') return `${n} stopped by an organization that blocks Claude Code`;
   if (cause === 'subscription-ended') return `${n} stopped by an ended Claude subscription`;
   if (cause === 'at-limit') return `${n} waiting on your Claude limit`;
@@ -989,6 +1029,7 @@ export function causeWhat(cause, count) {
 // comes from the limit line the CLI printed, never from our own clock.
 export function causeNext(cause, resetsAt = null) {
   if (cause === 'signed-out') return 'Type /login in a terminal and they pick straight up.';
+  if (cause === 'no-plan') return `Set one up ${SET_UP_A_PLAN}.`;
   if (cause === 'org-blocked') return 'Ask an admin of that Claude workspace to turn Claude Code back on.';
   if (cause === 'subscription-ended') return 'Renew it at claude.ai and they pick straight up.';
   if (cause === 'at-limit') return resetsAt ? `They start again on their own at ${resetsAt}.` : 'They start again on their own when it resets.';

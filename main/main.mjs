@@ -19,6 +19,7 @@ import { copySelection } from './copy-selection.mjs';
 import { screenDetailFor } from './screen-detail.mjs';
 import { Store } from './store.mjs';
 import { storeRootEnv } from './store/home.mjs';
+import { keepAnswerModesIn } from './answer-modes.mjs';
 import { Supervisor } from './supervisor.mjs';
 import { startCodexWatch } from './codex-watch.mjs';
 import { watchNewChatsFor } from './new-chats-watch.mjs';
@@ -325,6 +326,9 @@ async function createWindow() {
   // Written under every name this app has had, because a store server or a
   // script from before a rename is still out there reading the old one.
   Object.assign(process.env, storeRootEnv(config.storeRoot));
+  // What a reply may do is kept in her own folder, not that home, which every
+  // worker is granted (main/answer-modes.mjs).
+  keepAnswerModesIn({ userDir, storeRoot: config.storeRoot });
 
   // Menu needs the config (approval hotkeys answer the oldest pending card),
   // so it installs here rather than at whenReady. The spool watcher in ipc
@@ -338,11 +342,11 @@ async function createWindow() {
   // themselves with `approvals.answer`, and on a Codex card a file is not an
   // answer at all: the thing waiting is Agentbox itself, in this process, so
   // nothing on that path ever reads one. Her click on Allow landed as a
-  // FORGERY -- the file appeared for a request still waiting, `sweepForgery`
-  // deleted it inside two seconds, the log said "an answer file appeared for
-  // approval <id> that the founder did not write", her card came back and the
-  // worker was denied fifteen minutes later by the deadline. It also spent the
-  // one warning that is supposed to mean a worker attacked the spool.
+  // FORGERY -- the file appeared for a request still waiting, the card's own
+  // poll deleted it inside two seconds, the log said "an answer file appeared
+  // for approval <id> that the founder did not write", and her card came back
+  // with the worker still parked on it. It also spent the one warning that is
+  // supposed to mean a worker attacked the spool.
   //
   // The variable is filled in the moment `registerIpc` returns, a few hundred
   // lines down. Until then there is nothing to answer with and nothing that

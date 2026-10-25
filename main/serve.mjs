@@ -43,6 +43,7 @@ import { createTeamService, teamStateFile } from './team/index.mjs';
 import { loadCloudConfig, supabaseSession, headlessSessionFile } from './team/session.mjs';
 import { roomsSetup } from './team/room-setup.mjs';
 import { appHome, carryMisplacedMachinery, storeRootEnv } from './store/home.mjs';
+import { keepAnswerModesIn } from './answer-modes.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.dirname(here);
@@ -179,6 +180,7 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
   const inheritedHome = appHome();
   Object.assign(process.env, storeRootEnv(config.storeRoot));
   carryMisplacedMachinery(inheritedHome, config.storeRoot);
+  keepAnswerModesIn({ userDir, storeRoot: config.storeRoot });
   const store = await new Store(config).init();
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   const window = broadcastingWindow();

@@ -1,11 +1,11 @@
 // Pointing at someone, and their page (round 23): level, rank in the room,
-// days in a row; Today's activity (their threads on the Inbox's board), for
-// whoever shares it, and Progress (agent hours since they started).
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import type { Room, RoomCard, ThreadCard } from '../../types';
+// days in a row, and Progress (agent hours since they started). Never their
+// threads: nobody could tell who else saw them.
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { Room, RoomCard } from '../../types';
 import { I } from './icons';
 import { RoomFace } from './RoomFace';
-import { activityCards, activityShown, cardName, chartNamed, hoursWords, weekRank } from './room-rules';
+import { cardName, chartNamed, hoursWords, weekRank } from './room-rules';
 import { useOutside } from './RoomsPage';
 import { Name } from '../../../../shared/product-name.mjs';
 
@@ -31,17 +31,13 @@ export function PersonHover({ card, room, at, onMessage, onProfile, onRanks, onC
   </div>;
 }
 
-export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks, onRoom, onSaveBio, renderBoard }: {
-  card: RoomCard; room: Room; rooms: Room[]; cards: ThreadCard[]; rank: number | undefined;
+export function ProfilePage({ card, room, rooms, rank, onMessage, onRanks, onRoom, onSaveBio }: {
+  card: RoomCard; room: Room; rooms: Room[]; rank: number | undefined;
   onMessage?: () => void; onRanks: () => void;
   onRoom?: (roomId: string) => void;
   /** Keeps my bio, or says why it could not. */
   onSaveBio?: (bio: string | null) => Promise<string | null>;
-  /** The Inbox's board, for these people's threads. */
-  renderBoard?: (people: string[]) => ReactNode;
 }) {
-  const activity = activityShown(card) && renderBoard ? count(activityCards(card, cards)) : null;
-  const [tab, setTab] = useState<'progress' | 'activity'>('activity');
   const shared = rooms.filter((r) => r.wall.some((c) => c.id === card.id));
   const firstMonth = card.byMonth.find((m) => m.hours > 0)?.month ?? null;
   return <div className="rm-prof">
@@ -62,33 +58,19 @@ export function ProfilePage({ card, room, rooms, cards, rank, onMessage, onRanks
         <div><b>{I.flame()}{card.streak}</b><span className="rm-label">Days in a row</span></div>
       </div>
     </div>
-    <div className="rm-ptabs"><div className="tm-tabs">
-      {activity && <button type="button" className={`tm-tab${tab === 'activity' ? ' on' : ''}`} onClick={() => setTab('activity')}>Today’s activity{activity.count > 0 && <b>{activity.count}</b>}</button>}
-      <button type="button" className={`tm-tab${tab === 'progress' || !activity ? ' on' : ''}`} onClick={() => setTab('progress')}>Progress</button>
-    </div></div>
-    {tab === 'progress' || !activity || !renderBoard
-      ? <div className="rm-pgrid">
-        <div className="rm-chart">
-          <div className="rm-ptotal"><b>{hoursWords(card.hoursTotal)}</b><span className="rm-label">Agent hours{firstMonth ? ` since ${monthName(firstMonth, true)}` : ''}</span></div>
-          <HoursChart byMonth={card.byMonth} total={card.hoursTotal} />
-        </div>
-        <div className="rm-pcol">
-          {shared.length > 0 && <div className="blk"><span className="rm-label">Groups</span>{shared.map((r) => onRoom
-            ? <button type="button" key={r.id} className="line" onClick={() => onRoom(r.id)}>{I.hash()}{r.name}</button>
-            : <span key={r.id} className="line">{I.hash()}{r.name}</span>)}</div>}
-        </div>
+    <div className="rm-prule" />
+    <div className="rm-pgrid">
+      <div className="rm-chart">
+        <div className="rm-ptotal"><b>{hoursWords(card.hoursTotal)}</b><span className="rm-label">Agent hours{firstMonth ? ` since ${monthName(firstMonth, true)}` : ''}</span></div>
+        <HoursChart byMonth={card.byMonth} total={card.hoursTotal} />
       </div>
-      : <ProfileActivity card={card} renderBoard={renderBoard} />}
+      <div className="rm-pcol">
+        {shared.length > 0 && <div className="blk"><span className="rm-label">Groups</span>{shared.map((r) => onRoom
+          ? <button type="button" key={r.id} className="line" onClick={() => onRoom(r.id)}>{I.hash()}{r.name}</button>
+          : <span key={r.id} className="line">{I.hash()}{r.name}</span>)}</div>}
+      </div>
+    </div>
   </div>;
-}
-
-export function ProfileActivity({ card, renderBoard }: { card: RoomCard; renderBoard: (people: string[]) => ReactNode }) {
-  return <div className="rm-pact"><div className="rm-pboard">{renderBoard([card.id])}</div></div>;
-}
-
-function count(cards: ThreadCard[]) {
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  return { count: cards.filter((c) => c.state === 'waiting' || c.state === 'running' || (c.state === 'done' && c.updatedAt >= start.getTime())).length };
 }
 
 // The cloud refuses a longer one (room_profiles.bio).

@@ -31,6 +31,16 @@ describe('how a chat ended', () => {
     expect(howTheChatEnded('(Want me to ship it?)').waiting).toBe(true);
   });
 
+  // Drawn for the founder: a long last message came down to "Shall I do that?",
+  // which says nothing without the sentence it follows.
+  it('keeps the sentence before a short question at the end of a long message', () => {
+    const said = 'Found it. The test waits a fixed 200ms for the retry timer, and on a busy CI box the timer fires late. Mocking the clock is the real fix. Shall I do that?';
+    expect(howTheChatEnded(said).ask).toBe('Mocking the clock is the real fix. Shall I do that?');
+    // A question long enough to stand alone stays alone.
+    const long = `${'Some context about the work. '.repeat(5)}Should the cache be shared across every instance with redis?`;
+    expect(howTheChatEnded(long).ask).toBe('Should the cache be shared across every instance with redis?');
+  });
+
   // The power test's first find: "an index on (account_id, created_at)" came
   // out as "accountid, createdat", because every underscore was read as markdown.
   it('keeps the underscores inside names, and drops only the ones that mark emphasis', () => {
@@ -43,7 +53,7 @@ describe('how a chat ended', () => {
 
   it('keeps the end of a long line, because the question is at the end', () => {
     const story = `${'This was a long explanation of the change. '.repeat(5)}Shall I ship it?`;
-    expect(howTheChatEnded(story)).toEqual({ waiting: true, ask: 'Shall I ship it?' });
+    expect(howTheChatEnded(story)).toEqual({ waiting: true, ask: 'This was a long explanation of the change. Shall I ship it?' });
 
     const { waiting, ask } = howTheChatEnded(`${'word '.repeat(60)}ok?`);
     expect(waiting).toBe(true);

@@ -46,7 +46,9 @@ sentences, 45 words at most, that bring the thread back to someone who has
 forgotten it, what was asked, what was found and the facts needed to decide.
 `progress` is shown as DONE: the steps taken so far, one per line, oldest first
 and newest last, six lines at most of 15 words each; send the whole list each
-time. A longer one is refused. Leave `solution` out; it is no longer shown. If
+time. A longer one is refused. EVERY LINE IS A STEP THAT FINISHED: one you are
+about to take goes on after it happens, never before, because a DONE list
+claiming a commit that never ran is how the work gets thrown away. Leave `solution` out; it is no longer shown. If
 it waits on another thread, pass that thread's id in `blockedBy`. The person may have edited the summary; read it
 before you rewrite it, and keep what they said unless it is no longer true.
 <!-- store-tools:end -->
@@ -103,10 +105,10 @@ Finish the authorized objective, not merely the current step.
   the only one that changes it.
 - Actions outside your standing grants do not silently fail any more: the
   permission system asks the founder LIVE (an approval card in their inbox app)
-  and blocks you until they answer, up to 15 minutes. Spend these asks like
-  interruptions, because they are: exhaust what your grants already allow,
-  batch the gated part into as few commands as possible, and if they deny
-  or the ask times out, do not retry it; finish what you can and file the
+  and blocks you until they answer, with no deadline on it: you may wait hours.
+  Spend these asks like interruptions, because they are: exhaust what your
+  grants already allow, batch the gated part into as few commands as possible,
+  and if they deny, do not retry it; finish what you can and file the
   remainder as a review with the exact commands.
 - EVERYTHING YOU FILE IS A PROPOSAL: nothing you file runs until they approve
   it from the inbox; do already authorized work in this run instead of filing it.
@@ -158,10 +160,10 @@ Finish the authorized objective, not merely the current step.
   you alone before it started you, and it takes it back when you exit.
 - Actions outside your standing grants do not silently fail any more: the
   permission system asks the founder LIVE (an approval card in their inbox app)
-  and blocks you until they answer, up to 15 minutes. Spend these asks like
-  interruptions, because they are: exhaust what your grants already allow,
-  batch the gated part into as few commands as possible, and if they deny
-  or the ask times out, do not retry it; finish what you can and say what is
+  and blocks you until they answer, with no deadline on it: you may wait hours.
+  Spend these asks like interruptions, because they are: exhaust what your
+  grants already allow, batch the gated part into as few commands as possible,
+  and if they deny, do not retry it; finish what you can and say what is
   left in your last message, with the exact commands.
 - You cannot file work, so nothing you find becomes a task by itself. Work
   outside their authorization goes in your last message as something they can

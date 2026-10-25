@@ -287,7 +287,7 @@ export function createRooms({
     if (!b || !started) return false;
     const facts = presenceFacts() ?? {};
     const showWorking = state.me?.show_working ?? 'everyone';
-    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking, showActivity: state.me?.show_activity !== false }), state.me);
+    const row = withoutHidden(myPresence({ ...facts, now: now(), showWorking }), state.me);
     const key = JSON.stringify(row);
     if (!force && key === lastSent && now() - lastSentAt < HEARTBEAT_MS) return false;
     await b.putPresence(device(), { ...row, gone: false });
