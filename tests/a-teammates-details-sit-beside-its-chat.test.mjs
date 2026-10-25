@@ -27,6 +27,16 @@ describe('a teammate\'s chat', () => {
     expect(fn('Details')).toMatch(/t\.memory\.length > knows\.length && <Inline onClick=\{about\}>All \{t\.memory\.length\}<\/Inline>/);
   });
 
+  // The New teammate page kept the older panel of headed sections and chips,
+  // so the panel changed look the moment you answered it.
+  it('is the same list on a new teammate\'s page, before you have answered it', () => {
+    const fresh = fn('NewTeammate');
+    const panel = fresh.slice(fresh.indexOf('<aside'), fresh.indexOf('</aside>'));
+    expect(panel).toMatch(/<aside className="gr-side tq-side tq-details"/);
+    expect(panel).toMatch(/<dt>Works in<\/dt>\s*<dd>\{real\.length > 1\s*\? <PickOne /);
+    expect(panel).not.toMatch(/tq-sec|tq-chip/);
+  });
+
   it('can hide them from the ⋯ menu, for every teammate at once', () => {
     expect(fn('TeammateMenu')).toMatch(/details \? 'Hide details' : 'Show details'/);
     expect(page).toMatch(/localStorage\.getItem\(DETAILS_KEY\) !== 'hidden'/);

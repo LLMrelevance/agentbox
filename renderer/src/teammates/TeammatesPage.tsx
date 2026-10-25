@@ -456,7 +456,7 @@ function NewTeammate({ team, products, call, error, onOpen }: { team: Teammate[]
     onOpen(id);
     return true;
   };
-  const waiting = <div className="tq-sv dim">Waiting on your answer</div>;
+  const waiting = <span className="dim">Waiting on your answer</span>;
   return <>
     <div className="gr-chat tq-chat">
       <div className="tq-lines">
@@ -474,15 +474,15 @@ function NewTeammate({ team, products, call, error, onOpen }: { team: Teammate[]
       {error && <p className="tq-error" role="alert">{error}</p>}
       <Composer placeholder="Answer your new teammate" onSend={(text) => make({ text })} />
     </div>
-    <aside className="gr-side tq-side">
-      <div className="tq-sec"><div className="tq-sh">Job</div>{waiting}</div>
-      <div className="tq-sec"><div className="tq-sh">When it works</div>{waiting}</div>
-      <div className="tq-sec"><div className="tq-sh">Asks you before</div>{waiting}</div>
-      <div className="tq-sec"><div className="tq-sh">Works in</div>
-        {real.length > 1
-          ? <div className="tq-chips tq-where-chips">{real.map((p) => <button key={p.slug} type="button" className={`tq-chip${p.slug === where?.slug ? ' on' : ''}`} aria-pressed={p.slug === where?.slug} onClick={() => setSlug(p.slug)}>{p.name}</button>)}</div>
-          : <div className="tq-sv">{where?.name ?? 'No project yet'}</div>}
-      </div>
+    <aside className="gr-side tq-side tq-details" aria-label="Your new teammate">
+      <dl>
+        <dt>Job</dt><dd>{waiting}</dd>
+        <dt>On its own</dt><dd>{waiting}</dd>
+        <dt>Works in</dt>
+        <dd>{real.length > 1
+          ? <PickOne value={where?.slug ?? ''} label="Works in" options={real.map((p) => ({ id: p.slug, label: p.name }))} onPick={setSlug} />
+          : where?.name ?? 'No project yet'}</dd>
+      </dl>
     </aside>
   </>;
 }
