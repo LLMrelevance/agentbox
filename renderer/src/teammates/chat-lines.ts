@@ -153,9 +153,20 @@ export function roleLabel(role: string | null | undefined): string {
   return r ? r[0].toUpperCase() + r.slice(1) : '';
 }
 
-/** Beside its name in the bar: About on its About page, else its role, else what it is. */
-export function titleAside(kind: string, role: string | null | undefined): string {
-  return kind === 'about' ? 'About' : roleLabel(role) || 'AI teammate';
+/** Beside its name in the bar: About on its About page, then whether it is paused or setting up, then its role. */
+export function titleAside(kind: string, role: string | null | undefined, t: { paused?: boolean; status?: string } = {}): string {
+  if (kind === 'about') return 'About';
+  if (t.paused) return 'Paused';
+  if (t.status === 'draft') return 'Setting up';
+  return roleLabel(role) || 'AI teammate';
+}
+
+/** Its name in the Chats list. A draft has none of its own yet, so it goes by what you asked of it. */
+export function rowName(t: { name: string; status: string; job?: string | null }): string {
+  const ask = (t.job ?? '').split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (t.status !== 'draft' || t.name !== 'New teammate' || !ask) return t.name;
+  const cut = ask.length > 30 ? `${ask.slice(0, 30).replace(/\s+\S*$/, '')}…` : ask;
+  return roleLabel(cut);
 }
 
 /** Its goal and how it is counted, as one sentence however each one ends. */

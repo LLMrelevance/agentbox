@@ -363,7 +363,7 @@ export class Teammates {
     if (!dir) return null;
     const body = offer.said;
     const result = [
-      '**Make a teammate for these?**', '', `${offer.said} Like these:`, '', ...offer.titles.map((t) => `- ${t}`), '',
+      '**Make a teammate for these?**', '', `${offer.said} Like these:`, '', ...offer.asked.map(({ title, n }) => `- ${title}${n > 1 ? ` (${n} times)` : ''}`), '',
       'A teammate would take this kind of work on. It does it on its own, on a schedule if you like, and comes to you only when it needs you. It reads these threads first, with everything you said in them, then asks you only what they leave open.',
       '', '## Options', `1. ${OFFER_MAKE} (recommended)`, `2. ${OFFER_NOT_NOW}`,
     ].join('\n');

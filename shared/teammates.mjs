@@ -666,6 +666,17 @@ function yourAsks(items, now) {
  * alike enough to be one job, under a key no offer has used. One open offer at
  * a time, and one a day at most.
  */
+// Each distinct ask once, with how many times it was asked.
+function askedOnce(group) {
+  const seen = new Map();
+  for (const i of group) {
+    const title = String(i.label || i.title).trim();
+    const had = seen.get(title.toLowerCase());
+    if (had) had.n += 1; else seen.set(title.toLowerCase(), { title, n: 1 });
+  }
+  return [...seen.values()];
+}
+
 export function offerFrom({ items = [], offered = new Set(), now = Date.now() } = {}) {
   const open = (items ?? []).filter((i) => (i.labels ?? []).includes(OFFER_LABEL));
   if (open.some((i) => i.status !== 'done' || now - (i.createdAt ?? 0) < 24 * 60 * 60 * 1000)) return null;
@@ -686,6 +697,7 @@ export function offerFrom({ items = [], offered = new Set(), now = Date.now() } 
       key, product, count: group.length,
       // The same words asked again are one line, not five.
       titles: [...new Map(group.map((i) => [String(i.label || i.title).trim().toLowerCase(), String(i.label || i.title).trim()])).values()].slice(0, 5),
+      asked: askedOnce(group).slice(0, 5),
       threads: group.slice(0, OFFER_THREADS).map((i) => ({ product: i.product, id: i.id, title: String(i.label || i.title).trim() })),
       title: `Want a teammate for things like “${clip(lead.label || lead.title, 60)}”?`,
       said: `You've asked for this ${group.length} times this month.`,

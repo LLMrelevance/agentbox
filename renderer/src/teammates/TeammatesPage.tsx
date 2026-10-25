@@ -59,7 +59,7 @@ export function TeammatesTitle({ view, open }: { view: TeammatesView | null; ope
     <div className="gc-head-col"><span className="workspace-title gc-col-title">Chats</span></div>
     {open === 'new' || !t
       ? <h1 className="workspace-title gc-head-group tq-title"><i className="tq tq-hd tq-hash" aria-hidden="true">+</i><span>New teammate</span></h1>
-      : <h1 className="workspace-title gc-head-group tq-title"><TeammateMark t={t} size="hd" /><span>{book ? book.title : t.name}</span>{!book && <span className="tq-role">{titleAside(shown.kind, t.role)}</span>}</h1>}
+      : <h1 className="workspace-title gc-head-group tq-title"><TeammateMark t={t} size="hd" /><span>{book ? book.title : t.name}</span>{!book && <span className="tq-role">{titleAside(shown.kind, t.role, t)}</span>}</h1>}
   </div>;
 }
 
@@ -248,7 +248,7 @@ function Message({ m, team, me, mePic, lead, call, onOpenThread, answered }: { m
   return <div className={`rm-cm tq-m${lead ? '' : ' tq-cont'}`}>
     {lead && <div className="h">
       {mine ? (mePic ? <img className="rm-pic tq-you tq-ph" src={mePic} alt="" referrerPolicy="no-referrer" /> : <span className="rm-pic rm-ini tq-you" aria-hidden="true">{me.trim() ? initials(me) : YOU_GLYPH}</span>) : <TeammateMark t={t} size="pic" />}
-      <span>{mine ? (m.via ? 'Your thread' : 'You') : t?.name ?? 'A teammate'}</span>
+      <span>{mine ? (m.via ? 'Your thread' : m.setup && m.threads?.length ? 'You, from the suggestion' : 'You') : t?.name ?? 'A teammate'}</span>
       {mine && to.length > 1 && <span className="tq-to">to {to.join(', ')}</span>}
       {mine && m.via && m.viaProduct && <button type="button" className="tq-to tq-link" onClick={() => onOpenThread(m.viaProduct!, m.via!)}>open it</button>}
       <em>{clockOf(m.ts)}</em>
