@@ -2,7 +2,7 @@
 // no board is handed in, and the chat beside it. Also the room's ranks this
 // week, and the line that says you are invisible.
 import { useRef, useState, type ReactNode } from 'react';
-import type { Room, RoomCard, RoomProfile, ThreadCard } from '../../types';
+import type { Room, RoomCard, RoomProfile } from '../../types';
 import { PersonHover, ProfilePage } from './RoomPerson';
 import { LiveMark } from '../../components/LiveMark';
 import { I } from './icons';
@@ -13,15 +13,13 @@ import { joinLink } from '../../../../shared/room-links.mjs';
 /** The wall, the room's ranks, or one person's page. */
 export type RoomPane = 'wall' | 'ranks' | `person:${string}`;
 
-export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat, board = null, renderBoard, picked, onPick, onPane, onComeBack, onMessage, onCopyLink, onRoom, onSaveBio }: {
-  room: Room; rooms: Room[]; cards: ThreadCard[]; ranks: Record<string, number>;
+export function RoomPage({ room, rooms, ranks, me, now, pane, link, chat, board = null, picked, onPick, onPane, onComeBack, onMessage, onCopyLink, onRoom, onSaveBio }: {
+  room: Room; rooms: Room[]; ranks: Record<string, number>;
   me: RoomProfile | null; now: number; pane: RoomPane; link: string | null;
   /** The chat panel beside the wall: this room's, or a chat switched to. */
   chat: ReactNode;
   /** Their threads as a board, drawn in place of the wall while the room's view is Board. */
   board?: ReactNode;
-  /** The Inbox's board for these people, for a person's Activity. */
-  renderBoard?: (people: string[]) => ReactNode;
   onRoom?: (roomId: string) => void;
   onSaveBio?: (bio: string | null) => Promise<string | null>;
   /** Cards picked to message together. */
@@ -48,9 +46,9 @@ export function RoomPage({ room, rooms, cards, ranks, me, now, pane, link, chat,
   </div>;
   if (person) {
     return <div className="rm-split"><div className="rm-main wide">
-      <ProfilePage key={person.id} card={person} room={room} rooms={rooms} cards={cards} rank={ranks[person.id]}
+      <ProfilePage key={person.id} card={person} room={room} rooms={rooms} rank={ranks[person.id]}
         onRanks={() => onPane('ranks')} onMessage={onMessage ? () => onMessage([person.id]) : undefined}
-        onRoom={onRoom} onSaveBio={onSaveBio} renderBoard={renderBoard} />
+        onRoom={onRoom} onSaveBio={onSaveBio} />
     </div></div>;
   }
   return <div className="rm-split">

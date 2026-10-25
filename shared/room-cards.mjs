@@ -28,7 +28,6 @@ function sumPresence(rows, now) {
   let agents = 0, total = 0, week = 0, today = 0;
   const days = new Set();
   const months = new Map();
-  const activity = [];
   let lead = null;
   for (const r of rows) {
     if (r.gone) continue;
@@ -40,21 +39,13 @@ function sumPresence(rows, now) {
       if (typeof m?.month === 'string') months.set(m.month, (months.get(m.month) ?? 0) + num(m.hours));
     }
     const fresh = now - ms(r.updated_at) < PRESENCE_STALE_MS;
-    if (fresh && Array.isArray(r.activity)) activity.push(...r.activity.filter((a) => a && typeof a.title === 'string' && STATES.includes(a.state)));
     if (!fresh || !(num(r.agents_running) > 0)) continue;
     agents += num(r.agents_running);
     if (!lead || (ms(r.working_at) || 0) > (ms(lead.working_at) || 0)) lead = r;
   }
   const byMonth = [...months].sort(([a], [b]) => a.localeCompare(b)).map(([month, hours]) => ({ month, hours }));
-  return { agents, total, week, today, streak: streakOf([...days], now), byMonth, lead, activity };
+  return { agents, total, week, today, streak: streakOf([...days], now), byMonth, lead };
 }
-
-// Activity reaches people outside my team only on the switch that names my
-// work to them, and only while my activity is on.
-const sharesActivity = (p) => p.show_working === 'everyone' && p.show_activity !== false;
-const STATES = ['waiting', 'running', 'done'];
-export const ACTIVITY_MAX = 36;
-const EACH = ACTIVITY_MAX / STATES.length;
 
 function workingOf({ profile, lead, teammate, cards }) {
   const none = { workingOn: null, workingPrivate: false };
@@ -104,7 +95,8 @@ export function wallCards({ members = [], profiles = [], presence = [], teammate
       byMonth: s.byMonth,
       teammate: mates.has(id) && id !== meId,
       showActivity: p.show_activity !== false,
-      activity: sharesActivity(p) ? s.activity : null,
+      // A list of threads an older Mac still sends is read by nobody.
+      activity: null,
       status: p.show_status !== false && p.status_text && !(ms(p.status_until) <= now) ? p.status_text : null,
       ...(id === meId && mine ? ownWorking(mine, listed && p.show_working !== 'everyone')
         : workingOf({ profile: p, lead: s.lead, teammate: mates.has(id) && id !== meId, cards })),
@@ -132,9 +124,7 @@ const shortName = (item) => (String(item?.label ?? '').trim() || String(item?.ti
 // A thread is named only when its project and its own word leave it to the
 // whole team, and only when I let everyone see it: realtime sends whole rows,
 // so a name on the row reaches everyone in my rooms.
-// `cards` are this Mac's own thread cards (shared/thread-cards.mjs cardsFor):
-// the threads my team may read, which are the ones my activity may name.
-export function myPresence({ running = [], items = [], products = [], cards = [], summary, now = Date.now(), showWorking = 'everyone', showActivity = true }) {
+export function myPresence({ running = [], items = [], products = [], summary, now = Date.now(), showWorking = 'everyone' }) {
   const lead = [...running].sort((a, b) => num(b.startedAt) - num(a.startedAt))[0];
   let working_on = null;
   let working_private = false;
@@ -158,16 +148,9 @@ export function myPresence({ running = [], items = [], products = [], cards = []
     streak_days: summary?.streak ?? 0,
     active_days: summary?.activeDays ?? [],
     hours_by_month: summary?.byMonth ?? [],
-    activity: sharesActivity({ show_working: showWorking, show_activity: showActivity }) ? activityOf(cards, now) : [],
+    // Never a list of threads: it reached everyone in my rooms.
+    activity: [],
   };
-}
-
-function activityOf(cards, now) {
-  const today = new Date(now); today.setHours(0, 0, 0, 0);
-  const open = cards.filter((c) => c && !c.people?.length && c.title && STATES.includes(c.state) && (c.state !== 'done' || num(c.updatedAt) >= today.getTime()));
-  return STATES.flatMap((state) => open.filter((c) => c.state === state)
-    .sort((a, b) => num(b.updatedAt) - num(a.updatedAt)).slice(0, EACH)
-    .map((c) => ({ title: String(c.title).slice(0, WORKING_ON_MAX), project: c.project ? String(c.project).slice(0, 40) : null, state, at: num(c.updatedAt) })));
 }
 
 const round2 = (v) => Math.round(num(v) * 100) / 100;
