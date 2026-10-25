@@ -71,10 +71,11 @@ describe('the doors and the page', () => {
     expect(read('preload.cjs')).toContain("teamSignInEmail: (payload) => ipcRenderer.invoke('zero:team-sign-in-email', payload)");
   });
 
-  it('stands over the whole app while a team build has nobody signed in', () => {
+  it('stands over the whole app while a build that can sign in has nobody signed in', () => {
     const app = read('renderer/src/App.tsx');
-    expect(app).toContain("snap.team.started === true && !snap.team.signedIn");
-    expect(app).toContain('<SignInPage signedOut={signedOutHere}');
+    expect(read('renderer/src/sign-in-ask.ts')).toContain("page: held && team!.started === true");
+    expect(app).toContain('const signInGate = signInAsked.page;');
+    expect(app).toContain('<SignInPage onSkip={onCloudPhone() ? undefined : skipSignIn} signedOut={signedOutHere}');
     expect(app).toMatch(/if \(signInGateRef\.current\) return;/);
   });
 

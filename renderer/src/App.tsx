@@ -165,6 +165,7 @@ import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { NOT_ANSWERING, NOT_ANSWERING_MS, RESTART_IT, RESTART_IT_MS, SEND_NOT_TAKEN } from './not-answering';
 import { TEAM_WAIT_MS } from './boot-waits';
+import { signInAsk, SIGN_IN_SKIPPED } from './sign-in-ask';
 import { isNew } from '../../shared/notify-rules.mjs';
 import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../shared/team-rules.mjs';
 import { Face, TeamContext, firstName, teamView } from './team/people';
@@ -667,21 +668,25 @@ export default function App() {
   // Drawn when it is open and nothing sits over it: an opened task or Settings
   // takes the page, and closing them returns to the Team page.
   const teamShown = teamOpen && !focused && !settingsOpen;
-  // THE SIGN-IN PAGE STANDS OVER EVERYTHING when a team build has nobody
-  // signed in, once the saved sign-in has been looked for (team/SignInPage.tsx).
-  // Signing out lands on it, and it says so.
-  const signInGate = !api.isFixtures && !!snap?.team?.configured && snap.team.started === true && !snap.team.signedIn;
+  // THE SIGN-IN PAGE STANDS OVER EVERYTHING when a build that can sign in has
+  // nobody signed in, once the saved sign-in has been looked for, until it is
+  // skipped (./sign-in-ask). Signing out lands on it, and it says so.
+  const [signInSkipped, setSignInSkipped] = useState(() => localStorage.getItem(SIGN_IN_SKIPPED) === '1');
+  const signInAsked = signInAsk({ team: snap?.team, fixtures: api.isFixtures, skipped: signInSkipped, canSkip: !onCloudPhone() });
+  const signInGate = signInAsked.page;
   // AND THE FIRST-RUN WALK WAITS FOR SOMEBODY TO BE SIGNED IN (2026-10-04).
   // It used to run underneath the sign-in page, invisible but live: on its
   // guided steps it holds every press not on what it points at, so Continue
   // with Google did nothing at all for the first teammate to install this, and
   // Return in the sign-in form went to the walk instead. It neither starts nor
-  // draws until someone is signed in, and picks up where it was after.
-  const walkWaitsForSignIn = !api.isFixtures && !!snap?.team?.configured && !snap.team.signedIn;
+  // draws until someone is signed in or skips, and picks up where it was after.
+  const walkWaitsForSignIn = signInAsked.walkWaits;
+  const skipSignIn = useCallback(() => { localStorage.setItem(SIGN_IN_SKIPPED, '1'); setSignInSkipped(true); }, []);
+  const askToSignIn = useCallback(() => { localStorage.removeItem(SIGN_IN_SKIPPED); setSignInSkipped(false); }, []);
   const wasSignedIn = useRef(false);
   const [signedOutHere, setSignedOutHere] = useState(false);
   useEffect(() => {
-    if (snap?.team?.signedIn) { wasSignedIn.current = true; setSignedOutHere(false); }
+    if (snap?.team?.signedIn) { wasSignedIn.current = true; setSignedOutHere(false); localStorage.removeItem(SIGN_IN_SKIPPED); setSignInSkipped(false); }
     else if (wasSignedIn.current && snap?.team?.started) setSignedOutHere(true);
   }, [snap?.team?.signedIn, snap?.team?.started]);
   const signInGateRef = useRef(false);
@@ -6092,7 +6097,7 @@ export default function App() {
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${queueSpot && focused ? ' one-at-a-time' : ''}`}>
 
-      {signInGate && <SignInPage signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
+      {signInGate && <SignInPage onSkip={onCloudPhone() ? undefined : skipSignIn} signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
           `.workspace-layout::after` is the window's drag strip. */}
       {workspaceNavigation && <div className="panel-marks" aria-hidden="true" />}
@@ -6138,7 +6143,7 @@ export default function App() {
           all={snap.usageByEngine ?? []}
           recent={lastUsedEngine(snap)}
         />}
-        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
+        page={settingsOpen ? 'settings' : null} inboxLabel={roomsUi.live ? 'Inbox' : undefined} invisible={roomsUi.invisible} onSignIn={signInAsked.sidebar ? askToSignIn : undefined} onFeedback={() => setFeedbackOpen(true)} teamPage={teamOpen && !settingsOpen} hasTeam={!!snap?.team?.configured} team={snap?.team ?? null}
         onInvite={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(true); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
