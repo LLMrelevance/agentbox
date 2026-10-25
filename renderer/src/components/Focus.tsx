@@ -128,6 +128,8 @@ import { defaultEffortFor, effortChoicesFor, effortShown } from '../effort';
 import { ENGINES } from '../../../shared/engines.mjs';
 import { lookAgainAfter } from '../picture-looks-again';
 import { focusAtEnd } from '../focus-at-end';
+import type { Spot } from '../one-thing-at-a-time';
+import { QueueFile, QueueNav, readsInPlace } from './OneThingAtATime';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -566,7 +568,9 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null }: {
+  /** One thing at a time (w-65bcefb857): this thread's place in Needs you and the arrows that walk it. */
+  queue?: { spot: Spot; onStep: (dir: 1 | -1) => void } | null;
   previewSample?: string;
   /** The repeating task this thread is a run of, drawn in its summary. */
   repeat?: RepeatHandle | null;
@@ -893,7 +897,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   }, [openThread]);
   useEffect(() => { if (openDoc) setOpenThread(null); }, [openDoc]);
   const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
-  const summaryOffered = summarised && !openDoc;
+  // One thing at a time keeps its summary on top of the page, so no panel beside it.
+  const summaryOffered = summarised && !openDoc && !queue;
   const summaryShown = summaryOffered && summaryOpen;
   useSummaryShortcut(toggleSummary, summaryOffered);
   useEffect(() => {
@@ -1569,7 +1574,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* THE CORNER: THE THREAD'S MENU, and nothing else. The Summary button
         that stood beside it (w-e731ca9376) moved onto the summary itself on
         w-a3482b8c2c: the rail opens it, the icon beside its title closes it. */}
-    {cornerHeaderTarget && createPortal(<span className="ts-top">{threadMenu}</span>, cornerHeaderTarget)}
+    {cornerHeaderTarget && createPortal(<span className="ts-top">{queue && <QueueNav spot={queue.spot} onStep={queue.onStep} />}{threadMenu}</span>, cornerHeaderTarget)}
     {picture && (
       <PictureView
         pictures={picture.pictures}
@@ -1721,6 +1726,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             <ItemThread
               item={item}
               chat={direct}
+              // One thing at a time: the summary on top and the newest answer, the rest behind one line.
+              queue={queue ? { context: item.problem ?? null } : undefined}
               /*
                * WHICH CODING AGENT THIS ROW RUNS ON, because one sentence in the
                  conversation depends on it: `blocked` after one of Claude Code's
@@ -1825,7 +1832,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             stripRef={closeAskRef}
           />
         )}
-        {offerInPane && (closeAsk ? null : (
+        {/* One at a time draws them at the foot instead, apart from the reply box. */}
+        {offerInPane && (queue || closeAsk ? null : (
           <OptionsOffer
             ask={ask} askAll={askAll} options={options}
             peekOption={peekOption} askPeek={askPeek}
@@ -1883,7 +1891,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       {/* THE FILES A MESSAGE NAMES ARE SMALL FRAMED TILES (w-9ed13d72b3), and
           a file nothing can read gets none. The big review card below is
           only the review lab's sample now. */}
-      {inlineArtifacts && !previewSample && <MessageFiles product={product} paths={previewPaths} revision={item.updatedAt} openDoc={openDoc} onOpen={path => onOpenArtifact?.(path, 'beside')} />}
+      {/* One thing at a time reads a page or a note in place rather than as a tile. */}
+      {inlineArtifacts && !previewSample && queue && previewPaths.filter(readsInPlace).map((path) => <QueueFile key={path} product={product} path={path} md={md} onOpen={() => onOpenArtifact?.(path, 'focus')} />)}
+      {!queue && inlineArtifacts && !previewSample && <MessageFiles product={product} paths={previewPaths} revision={item.updatedAt} openDoc={openDoc} onOpen={path => onOpenArtifact?.(path, 'beside')} />}
       {inlineArtifacts && previewSample && <div className="artifact-entry-list" aria-label="Attachments">{previewPaths.map(path =>
         <DirectReview key={path} product={product} path={path} revision={item.updatedAt} open={openDoc === path}
           onOpen={()=>onOpenArtifact?.(path, 'beside')}
@@ -2010,6 +2020,18 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
         so the folded box and the open composer cannot drift into two stops. */}
     <div className="focus-dock">
       <div className="focus-dock-inner">
+        {queue && stripShown && !closeAsk && (
+          <div className="one-choices">
+            <OptionsOffer
+              ask={ask} askAll={askAll} options={options}
+              peekOption={peekOption} askPeek={askPeek}
+              selectedOption={selectedOption} selRef={selRef}
+              onPick={onPick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
+              setPeek={setPeek} setAskPeek={setAskPeek}
+              bare
+            />
+          </div>
+        )}
         {aboveDock}
         <div className="dock-card">
           {/* A TASK A TEAMMATE GAVE YOU: to an agent, keep it, or hand it back.
@@ -2037,7 +2059,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               stripRef={closeAskRef}
             />
           )}
-          {offerInDock && (closeAsk ? null : (
+          {offerInDock && (queue || closeAsk ? null : (
             <OptionsOffer
               ask={ask} askAll={askAll} options={options}
               peekOption={peekOption} askPeek={askPeek}
@@ -2628,22 +2650,6 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   };
   // A note being recorded is a draft: the box stays open round it.
   const hasDraft = !!text.trim() || attachments.length > 0 || recording;
-  // NEO SENDS FROM THIS BOX WHEN THE PICTURES IN IT GO WITH ITS WORDS, so the
-  // pictures go out the way her own send takes them (renderer/src/neo/useNeo.ts).
-  const sendRef = useRef(send);
-  sendRef.current = send;
-  const attachedRef = useRef(attachments);
-  attachedRef.current = attachments;
-  useEffect(() => {
-    const take = (e: Event) => {
-      const { key, text: words, answer } = (e as CustomEvent<{ key: string; text: string; answer: (sent: boolean) => void }>).detail;
-      if (key !== draftKey(item) || !attachedRef.current.length) return;
-      answer(true);
-      void sendRef.current(words);
-    };
-    window.addEventListener('neo:send-from-box', take);
-    return () => window.removeEventListener('neo:send-from-box', take);
-  }, [item.product, item.id]);
   // THE SLASH MENU, AND THE MODE THAT IS ALWAYS ON THE SCREEN.
   //
   // It does. Claude Code has no backslash TRIGGER: `/` opens its commands and

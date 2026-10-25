@@ -26,8 +26,12 @@ declare module 'react' {
   }
 }
 
+/** What the bar above can make the page do (BrowserChrome via DocPane). */
+export type PageControl = { back: () => void; forward: () => void; reload: () => void; go: (to: string) => void };
+
 type Guest = HTMLElement & {
   getURL?: () => string;
+  loadURL?: (to: string) => Promise<void>;
   goBack?: () => void;
   goForward?: () => void;
   reload?: () => void;
@@ -58,7 +62,7 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
   // Handed back to the pane so the bar above can step the page. It is a ref
   // rather than state because pressing Back must reach the guest that is
   // mounted now, not the one a render closed over.
-  control?: React.MutableRefObject<{ back: () => void; forward: () => void; reload: () => void } | null>;
+  control?: React.MutableRefObject<PageControl | null>;
   onNavigate: (here: Browsing) => void;
   onReady?: () => void;
   onFailed?: (why: string) => void;
@@ -73,6 +77,8 @@ export function WebsitePane({ url, webview, ready = true, control, onNavigate, o
         back: () => node.goBack?.(),
         forward: () => node.goForward?.(),
         reload: () => node.reload?.(),
+        // A refused load already reaches did-fail-load; the promise only repeats it.
+        go: (to) => node.loadURL?.(to)?.catch(() => {}),
       };
     }
     const where = (over: Partial<Browsing> = {}): Browsing => ({

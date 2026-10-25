@@ -220,6 +220,10 @@ export interface TeamState {
   phoneSiteQr?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
+  /** This build has an account to sign in to, whether or not Multiplayer is on. */
+  canSignIn?: boolean;
+  /** The saved sign-in and its team are still being restored; the boot screen waits on it. */
+  settling?: boolean;
   /** When this person began sharing on this Mac: threads started before it stay theirs unless shared by hand. */
   since?: number | null;
   /** The invites this team has out that nobody has taken up yet. */
@@ -879,7 +883,7 @@ export interface Snapshot {
   team?: TeamState | null;
   teammates?: TeammatesView | null;
   /** Which alpha features are switched on (Settings, Alpha features). */
-  alpha?: { neo: boolean; rooms: boolean; teammates?: boolean; multiplayer?: boolean };
+  alpha?: { rooms: boolean; teammates?: boolean; multiplayer?: boolean };
   agents?: AgentSession[];
   approvals?: Approval[];
   supervisor: SupervisorStatus;
@@ -1202,7 +1206,7 @@ export interface WorkspaceSettings {
   // New Claude Code and Codex chats come in on their own (w-62228098e6).
   importNew?: boolean;
   // Settings, Alpha features (w-3d0fa23ffb).
-  alpha?: { neo: boolean; rooms: boolean; teammates?: boolean; multiplayer?: boolean };
+  alpha?: { rooms: boolean; teammates?: boolean; multiplayer?: boolean };
   // The corner tag over other apps (w-dafae58a23). On unless she turned it off.
   cornerTag?: boolean;
   outsideAgents: AgentMode;
@@ -1417,12 +1421,6 @@ declare global {
       // finishing* on two channels.
       messageRulesRead?(): Promise<{ text: string; error?: string }>;
       messageRulesWrite?(p: { text: string }): Promise<{ ok: boolean; error?: string }>;
-      // WHAT NEO KEEPS, on the Neo page (renderer/src/neo/NeoSettings.tsx).
-      // Answers null where Neo is off, which is everywhere but the one Mac
-      // that opted in (main/neo/gate.mjs).
-      neoEnabled?(): Promise<boolean>;
-      neoMemory?(change?: { add?: string; forget?: string; instructions?: string; memories?: string }): Promise<NeoMemory | null>;
-      neoVoice?(voice?: string): Promise<string | null>;
       // The settings screen. Every write answers with the whole settings object
       // again, so the screen redraws from what the main process now believes
       // rather than from what the click assumed.
@@ -1494,10 +1492,6 @@ declare global {
   }
 }
 
-
-/** What Neo keeps between conversations (shared/neo-memory.mjs). `document`
- *  is the memories as the page writes them, one entry a line. */
-export type NeoMemory = { ok?: boolean; error?: string; instructions: string; memories: { id: string; text: string; at: number }[]; document: string };
 
 /**
  * ONE FOLDER'S WORTH OF THE DISK, as the app's own picker reads it.

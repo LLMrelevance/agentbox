@@ -1,6 +1,6 @@
 // What Settings opens on: which computer it is about, and its pages in the
-// desktop's order and groups (renderer/src/settings-search.ts). Appearance,
-// Shortcuts and Neo are about the Mac's own screen and keys, and Cloud sells
+// desktop's order and groups (renderer/src/settings-search.ts). Appearance
+// and Shortcuts are about the Mac's own screen and keys, and Cloud sells
 // plans, which the phone app does not (docs/mobile/PLAN.md, 3.1).
 import Constants from 'expo-constants';
 import { router } from 'expo-router';

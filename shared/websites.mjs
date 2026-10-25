@@ -29,6 +29,25 @@ export function isWebsiteAddress(src) {
 }
 
 /**
+ * What an address typed into the pane's bar means: a page on the web or a
+ * local app, with the scheme a browser would add, or null. Never a search,
+ * which would send what you typed to somebody else.
+ */
+export function addressYouTyped(typed) {
+  const text = typeof typed === 'string' ? typed.trim() : '';
+  if (!text || /\s/.test(text)) return null;
+  const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text);
+  const bareHost = text.split(/[/?#]/)[0].replace(/:\d+$/, '').toLowerCase();
+  const full = hasScheme ? text : `${LOOPBACK.has(bareHost) ? 'http' : 'https'}://${text}`;
+  let url;
+  try { url = new URL(full); } catch { return null; }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.username || url.password) return null;
+  if (!LOOPBACK.has(url.hostname) && !url.hostname.includes('.')) return null;
+  return url.href;
+}
+
+/**
  * Can this page embed a website in a browser of its own? Only the desktop
  * window can: `<webview>` is Electron's, and nothing registers the tag in an
  * ordinary tab or on a phone. Asking the tag beats guessing which door this is.

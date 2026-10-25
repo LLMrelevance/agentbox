@@ -46,8 +46,8 @@ const TERMS_URL = 'https://agentbox.ac/terms';
 const PRIVACY_URL = 'https://agentbox.ac/privacy';
 const TermsLinks = () => <>the <a href={TERMS_URL} onClick={(e) => { e.preventDefault(); window.open(TERMS_URL, '_blank'); }}>Terms</a> and the <a href={PRIVACY_URL} onClick={(e) => { e.preventDefault(); window.open(PRIVACY_URL, '_blank'); }}>Privacy policy</a></>;
 
-export function SignInPage({ signedOut = false, error: startError = null, waitingUrl = null, purpose = 'team', startOn = 'sign-in', onClose, onSignedIn }: {
-  signedOut?: boolean; error?: string | null; waitingUrl?: string | null;
+export function SignInPage({ onSkip, signedOut = false, error: startError = null, waitingUrl = null, purpose = 'team', startOn = 'sign-in', onClose, onSignedIn }: {
+  onSkip?: () => void; signedOut?: boolean; error?: string | null; waitingUrl?: string | null;
   purpose?: 'team' | 'cloud' | 'phone'; startOn?: 'sign-in' | 'sign-up'; onClose?: () => void; onSignedIn?: () => void;
 }) {
   const cloud = purpose === 'cloud';
@@ -147,6 +147,8 @@ export function SignInPage({ signedOut = false, error: startError = null, waitin
 
   return (
     <div className="si-page" role="dialog" aria-modal="true" aria-label={heading}>
+      {/* No key on purpose: a stray Escape would skip it without anyone meaning to. */}
+      {onSkip && <button type="button" className="si-skip-corner" onClick={onSkip}>Skip for now</button>}
       <div className="si-card">
         <span className="si-mark"><AppMark size={40} /></span>
         <h1>{heading}</h1>

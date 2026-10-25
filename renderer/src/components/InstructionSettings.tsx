@@ -23,7 +23,6 @@ const system:Section = {id:'system',label:'System prompt',description:`${Name}â€
 const fixtureText = new Map<string,string>();
 const preview = () => new URLSearchParams(location.search).has('fixtures') || !window.zero;
 // What every section's writing surface needs, whichever file is under it.
-// The Neo page writes its two documents through the same shape (../neo/NeoSettings).
 export type Writing = {text:string|null;status:string;edit:(v:string)=>void;restore?:{section:Section;defaultText:string;pick:(v:string,label:string)=>void};undo?:{label:string}|null;undoRestore?:()=>void};
 // Reading, saving and restoring one of the app's instruction files.
 function useInstruction(section: Section): Writing {

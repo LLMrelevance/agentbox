@@ -33,6 +33,7 @@ const KEYS = {
   Tab: { code: 'Tab', keyCode: 9 },
   ArrowDown: { code: 'ArrowDown', keyCode: 40 },
   ArrowUp: { code: 'ArrowUp', keyCode: 38 },
+  ' ': { code: 'Space', keyCode: 32 },
 };
 const MODIFIERS = { alt: 1, ctrl: 2, meta: 4, shift: 8 };
 

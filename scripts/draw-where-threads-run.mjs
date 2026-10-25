@@ -127,7 +127,6 @@ async function draw(name, { light = false, hover = null, laptop = false } = {}) 
       sessionTrace: async () => ({ ok: true, sessions: [] }),
       compactionStatus: async () => null,
       codeChange: async () => ({ ok: false }),
-      neoEnabled: async () => false,
       engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
       // No room invite waiting, or a toast about Rooms covers the corner.
       takeJoin: async () => null,

@@ -139,7 +139,6 @@ await page.addInitScript(([snap, lines]) => {
     sessionTrace: async () => ({ ok: true, sessions: [] }),
     compactionStatus: async () => null,
     codeChange: async () => ({ ok: false }),
-    neoEnabled: async () => false,
     // Signed in on both, so the setup bar stays off these pictures.
     engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
   };

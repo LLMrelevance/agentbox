@@ -155,7 +155,7 @@ export function world(now = Date.now(), faces = {}) {
   }];
   return {
     products, items,
-    alpha: { neo: false, rooms: true },
+    alpha: { rooms: true },
     team: {
       configured: true, started: true, since: now - 40 * 24 * hr, signedIn: true, signingIn: null,
       me: people[0], team: { id: 't-1', name: 'Northwind' }, invites: [], people, cards, lastSyncAt: now, error: null, sent: [],
