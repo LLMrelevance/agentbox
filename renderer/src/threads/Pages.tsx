@@ -992,7 +992,7 @@ export function InboxBoard({ items, products, display, now, onOpenItem, stateOf,
             }
             if (e.item) onOpenItem(e.item); else if (e.card) onOpenCard?.(e.card);
           }}>
-          <div className="t">{e.message
+          <div className="t">{e.item && <TeammateLead item={e.item} />}{e.message
             ? <MessageTitle people={e.message.people} fromMe={e.message.fromMe} text={e.title ?? ''} mark={pin} />
             : <TitleThenMark title={e.title ?? ''} mark={marks} />}
           </div>
