@@ -16,7 +16,7 @@ import { chromeIsUp, CHROME_HOLD, CHROME_REACH } from './full-screen-chrome';
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { cursorIndex, cursorMark, type CursorMark } from './cursor-follows';
-import { flushSync } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { readySkin, swapLook } from './look-switch';
 import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRule, RepeatShape, RunningSession, Snapshot, ThreadCard, ThreadStateWord, View, WorkItem } from './types';
 import type { ReplyPick } from './reply-pick';
@@ -70,7 +70,8 @@ import { LATER_KEYWORDS } from './palette-rows';
 import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
 // Inbox zero is `IdlePage`.
 import { IdlePage } from './components/IdlePage';
-import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat } from './format';
+import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
+import { SHIP_OFFER } from './ship-offer';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
@@ -421,7 +422,7 @@ export default function App() {
   // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
   // page reports it draws (Focus `onShown`), which is when those rows are offered.
   const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
-  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null } | null>(null);
+  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean } | null>(null);
   useEffect(() => {
     setThreadAsk((a) => (a && focused && a.key === `${focused.product}/${focused.id}` ? a : null));
   }, [focused?.product, focused?.id]);
@@ -3263,6 +3264,9 @@ export default function App() {
     if (at >= 0) setSelected(at);
   }, [list, markSeen]);
   const queueSpot = spotIn(shownInbox, focused);
+  // And every thread with an agent is drawn on that page, Needs you or not; a
+  // conversation between people keeps its chat.
+  const onePage = !!focused && !directSlugs.has(focused.product);
   const stepQueue = useCallback((dir: 1 | -1) => {
     const to = focused && stepIn(shownInbox, focused, dir);
     if (to) openInQueue(to);
@@ -4520,6 +4524,17 @@ export default function App() {
     }
   }, [showToast]);
 
+  // WHAT THE OPEN THREAD IS OFFERING, which is not always what its ledger
+  // says. An agent's own offer is read off the row (format.ts); the one the app
+  // asks when a finished run left a change and said nothing is known only to
+  // the page drawing it, and comes back through `onShown` (./ship-offer.ts).
+  // The keys and the pick both read this, so a number can never answer
+  // something other than the row the pointer can see.
+  const offerNow = useCallback((item: WorkItem): ParsedOption[] => (
+    offerIsLive(item) ? itemOptions(item)
+      : openShows?.ship && openShows.key === keyOf(item) ? SHIP_OFFER : []
+  ), [openShows]);
+
   const pickOption = useCallback(async (item: WorkItem, n: number) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
@@ -4531,7 +4546,9 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
-    const option = liveOption(item, n);
+    // The agent's own offer, and whether it is still live is format.ts's to
+    // say; else the one the app asked for a finished run (./ship-offer.ts).
+    const option = liveOption(item, n) ?? offerNow(item).find((o) => o.n === n) ?? null;
     if (!option) return;
     // "Close this task" is done here, the way E does it, and never sent: as a
     // reply it would reopen the row and start a run to close it (format.ts).
@@ -4583,7 +4600,17 @@ export default function App() {
       // what happened to it: "Option 1 → Practice" was read off the QA box as
       // meaning nothing.
     }, `Option ${option.n} sent → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone, markSeen, movesOn]);
+  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow]);
+
+  // A CLICK IS AIMED AT A PLACE ON THE SCREEN, so it carries the same guard the
+  // numbers have carried since ./pick-settles: answering from Needs you moves
+  // you on, and the next thread's strip is drawn in the place the pointer is
+  // already standing. The strip's own guard is the other half of F-48, for the
+  // rows moving under a pointer on one thread (components/Focus.tsx).
+  const pickAimedHere = useCallback((item: WorkItem, n: number) => {
+    if (!pickLandsHere(arrived.current, keyOf(item), Date.now())) { showToast(AIMED_AT_THE_THREAD_YOU_LEFT); return; }
+    void pickOption(item, n);
+  }, [pickOption, showToast]);
 
   /* ------------------------ the task she just wrote ------------------------ */
   // THE TASK SHE JUST MADE IS WHAT Z TAKES BACK.
@@ -5388,8 +5415,9 @@ export default function App() {
         // inert: an approval always requires a deliberate arrow or number.
         // The same test the strip draws itself with, or the number keys and
         // what she can see disagree. Her reply from Tuesday no longer buries an
-        // offer a worker wrote on Friday (format.ts, offerIsLive).
-        const opts = offerIsLive(focused) ? itemOptions(focused) : [];
+        // offer a worker wrote on Friday (format.ts, offerIsLive), and the one
+        // the app asks for a finished run is answered here too (./ship-offer).
+        const opts = offerNow(focused);
         // ESCAPE IS ONE WAY BACK, one step at a time: the document, then the
         // task, then the list. It has always meant "back" all the way out and
         // the pane is one more level in.
@@ -5565,7 +5593,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -6118,7 +6146,7 @@ export default function App() {
     <ChatsContext.Provider value={chatsValue}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
-    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${queueSpot && focused ? ' one-at-a-time' : ''}`}>
+    <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={workspaceNavigation && openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app${workspaceNavigation ? ' workspace-layout' : ''}${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${workspaceNavigation && focused && !settingsOpen ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${inFullScreen && !workspaceNavigation ? ' flat' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${(queueSpot || onePage) && focused ? ' one-at-a-time' : ''}`}>
 
       {signInGate && <SignInPage onSkip={onCloudPhone() ? undefined : skipSignIn} signedOut={signedOutHere} error={snap?.team?.error ?? null} waitingUrl={snap?.team?.signingIn?.url ?? null} />}
       {/* Dark's corner marks, outside the card. Their own element, because
@@ -6658,6 +6686,7 @@ export default function App() {
                   onHandToAgent={handToAgent}
                   onAddPeople={addPeopleToConversation}
                   queue={queueSpot ? { spot: queueSpot, onStep: stepQueue } : null}
+                  onePage={onePage}
                   headerTarget={workspaceNavigation ? taskHeader : null}
                   cornerHeaderTarget={cornerHeaderTarget}
                   // WHERE IT WAS OPENED FROM, in the tab strip's own words (so
@@ -6756,7 +6785,7 @@ export default function App() {
                   onRedeliver={() => redeliver(focused)}
                   onClose={() => setFocused(null)}
                   onResolve={() => markDone(focused)}
-                  onPick={(n) => pickOption(focused, n)}
+                  onPick={(n) => pickAimedHere(focused, n)}
                   onReply={() => setModal('reply')}
                   // The reply box's model menu IS the new thread card's, so it
                   // is handed the same four things the card is.
@@ -8018,6 +8047,8 @@ export default function App() {
         // (toastOpens): a reply that kept her there names it for after she leaves.
         const here = focused ? { product: focused.product, id: focused.id } : null;
         const opens = toastOpens(toast, here);
+        // On a thread's page it sits in the bar's empty middle, off the reply box.
+        const toastInBar = !!cornerHeaderTarget && (!!queueSpot || onePage) && !onPhone();
         const face = (
           <>
             {about && <span className="toast-title">{about.label || about.title}</span>}
@@ -8039,9 +8070,10 @@ export default function App() {
             {toast.goes && <span className="toast-clock" aria-hidden="true" style={{ animationDuration: `${TOAST_GOES_MS}ms` }} />}
           </>
         );
-        return toast.goes
-          ? <button key={toastShown.current} type="button" className={`toast toast-goes${about ? '' : ' toast-plain'}`} onClick={() => openToastRow(toast.goes!)}>{face}</button>
-          : <div key={toastShown.current} className="toast toast-plain">{face}</div>;
+        const card = toast.goes
+          ? <button key={toastShown.current} type="button" className={`toast toast-goes${about ? '' : ' toast-plain'}${toastInBar ? ' toast-in-bar' : ''}`} onClick={() => openToastRow(toast.goes!)}>{face}</button>
+          : <div key={toastShown.current} className={`toast toast-plain${toastInBar ? ' toast-in-bar' : ''}`}>{face}</div>;
+        return toastInBar && cornerHeaderTarget ? createPortal(card, cornerHeaderTarget) : card;
       })()}
       {/* AND NO TOAST FOR A NEW VERSION. It was the third of the four drawn for
           w-86452550e5 and the argument against it is the one she agreed with: a
