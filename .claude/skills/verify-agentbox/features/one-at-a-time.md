@@ -7,7 +7,7 @@ thread anywhere else opens on the full thread page.
 ## Sub-features
 
 - `way-in` Enter or a click on a Needs you row, the board's Waiting column, search or an alert: any way a Needs you thread is opened.
-- `page` the thread's name over Context and your last message, four lines each, opened whole on a click; the place in the queue and two arrows beside the menu, which name J and K on hover; the newest answer under its headline; the choices at the foot, apart from the reply box.
+- `page` the thread's name as the largest type on the page, said once (the bar keeps only the way back); a two-line Context under it, opened whole on a click; the place in the queue and two arrows beside the menu, which name J and K on hover; the newest answer under its bold first line; tight choices at the foot, apart from the reply box; the line saying where the last answer went in the bar's empty middle.
 - `moves-on` a pick, a typed reply or E moves to the next thread, and the answer reaches that thread's agent.
 - `walks` J and K, and the arrows, step through the queue without answering.
 - `earlier` Show N earlier messages opens the whole conversation in place, the agent's steps included.

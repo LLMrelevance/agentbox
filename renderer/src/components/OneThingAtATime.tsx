@@ -5,19 +5,15 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { onPhone } from '../phone-screen';
-import { clock, dayHeading } from '../thread-history';
 import { splitHeadline, type Spot } from '../one-thing-at-a-time';
 import '../one-thing-at-a-time.css';
 
 /** What this page reads in place rather than as a tile: a page an agent made, or a note. */
 export const readsInPlace = (path: string) => /\.(html?|md|markdown)$/i.test(path);
 
-const when = (at: number) => `${dayHeading(at)} ${clock(at)}`;
-
-export function QueueSummary({ title, context, you, earlier, steps = false, open, onToggle }: {
+export function QueueSummary({ title, context, earlier, steps = false, open, onToggle }: {
   title?: string;
   context: string | null | undefined;
-  you: { at: number; text: string } | null;
   /** Messages behind the fold. */
   earlier: number;
   /** Whether the fold holds the agent's steps even with no earlier message. */
@@ -25,7 +21,6 @@ export function QueueSummary({ title, context, you, earlier, steps = false, open
   open: boolean;
   onToggle: () => void;
 }) {
-  const both = !!context && !!you;
   const toggle = earlier > 0
     ? (open ? 'Hide earlier messages' : `Show ${earlier} earlier ${earlier === 1 ? 'message' : 'messages'}`)
     : steps ? (open ? 'Hide what the agent did' : 'Show what the agent did') : null;
@@ -36,28 +31,28 @@ export function QueueSummary({ title, context, you, earlier, steps = false, open
   useLayoutEffect(() => {
     const el = cols.current;
     if (!el || whole) return undefined;
-    const measure = () => setCut([...el.querySelectorAll('.one-col')].some((c) => c.scrollHeight > c.clientHeight + 1));
+    const measure = () => { const c = el.querySelector('.one-col'); setCut(!!c && c.scrollHeight > c.clientHeight + 1); };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, [context, you?.text, whole]);
+  }, [context, whole]);
   const opens = cut || whole;
   const flip = () => setWhole((w) => !w);
   return (
     <div className="one-sum">
       {title && <h2 className="one-title">{title}</h2>}
-      {(context || you) && (
+      {context && (
         <div
           ref={cols}
-          className={`${both ? 'one-cols' : 'one-cols one-single'}${whole ? ' one-whole' : cut ? ' one-cut' : ''}`}
+          className={`one-cols${whole ? ' one-whole' : cut ? ' one-cut' : ''}`}
           role={opens ? 'button' : undefined}
           tabIndex={opens ? 0 : undefined}
           aria-expanded={opens ? whole : undefined}
           onClick={opens ? flip : undefined}
           onKeyDown={opens ? (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); flip(); } } : undefined}
         >
-          {context && <div className="one-col"><span className="one-lab">Context</span>{context}</div>}
-          {you && <div className="one-col one-you"><span className="one-lab">You, {when(you.at)}</span>{you.text}</div>}
+          {/* The label says the line can be skipped; the answer under it is what to read. */}
+          <div className="one-col"><span className="one-lab">Context</span>{context}</div>
         </div>
       )}
       {toggle && <button type="button" className="one-earlier" onClick={onToggle}>{toggle}</button>}

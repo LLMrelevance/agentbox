@@ -42,7 +42,7 @@ import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
 import { QueueAnswer, QueueSummary } from './OneThingAtATime';
-import { earlierCount, newestAnswer, repeatsTitle, yourLast } from '../one-thing-at-a-time';
+import { earlierCount, newestAnswer } from '../one-thing-at-a-time';
 import { rowTitle } from '../list-rules';
 import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
@@ -372,14 +372,11 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
 
   // With no answer to lead with, the queue draws the conversation as it always is, under the summary.
   const newest = queue ? newestAnswer(events, outcome) : null;
-  const mine = queue ? yourLast(events, me) : null;
   const queueHead = queue && (
     <QueueSummary
       key={`${item.product}:${item.id}`}
       title={rowTitle(item)}
       context={queue.context}
-      // Left out when it is the title, already said above it.
-      you={mine && !repeatsTitle(mine.text, rowTitle(item)) ? mine : null}
       earlier={newest ? earlierCount(events, outcome) : 0}
       steps={!!newest && (events.some((e) => e.kind === 'work') || after.length > 0)}
       open={earlierOpen}

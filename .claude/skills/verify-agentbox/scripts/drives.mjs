@@ -354,6 +354,7 @@ export const DRIVES = {
         choices: document.querySelectorAll('.one-choices .opt-row').length,
         heading: !!document.querySelector('.one-choices .opt-head'),
         panel: !!document.querySelector('.ts-panel, .ts-rail'),
+        barName: (() => { const n = document.querySelector('.thread-crumb-name'); return !!n && getComputedStyle(n).display !== 'none'; })(),
         summary: !!document.querySelector('.one-sum'),
         answer: !!document.querySelector('.one-answer'),
         earlier: document.querySelector('.one-earlier')?.textContent ?? null,
@@ -389,7 +390,7 @@ export const DRIVES = {
         // Enter opens the pointed row, which need not be the top one.
         const at = order.findIndex((t) => first.name && t.includes(first.name.replace(/…$/, '').slice(0, 20)));
         claim(at >= 0 && first.pos === `${at + 1} of 4`, 'the corner says where you are', first.pos ?? 'no position');
-        claim(titles.some((t) => first.name && t.startsWith(first.name.replace(/…$/, '').slice(0, 20))), 'the top bar names the thread', first.name ?? '');
+        claim(!first.barName, 'the bar keeps only the way back; the name is said once, on the page');
         claim(!!first.title && titles.some((t) => t.startsWith(first.title.replace(/…$/, '').slice(0, 20))), 'the page names the thread above its Context', first.title ?? '');
         claim(first.summary && first.answer, 'the summary on top and the newest answer under it');
         claim(first.choices === 3 && !first.heading, 'the three choices at the foot, without a heading', `${first.choices} choices`);
@@ -411,6 +412,8 @@ export const DRIVES = {
         await tab.press('1');
         const next = await tab.until(`document.querySelector('.app.one-at-a-time') && document.querySelector('.thread-crumb-name')?.textContent !== ${JSON.stringify(first.name)}`, { why: 'the next thread to come up', ms: 10_000 }).catch(() => false);
         claim(next, 'picking 1 brings the next thread up');
+        const sent = await tab.until(`(() => { const up = document.querySelector('.ts-top > .sent-line'); return up && !document.querySelector('.focus-dock-inner > .sent-line') ? up.textContent : null; })()`, { why: 'the sent line in the bar', ms: 4000 }).catch(() => null);
+        claim(sent, 'where the answer went is said in the bar, not above the reply box', sent ?? 'no sent line in the bar');
         await capture('second');
         const firstRow = answered.find((r) => first.name && r.title.startsWith(first.name.replace(/…$/, '').slice(0, 20)));
         const landed = firstRow && await until(() => rows(state).find((r) => r.id === firstRow.id && /^Option 1:/.test(String(r.answer ?? ''))), 15_000);

@@ -9,6 +9,9 @@
 //   - hovering the up and down arrows showed the browser's own tooltip, not the
 //     plate that names the key, as everything else in the corner does;
 //   - a note read in place ran its whole length with no way to fold it.
+//
+// Round eight then took their last message off the page and the name out of
+// the bar (tests/the-one-at-a-time-page-leads-with-the-name-and-keeps-the-sent-line-out-of-the-way).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -34,19 +37,12 @@ describe('the thread\'s name', () => {
   it('and is left out when there is none', () => {
     expect(draw({ title: '', context: 'c', you: null })).not.toContain('one-title');
   });
-  it('is said once: the top bar goes back to the small crumb every other thread page wears', () => {
-    expect(css).not.toMatch(/\.app\.one-at-a-time[^{]*thread-crumb/);
-  });
   it('and the thread page hands the summary the name', () => {
     expect(read('renderer/src/components/ItemThread.tsx')).toMatch(/<QueueSummary[^>]*title=\{rowTitle\(item\)\}/);
   });
 });
 
-describe('Context and your last message', () => {
-  it('show four lines before they stop, one more than before', () => {
-    expect(css).toMatch(/\.one-col \{[^}]*-webkit-line-clamp: 4/);
-    expect(css).not.toMatch(/-webkit-line-clamp: 3/);
-  });
+describe('the Context', () => {
   it('open whole on a click, only when something was cut, and fold back on another', () => {
     const tsx = read('renderer/src/components/OneThingAtATime.tsx');
     expect(tsx).toMatch(/const opens = cut \|\| whole;/);
@@ -55,7 +51,7 @@ describe('Context and your last message', () => {
     expect(css).toMatch(/\.one-cols\.one-whole \.one-col \{[^}]*-webkit-line-clamp: unset/);
   });
   it('are not a button when nothing was cut', () => {
-    const html = renderToStaticMarkup(h(QueueSummary, { onToggle: noop, open: false, earlier: 0, context: 'Short.', you: { at: 1, text: 'Hi' } }));
+    const html = renderToStaticMarkup(h(QueueSummary, { onToggle: noop, open: false, earlier: 0, context: 'Short.' }));
     expect(html).not.toContain('role="button"');
   });
 });

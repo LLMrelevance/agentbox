@@ -37,23 +37,6 @@ export function newestAnswer(events: AgentEvent[], outcome: ItemOutcome | null):
   return null;
 }
 
-/** The newest thing you said; on a shared thread a teammate's words are theirs, not yours. */
-export function yourLast(events: AgentEvent[], me: string | null, opening?: { at: number; text: string } | null): { at: number; text: string } | null {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i];
-    if (said(e) && e.who === 'you' && (!e.by || e.by === me) && e.text?.trim()) return { at: e.at, text: e.text };
-  }
-  return opening ? { at: opening.at, text: opening.text } : null;
-}
-
-/** Whether your message is the thread's title, or the title was cut from it, so the bar already says it. */
-export function repeatsTitle(text: string, title: string): boolean {
-  const plain = (s: string) => s.replace(/\s+/g, ' ').replace(/(…|\.\.\.)$/, '').trim().toLowerCase();
-  const said = plain(text);
-  const named = plain(title);
-  return !!named && (said === named || (named.length >= 24 && said.startsWith(named)));
-}
-
 /** How many messages sit behind "Show N earlier messages": all but the newest answer. */
 export function earlierCount(events: AgentEvent[], outcome: ItemOutcome | null, opening?: { at: number; text: string } | null): number {
   const messages = events.filter(said).length + (opening ? 1 : 0);

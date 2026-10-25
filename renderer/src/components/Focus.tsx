@@ -899,6 +899,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
   // One thing at a time keeps its summary on top of the page, so no panel beside it.
   const summaryOffered = summarised && !openDoc && !queue;
+  // In the queue the line saying where an answer went sits in the bar's empty
+  // middle, where it covers nothing and takes no row from the answer.
+  const sentUp = !!queue && !!cornerHeaderTarget && !onPhone();
   const summaryShown = summaryOffered && summaryOpen;
   useSummaryShortcut(toggleSummary, summaryOffered);
   useEffect(() => {
@@ -1574,7 +1577,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     {/* THE CORNER: THE THREAD'S MENU, and nothing else. The Summary button
         that stood beside it (w-e731ca9376) moved onto the summary itself on
         w-a3482b8c2c: the rail opens it, the icon beside its title closes it. */}
-    {cornerHeaderTarget && createPortal(<span className="ts-top">{queue && <QueueNav spot={queue.spot} onStep={queue.onStep} />}{threadMenu}</span>, cornerHeaderTarget)}
+    {cornerHeaderTarget && createPortal(<span className="ts-top">{sentUp && aboveDock}{queue && <QueueNav spot={queue.spot} onStep={queue.onStep} />}{threadMenu}</span>, cornerHeaderTarget)}
     {picture && (
       <PictureView
         pictures={picture.pictures}
@@ -2032,7 +2035,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             />
           </div>
         )}
-        {aboveDock}
+        {!sentUp && aboveDock}
         <div className="dock-card">
           {/* A TASK A TEAMMATE GAVE YOU: to an agent, keep it, or hand it back.
               Unless they wrote options of their own, which are the better
