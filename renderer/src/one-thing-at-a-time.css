@@ -41,16 +41,12 @@
 .one-notebody { padding: 14px 22px 6px; }
 .one-notebody hr { border: 0; border-top: 1px solid var(--line); margin: 18px 0; }
 
-/* A long answer fades out above the choices instead of being cut against them. */
-.app.one-at-a-time .focus-scroll { -webkit-mask-image: linear-gradient(#000 calc(100% - 32px), transparent); mask-image: linear-gradient(#000 calc(100% - 32px), transparent); }
-
-/* The choices, as the app draws them but tighter, apart from the reply box at
-   the foot. A long one is cut to a line; hovering it shows it whole
-   (OptionsOffer's peek), and so does picking it out with the keys. */
-.one-choices > .opt-strip { margin: 0 0 10px; }
-.one-choices .opt-row { padding: 3px 14px; }
-.one-choices > .opt-strip > .opt-row:first-of-type { padding-top: 7px; }
-.one-choices > .opt-strip > .opt-row:last-child { padding-bottom: 7px; }
+/* The choices, apart from the reply box at the foot, side by side and wrapping
+   only when the next does not fit. A long one is cut to a line; hovering it
+   shows it whole (OptionsOffer's peek), and so does picking it out with the keys. */
+.one-choices > .opt-strip { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 18px; padding: 3px 6px; margin: 0 0 10px; }
+.one-choices .opt-row { width: auto; max-width: 100%; padding: 2px 8px; }
+.one-choices > .opt-strip > .opt-row:first-of-type, .one-choices > .opt-strip > .opt-row:last-child { padding: 2px 8px; }
 .one-choices .opt-text { -webkit-line-clamp: 1; }
 .one-choices .opt-row.selected .opt-text { -webkit-line-clamp: unset; }
 
