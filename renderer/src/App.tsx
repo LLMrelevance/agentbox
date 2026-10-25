@@ -70,7 +70,8 @@ import { LATER_KEYWORDS } from './palette-rows';
 import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
 // Inbox zero is `IdlePage`.
 import { IdlePage } from './components/IdlePage';
-import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat } from './format';
+import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
+import { SHIP_OFFER } from './ship-offer';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
@@ -421,7 +422,7 @@ export default function App() {
   // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
   // page reports it draws (Focus `onShown`), which is when those rows are offered.
   const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
-  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null } | null>(null);
+  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean } | null>(null);
   useEffect(() => {
     setThreadAsk((a) => (a && focused && a.key === `${focused.product}/${focused.id}` ? a : null));
   }, [focused?.product, focused?.id]);
@@ -4520,6 +4521,17 @@ export default function App() {
     }
   }, [showToast]);
 
+  // WHAT THE OPEN THREAD IS OFFERING, which is not always what its ledger
+  // says. An agent's own offer is read off the row (format.ts); the one the app
+  // asks when a finished run left a change and said nothing is known only to
+  // the page drawing it, and comes back through `onShown` (./ship-offer.ts).
+  // The keys and the pick both read this, so a number can never answer
+  // something other than the row the pointer can see.
+  const offerNow = useCallback((item: WorkItem): ParsedOption[] => (
+    offerIsLive(item) ? itemOptions(item)
+      : openShows?.ship && openShows.key === keyOf(item) ? SHIP_OFFER : []
+  ), [openShows]);
+
   const pickOption = useCallback(async (item: WorkItem, n: number) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
@@ -4531,7 +4543,9 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
-    const option = liveOption(item, n);
+    // The agent's own offer, and whether it is still live is format.ts's to
+    // say; else the one the app asked for a finished run (./ship-offer.ts).
+    const option = liveOption(item, n) ?? offerNow(item).find((o) => o.n === n) ?? null;
     if (!option) return;
     // "Close this task" is done here, the way E does it, and never sent: as a
     // reply it would reopen the row and start a run to close it (format.ts).
@@ -4583,7 +4597,17 @@ export default function App() {
       // what happened to it: "Option 1 → Practice" was read off the QA box as
       // meaning nothing.
     }, `Option ${option.n} sent → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone, markSeen, movesOn]);
+  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow]);
+
+  // A CLICK IS AIMED AT A PLACE ON THE SCREEN, so it carries the same guard the
+  // numbers have carried since ./pick-settles: answering from Needs you moves
+  // you on, and the next thread's strip is drawn in the place the pointer is
+  // already standing. The strip's own guard is the other half of F-48, for the
+  // rows moving under a pointer on one thread (components/Focus.tsx).
+  const pickAimedHere = useCallback((item: WorkItem, n: number) => {
+    if (!pickLandsHere(arrived.current, keyOf(item), Date.now())) { showToast(AIMED_AT_THE_THREAD_YOU_LEFT); return; }
+    void pickOption(item, n);
+  }, [pickOption, showToast]);
 
   /* ------------------------ the task she just wrote ------------------------ */
   // THE TASK SHE JUST MADE IS WHAT Z TAKES BACK.
@@ -5381,8 +5405,9 @@ export default function App() {
         // inert: an approval always requires a deliberate arrow or number.
         // The same test the strip draws itself with, or the number keys and
         // what she can see disagree. Her reply from Tuesday no longer buries an
-        // offer a worker wrote on Friday (format.ts, offerIsLive).
-        const opts = offerIsLive(focused) ? itemOptions(focused) : [];
+        // offer a worker wrote on Friday (format.ts, offerIsLive), and the one
+        // the app asks for a finished run is answered here too (./ship-offer).
+        const opts = offerNow(focused);
         // ESCAPE IS ONE WAY BACK, one step at a time: the document, then the
         // task, then the list. It has always meant "back" all the way out and
         // the pane is one more level in.
@@ -5558,7 +5583,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -6749,7 +6774,7 @@ export default function App() {
                   onRedeliver={() => redeliver(focused)}
                   onClose={() => setFocused(null)}
                   onResolve={() => markDone(focused)}
-                  onPick={(n) => pickOption(focused, n)}
+                  onPick={(n) => pickAimedHere(focused, n)}
                   onReply={() => setModal('reply')}
                   // The reply box's model menu IS the new thread card's, so it
                   // is handed the same four things the card is.

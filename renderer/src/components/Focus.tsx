@@ -94,6 +94,8 @@ import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
 import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
+import { SHIP_ASK, SHIP_OFFER, shipOfferLive } from '../ship-offer';
+import { MOVED_PX, THE_OPTIONS_MOVED, clickLandsOnTheRowYouSaw } from '../pick-settles';
 import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor } from '../recap';
@@ -580,7 +582,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   pageAsk?: { what: 'summary' | 'people' | 'rename'; at: number } | null;
   onAsked?: () => void;
   /** What this page draws that ⌘K offers rows for. */
-  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null }) => void;
+  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean }) => void;
   /** Drawn right above the reply box: where a reply that moved her here went (./SentLine). */
   aboveDock?: ReactNode;
   /**
@@ -733,9 +735,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const teamCtx = useContext(TeamContext);
   const chatAgents = useContext(ChatAgentsContext);
   const heldByPerson = teamHeld(item, teamCtx);
-  // Whatever the pane is leading with, not the ask alone: on a row the user wrote,
-  // the ask is the one field a worker cannot answer in (format.ts says why).
-  const options = itemOptions(item);
 
   // A ROW THAT STANDS FOR A RUNNING AGENT, not for work in a ledger. Almost
   // every verb this pane offers means nothing to one: there is no task to
@@ -1062,7 +1061,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const text = el.querySelector('.opt-text');
     setPeek(optionPeek(n, !!text && optionIsClipped(text)));
   };
-  const peekOption = peek === null ? null : options.find((o) => o.n === peek) ?? null;
 
   // AND THE QUESTION ITSELF, ON THE SAME TERMS.
   //
@@ -1108,9 +1106,6 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     return () => { live = false; clearInterval(timer); };
   }, [item.product, item.id, item.updatedAt, session?.startedAt, agent]);
   const summaryNow = summaryOffered ? (summaryShown ? 'open' : 'closed') : null;
-  useEffect(() => {
-    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow });
-  }, [item.product, item.id, !!figures, summaryNow]);
 
   // Parent callbacks change on polling and when a document opens. Keep the
   // current actions without making them React component identities: replacing
@@ -1313,7 +1308,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // question rather than either half below, because this is also the flag that
   // takes the options list out of the message text (`cleanMessage`). Narrowed,
   // a row would print its own options twice.
-  const stripShown = showOptions;
+  //
+  // AND THE APP'S OWN OFFER IS THE OTHER HALF OF IT (../ship-offer.ts): a run
+  // that ended, left a change and asked nothing is asked about here instead.
+  // It widens the strip and nothing else, which is what this seam is for.
+  const shipOffer = shipOfferLive(item, { change: !!figures, running: !!session || !!agent });
+  const stripShown = showOptions || shipOffer;
+  // Whatever the pane is leading with, not the ask alone: on a row the user
+  // wrote, the ask is the one field a worker cannot answer in (format.ts says
+  // why). The agent's own offer wins wherever there is one.
+  const options = showOptions ? itemOptions(item) : shipOffer ? SHIP_OFFER : [];
+  const peekOption = peek === null ? null : options.find((o) => o.n === peek) ?? null;
+  // WHAT THIS PAGE IS DRAWING, for the keys and the ⌘K rows that act on it.
+  // The app's own offer goes up with it because only this page knows it is
+  // there, and a number has to answer what is on the screen.
+  useEffect(() => {
+    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow, ship: shipOffer });
+  }, [item.product, item.id, !!figures, summaryNow, shipOffer]);
   // AND WHERE IT IS DRAWN (w-560647d4db). Almost always in the pane, at the foot
   // of the turn that made the offer, which is the whole of this round: pinned to
   // the reply card it followed the reader down the page.
@@ -1337,8 +1348,38 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const offered = (item[optSource] ?? '').trim();
   // The sentence the options answer, drawn as the strip's heading below, and
   // the whole of it for the card that opens when the heading cannot hold it.
-  const ask = useMemo(() => askHeading(item), [item.result, item.note, item.body, item.title]);
-  const askAll = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
+  const askLine = useMemo(() => askHeading(item), [item.result, item.note, item.body, item.title]);
+  const askAllLines = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
+  // The app's own question is its own sentence. Read off the result it would be
+  // whatever the run happened to end on, which answers nothing.
+  const ask = shipOffer ? SHIP_ASK : askLine;
+  const askAll = shipOffer ? SHIP_ASK : askAllLines;
+
+  // A ROW THAT JUMPED UNDER THE POINTER DOES NOT TAKE THE NEXT CLICK
+  // (../pick-settles.ts says why). Where the strip actually is, read after
+  // every render, because nothing else here knows the pane has scrolled under
+  // a hand that is not moving.
+  const stripRef = useRef<HTMLDivElement>(null);
+  const overStrip = useRef(false);
+  const stripTop = useRef<number | null>(null);
+  const [stripMovedAt, setStripMovedAt] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const top = stripRef.current?.getBoundingClientRect().top ?? null;
+    const was = stripTop.current;
+    stripTop.current = top;
+    if (top === null || was === null) return;
+    if (overStrip.current && Math.abs(top - was) >= MOVED_PX) setStripMovedAt(Date.now());
+  });
+  useEffect(() => { setStripMovedAt(null); overStrip.current = false; }, [item.id]);
+  // The keys are not aimed at a place on the screen, so they are untouched.
+  const pickByClick = (n: number) => {
+    if (!clickLandsOnTheRowYouSaw(stripMovedAt, Date.now())) {
+      setStripMovedAt(null);
+      onNotice(THE_OPTIONS_MOVED);
+      return;
+    }
+    onPick(n);
+  };
 
   // WHAT A MESSAGE LOOKS LIKE ONCE THE PANE HAS TAKEN ITS SHARE. The thread
   // reads its messages out of the row's ledger, so the two things the pane
@@ -1838,8 +1879,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             ask={ask} askAll={askAll} options={options}
             peekOption={peekOption} askPeek={askPeek}
             selectedOption={selectedOption} selRef={selRef}
-            onPick={onPick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
+            onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
             setPeek={setPeek} setAskPeek={setAskPeek}
+            stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
           />
         ))}
 
@@ -2027,8 +2069,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               ask={ask} askAll={askAll} options={options}
               peekOption={peekOption} askPeek={askPeek}
               selectedOption={selectedOption} selRef={selRef}
-              onPick={onPick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
+              onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
+              stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
               bare
             />
           </div>
@@ -2065,8 +2108,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               ask={ask} askAll={askAll} options={options}
               peekOption={peekOption} askPeek={askPeek}
               selectedOption={selectedOption} selRef={selRef}
-              onPick={onPick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
+              onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
+              stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
             />
           ))}
           {/* NO REPLY BOX ON THE TROUBLE ROW EITHER, and for the same reason as
