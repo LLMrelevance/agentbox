@@ -5,15 +5,38 @@ import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
   offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT, GREETING, starterAsks,
+  dutyWhen, dutyOf, DUTY_LABEL_PREFIX,
 } from '../shared/teammates.mjs';
+import { isShippedNote } from '../shared/shipped-note.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
 import {
-  teamDir, readTeammates, readChat, writeTeammate, writeChat, newTeammateId, newMemoryId,
+  teamDir, readTeammates, readChat, writeTeammate, writeChat, newTeammateId, newMemoryId, readPlaybooks,
 } from './store/teammates-files.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const CHAT_FOR_SCREEN = 400;
 
-const TROUBLE_VERB = { run: 'start a run', answer: 'get your message', release: 'start its next run', seen: 'mark a message read', served: 'mark its round served' };
+const TROUBLE_VERB = { run: 'start a run', answer: 'get your message', release: 'start its next run', seen: 'mark a message read', served: 'mark its round served', dutyServed: 'mark a duty done' };
+
+// When each project last shipped, from the note the ship queue leaves.
+function shippedByProduct(items) {
+  const out = {};
+  for (const i of items ?? []) {
+    if (!isShippedNote(i.note)) continue;
+    const at = i.wrote?.note?.ts ?? i.updatedAt ?? 0;
+    if (at > (out[i.product] ?? 0)) out[i.product] = at;
+  }
+  return out;
+}
+
+const capital = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+function lastRanOf(teammateId, dutyId, items) {
+  let at = null;
+  for (const i of items) if (teammateIdOf(i) === teammateId && dutyOf(i) === dutyId && (i.createdAt ?? 0) > (at ?? 0)) at = i.createdAt;
+  return at;
+}
 const TROUBLE_SHOWN_MS = 30 * 60_000;
 
 export class Teammates {
@@ -202,11 +225,21 @@ export class Teammates {
       return { list: [], chat: [], runs: [], error: err.message };
     }
     const mine = (items ?? []).filter((i) => teammateIdOf(i));
+    let books = [];
+    try { books = readPlaybooks(this.dir()); } catch { /* the playbooks file is read again next time */ }
     return {
       ...(this.trouble && now - this.trouble.at < TROUBLE_SHOWN_MS ? { trouble: this.trouble.text } : {}),
-      list: team.map((t) => ({ ...t, ...statusOf(t, mine, now), worksLabel: isWorks(t.works) ? ruleLabel(t.works) : null })),
+      list: team.map((t) => ({
+        ...t, ...statusOf(t, mine, now),
+        // A name that already is the role is not followed by it again.
+        role: t.role && t.role.toLowerCase() === String(t.name).toLowerCase() ? null : t.role,
+        worksLabel: isWorks(t.works) ? ruleLabel(t.works) : null,
+        duties: (t.duties ?? []).map((d) => ({ id: d.id, what: d.what, when: dutyWhen(d), lastRan: lastRanOf(t.id, d.id, mine) })),
+        playbooks: books.filter((b) => b.readers.includes(t.id)).map((b) => b.id),
+      })),
       chat: chat.messages.slice(-CHAT_FOR_SCREEN),
       runs: runLines(mine, team).slice(-CHAT_FOR_SCREEN),
+      playbooks: books,
     };
   }
 
@@ -230,8 +263,9 @@ export class Teammates {
       this.noteTrouble(`The offer of a teammate failed: ${err.message}`, now);
     }
     if (!team.length) return [];
+    team = this._namedByRole(team, now);
     const mine = (items ?? []).filter((i) => teammateIdOf(i));
-    const actions = planWakes({ teammates: team, chat, items: mine, now });
+    const actions = planWakes({ teammates: team, chat, items: mine, now, shipped: shippedByProduct(items) });
     const byId = new Map(team.map((t) => [t.id, t]));
     const done = [];
     const { workItemsDisk, lock } = this.store.modules;
@@ -242,6 +276,7 @@ export class Teammates {
       const t = byId.get(a.teammate);
       if (a.type === 'seen' && failed.has(a.msg)) continue;
       if (a.type === 'served' && failed.has(`${a.teammate}@${a.key}`)) continue;
+      if (a.type === 'dutyServed' && failed.has(`${a.teammate}#${a.duty}@${a.key}`)) continue;
       try {
         if (a.type === 'run') {
           const product = this._productIf(a.trigger.product) ?? this._product(t.product);
@@ -250,6 +285,7 @@ export class Teammates {
           const hop = a.trigger.hop ?? 0;
           const labels = ['founder', teammateLabel(t.id), `${HOP_LABEL_PREFIX}${hop}`];
           if (a.trigger.kind === 'pass' && a.trigger.from && a.trigger.from !== YOU) labels.push(`${FROM_LABEL_PREFIX}${a.trigger.from}`);
+          if (a.trigger.kind === 'duty') labels.push(`${DUTY_LABEL_PREFIX}${a.trigger.duty}`);
           await lock.withProjectLock(dir, async () => {
             const opening = this.openingFor(t, a.trigger, team);
             const made = workItemsDisk.createWorkItemIfAbsent(dir, a.id, {
@@ -271,6 +307,8 @@ export class Teammates {
           writeChat(this.dir(), { kind: 'seen', ref: a.msg, for: a.teammate, ...(a.run ? { run: a.run } : {}) }, now);
         } else if (a.type === 'served') {
           writeTeammate(this.dir(), a.teammate, { served: a.key }, now);
+        } else if (a.type === 'dutyServed') {
+          writeTeammate(this.dir(), a.teammate, { dutyServed: { [a.duty]: a.key } }, now);
         } else if (a.type === 'answer') {
           await deliver?.(a.product, a.item, a.text);
         } else if (a.type === 'release') {
@@ -285,7 +323,7 @@ export class Teammates {
       } catch (err) {
         if (a.msg) failed.add(a.msg);
         if (a.trigger?.msg) failed.add(a.trigger.msg);
-        if (a.trigger?.key) failed.add(`${a.teammate}@${a.trigger.key}`);
+        if (a.trigger?.key) failed.add(a.trigger.kind === 'duty' ? `${a.teammate}#${a.trigger.duty}@${a.trigger.key}` : `${a.teammate}@${a.trigger.key}`);
         this.noteTrouble(`${t?.name ?? 'A teammate'} could not ${TROUBLE_VERB[a.type] ?? 'carry on'}: ${err.message}`, now);
       }
     }
@@ -363,6 +401,33 @@ export class Teammates {
     if (!already) writeChat(this.dir(), { kind: 'act', from: teammateId, verb, text }, now);
   }
 
+  // Teammates go by their role. Ones made with a person's name are renamed
+  // once; a name you give one afterwards is yours and stays.
+  _namedByRole(team, now) {
+    const marker = path.join(this.dir(), 'named-by-role');
+    if (fs.existsSync(marker)) return team;
+    const renamed = new Map();
+    const taken = new Set(team.filter((t) => !t.role || t.name.toLowerCase() === t.role.toLowerCase()).map((t) => t.name.toLowerCase()));
+    for (const t of team) {
+      if (!t.role || t.name.toLowerCase() === t.role.toLowerCase()) continue;
+      const base = capital(t.role.trim()).slice(0, 36);
+      let name = base;
+      for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} ${n}`;
+      taken.add(name.toLowerCase());
+      renamed.set(t.id, name);
+    }
+    const out = [];
+    for (const t of team) {
+      const name = renamed.get(t.id);
+      if (!name) { out.push(t); continue; }
+      const letter = letterFor(name, out.concat(team.filter((x) => !renamed.has(x.id) && x.id !== t.id)));
+      writeTeammate(this.dir(), t.id, { name, letter }, now);
+      out.push({ ...t, name, letter });
+    }
+    try { fs.mkdirSync(this.dir(), { recursive: true }); fs.writeFileSync(marker, `${now}\n`); } catch { /* tried again next tick */ }
+    return out;
+  }
+
   /* ---------------------------------------------------------------- brief */
   nameOf(id, team) {
     if (id === YOU) return 'The person';
@@ -376,6 +441,15 @@ export class Teammates {
     const who = this.nameOf(trigger.from, team);
     if (trigger.kind === 'schedule') {
       return { body: `Time for your ${isWorks(t.works) ? ruleLabel(t.works) : 'regular'} round.`, yours: false };
+    }
+    if (trigger.kind === 'duty') {
+      const tell = trigger.tell ? `Bring the person in only when ${trigger.tell.replace(/[.\s]+$/, '')}.` : 'Bring the person in only with something worth their time.';
+      return { body: [
+        `One of your duties: ${trigger.what.replace(/[.\s]+$/, '')}.`,
+        '',
+        'Check first, cheaply, whether there is anything worth doing now. If nothing is worth it, do nothing else: post nothing, and close this run with one line saying what you checked.',
+        tell,
+      ].join('\n'), yours: false };
     }
     if (trigger.kind === 'pass') {
       const by = trigger.via ? 'One of your threads' : who;
@@ -437,22 +511,30 @@ export class Teammates {
     // whole ledger once per thread, up to twelve times in one brief.
     const said = (product, thread) => this.store.modules.workItemsCore.threadOf(this.store.readHistory?.(product, thread, { max: 2000 }) ?? [], thread);
     const digest = from ? threadsDigest(from, said) : '';
+    let books = [];
+    try { books = readPlaybooks(this.dir()); } catch { books = []; }
+    const reads = books.filter((b) => b.readers.includes(t.id));
+    const notRead = books.filter((b) => !b.readers.includes(t.id));
+    const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
     return [
-      `# You are ${t.name}${t.role ? `, the ${t.role}` : ''}: a teammate`,
+      `# You are ${t.name}${t.role && t.role.toLowerCase() !== t.name.toLowerCase() ? `, the ${t.role}` : ''}: a teammate`,
       '',
       `You are one of the person's teammates in {{Name}}: an agent with a standing job that works on its own, talks with the other teammates in one team chat, and reaches the person only when it needs them. This thread is one run of your work, and its opening message is why you are awake.`,
       '',
       t.job ? `Your job: ${t.job}` : null,
       t.goal ? `Your goal: ${t.goal}${t.counted ? ` (counted as: ${t.counted})` : ''}` : null,
       t.asksFirst ? `Ask the person first: ${t.asksFirst}` : null,
-      isWorks(t.works) ? `You wake on your own ${ruleLabel(t.works)}.` : 'You wake when someone writes to you or passes you work.',
+      t.duties?.length ? null : isWorks(t.works) ? `You wake on your own ${ruleLabel(t.works)}.` : 'You wake when someone writes to you or passes you work.',
       '',
+      ...(t.duties?.length ? ['## What you do on your own', ...t.duties.map((d) => `- ${d.what} (${dutyWhen(d).toLowerCase()})${d.tell ? `. Bring the person in only when ${d.tell}` : ''}`), 'You also wake when someone writes to you or passes you work.', ''] : []),
       t.memory.length ? '## What you know about the person (follow these)' : null,
       ...t.memory.map((m) => `- ${m.text}`),
       t.memory.length ? '' : null,
+      ...(reads.length ? ['## Playbooks you read (how the person likes this work done; follow these)', ...reads.flatMap((b) => [`### ${b.title}`, ...b.lessons.map((l) => `- ${cut(l.text, 300)}`)]), ''].slice(0, 120) : []),
+      ...(notRead.length ? [`Playbooks on the team you do not read yet: ${notRead.map((b) => b.title).join(', ')}. Start reading one with team_playbook and its title, leaving out lesson, when its work is yours too.`, ''] : []),
       ...this._projectsFor(t),
       '## The team',
-      ...(others.length ? others.map((o) => { const s = statusOf(o, items, now); return `- ${o.name}${o.role ? `, ${o.role}` : ''}${o.paused ? ' (paused)' : ''}: ${o.job ? o.job.slice(0, 200) : 'no job yet'}${s.now ? ` Now: ${s.now}.` : ''}`; }) : ['- You are the only teammate so far.']),
+      ...(others.length ? others.map((o) => { const s = statusOf(o, items, now); return `- ${o.name}${o.role && o.role.toLowerCase() !== o.name.toLowerCase() ? `, ${o.role}` : ''}${o.paused ? ' (paused)' : ''}: ${o.job ? o.job.slice(0, 200) : 'no job yet'}${s.now ? ` Now: ${s.now}.` : ''}`; }) : ['- You are the only teammate so far.']),
       '',
       '## The team chat, newest last',
       ...(tail.length ? tail.map(line) : ['(nothing yet)']),
@@ -461,9 +543,9 @@ export class Teammates {
       '## Answering what woke you',
       ...(t.status === 'draft' ? [
         'You are a new teammate, still being set up. The opening message is what the person asked for, and anything they have answered since is in the team chat above. Set yourself up, then stop:',
-        digest ? '0. First read every thread under "The threads you come from" above for how the person wants this work done: what they asked for, what they corrected, what they liked and turned down, and what they decided. Keep each lasting lesson with team_remember, one per call, in their words. Write your job, goal and what needs their yes from what the threads show, not from guesses, and in step 2 ask only what the threads leave open.' : null,
+        digest ? '0. First read every thread under "The threads you come from" above for how the person wants this work done: what they asked for, what they corrected, what they liked and turned down, and what they decided. Keep each lasting lesson about how this kind of work is done with team_playbook (a short title like "How you write posts"), and anything about the person themselves with team_remember, one per call, in their words. Write your job, goal and what needs their yes from what the threads show, not from guesses, and in step 2 ask only what the threads leave open.' : null,
         'Your job, goal, when you wake and what you ask first, above, are guesses to confirm, not settled.',
-        '1. Pick a person\'s first name that no teammate has (like Ada or Felix, never a word for the job) and a plain role (two or three words). If you already have a name other than New teammate, keep that name. Draft your job, goal, how you count the goal, when you work and what you ask the person first, and if they said which agent should run you, runsOn. Save the draft with team_setup, without ready.',
+        '1. Your name is your role: two or three words that say what you do, like Marketing lead or Support lead, that no teammate has. Set name and role to it. If you already have a name other than New teammate, keep that name. Draft your job in plain words to yourself, as long as it needs, your goal, how you count it, what you ask the person first, your duties (what you do on your own and when), and if they said which agent should run you, runsOn. Save the draft with team_setup, without ready.',
         '2. Always ask before you start, even when the opening seems clear: the person does not want a teammate that guesses. Ask what you would otherwise assume, at least when you should work on your own and what you should do first, and anything else you guessed, such as what needs their yes. One team_post per question, at most four, each with two to four short answers in `options`, your best guess first. Then finish this run quietly. Their answers wake you again with the chat in your brief.',
         '3. When they have answered, save what they said with team_setup and ready true, post one or two sentences saying what you will do first, and finish quietly. team_setup refuses ready until they have written to you.',
         'If the opening is a piece of work rather than a description of a teammate, it is also your first job: set yourself up for work like it, and once team_setup has ready true, do it in this run and finish as any run does.',
@@ -477,8 +559,10 @@ export class Teammates {
       '## How a teammate works',
       '- The person reads the team chat, your answers, and your job and goal. Say "you" to them in all of it ("You never miss a price change"), never "the person".',
       '- Talk with team_post: short and plain, one to three sentences. Post when you start something worth knowing, when you finish, and when you hand something on. Naming someone with @Name wakes them, so do that only when they need to act.',
-      '- Hand work to a teammate whose job it is with team_pass (to, title, details). They get it as a run of their own. Do not do another teammate\'s job.',
+      '- Hand work to a teammate whose job it is with team_pass (to, title, details). They get it as a run of their own. Do not do another teammate\'s job. In the details, point at the threads, files and links it needs rather than retelling them, so nothing is lost on the way.',
       '- When the person states a standing preference ("from now on", "always", "never", "I prefer"), keep it with team_remember in a few words, in their terms.',
+      '- When they show how they like a kind of work done (a correction, a choice between two, "too slow at the start"), keep the lesson with team_playbook under that kind of work, so every teammate doing it learns it too. One lesson per call.',
+      '- When they change your job, what needs their yes, or what you do on your own, save it with team_setup. The chat shows them it saved; do not ask them to confirm the wording.',
       '- Reach the person only when you need them: a decision, a yes before anything that leaves (sends, posts, ships, merges, pays), or a sign-in only they have. Then end this run with your question as your answer: bold first line, numbered options, your recommendation first. It reaches their inbox. Leave this item open.',
       `- When nothing needs them, post a one-line summary to the team chat, then close this run yourself: update_work_item with status done and labels ["founder", "${teammateLabel(t.id)}", "${HOP_LABEL_PREFIX}${hop}", "clean"] in one call. This run is your own work, not the person's ask, so closing it needs no quote from them.`,
       '- Never wait or poll for a teammate. Say what you are waiting for in the chat and finish; their reply wakes you.',

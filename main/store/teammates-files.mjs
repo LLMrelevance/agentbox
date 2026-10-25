@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { foldTeammates, foldChat } from '../../shared/teammates.mjs';
+import { foldTeammates, foldChat, foldPlaybooks } from '../../shared/teammates.mjs';
 
 const MAX_READ = 4 * 1024 * 1024;
 const MAX_LINE = 64 * 1024;
@@ -17,6 +17,7 @@ export function teamDir(storeRoot, accountId) {
 
 export const teammatesFile = (dir) => path.join(dir, 'teammates.jsonl');
 export const chatFile = (dir) => path.join(dir, 'chat.jsonl');
+export const playbooksFile = (dir) => path.join(dir, 'playbooks.jsonl');
 
 // The screen asks for these on every refresh; a file only read again when it
 // has changed keeps a long chat from costing a parse each time.
@@ -67,6 +68,9 @@ function append(file, obj) {
 export const newTeammateId = () => `t-${crypto.randomBytes(5).toString('hex')}`;
 export const newMessageId = () => `m-${crypto.randomBytes(6).toString('hex')}`;
 export const newMemoryId = () => `k-${crypto.randomBytes(5).toString('hex')}`;
+export const newPlaybookId = () => `p-${crypto.randomBytes(5).toString('hex')}`;
+export const newLessonId = () => `l-${crypto.randomBytes(5).toString('hex')}`;
+export const newDutyId = () => `d-${crypto.randomBytes(4).toString('hex')}`;
 
 export function readTeammates(dir, now = Date.now()) {
   return foldTeammates(readLines(teammatesFile(dir)), now);
@@ -84,4 +88,12 @@ export function writeChat(dir, line, now = Date.now()) {
   const full = { ...line, ts: line.ts ?? now };
   if (full.kind !== 'seen' && !full.id) full.id = newMessageId();
   return append(chatFile(dir), full);
+}
+
+export function readPlaybooks(dir) {
+  return foldPlaybooks(readLines(playbooksFile(dir)));
+}
+
+export function writePlaybook(dir, line, now = Date.now()) {
+  return append(playbooksFile(dir), { ...line, ts: line.ts ?? now });
 }

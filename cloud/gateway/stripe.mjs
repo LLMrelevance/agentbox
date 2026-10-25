@@ -80,8 +80,10 @@ export function stripeClient({ key, webhookSecret, managedPayments = false, fetc
         cancel_url: cancelUrl,
         ...(managedPayments ? { managed_payments: { enabled: true } } : {}),
       });
-      return session.url;
+      return { id: session.id, url: session.url };
     },
+    session: (id) => call('GET', `/v1/checkout/sessions/${encodeURIComponent(id)}`),
+    expire: (id) => call('POST', `/v1/checkout/sessions/${encodeURIComponent(id)}/expire`),
     async billing({ customer, returnUrl }) {
       return (await call('POST', '/v1/billing_portal/sessions', { customer, return_url: returnUrl })).url;
     },

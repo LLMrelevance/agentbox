@@ -10,7 +10,7 @@
 // - the founder asked to see what she was working on and could not, because
 //   the default kept thread names to one's own team and she was on none.
 // Run on PGlite with every migration, as the other rooms cloud tests are.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -74,6 +74,7 @@ beforeAll(async () => {
   await as(ANA, `insert into public.room_email_invites (room_id, email, invited_by) values ($1, 'maya@tester.test', $2)`, [room, ANA]);
   await as(MAYA, `select public.accept_room_invite($1)`, [room]);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('everyone in a room is named', () => {
   it('a member who is invisible keeps her name for her room-mates', async () => {

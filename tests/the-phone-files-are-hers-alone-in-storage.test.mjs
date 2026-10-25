@@ -5,7 +5,7 @@
 // runs here, in order, in PGlite, over a stand-in of Supabase Storage (its
 // buckets and objects tables, row level security on, and storage.foldername),
 // trying each door as the owner, a stranger, and nobody.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,6 +65,7 @@ beforeAll(async () => {
   await db.exec(migration);
   await db.exec(GRANTS);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('the bucket', () => {
   it('is private, and no file in it is over 25 MB', async () => {
