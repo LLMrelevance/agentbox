@@ -2011,7 +2011,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       <div className="set-nav">
         {/* THE WAY OUT, WHERE SHE LOOKS FOR IT: the first row of the menu, the
             way Linear has it. The strip is a drag region for the frameless
-            window, so the button opts out of it or it cannot be clicked. */}
+            window, so the button and the search box opt out of it or they
+            cannot be clicked. */}
         <div className="set-nav-top">
           <button type="button" className="set-nav-back" onClick={onClose} aria-label="Back to app" title="Back to app (esc)">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
