@@ -5172,7 +5172,7 @@ export default function App() {
       if (teammatesShown && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
         // Escape in an open dropdown closes the dropdown, not the page.
         if (modal || inInput || target?.tagName === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
-        if (e.key === 'Escape') { e.preventDefault(); teammatesUi.leave(); }
+        if (e.key === 'Escape') { e.preventDefault(); teammatesUi.back(); }
         return;
       }
       // G FINDS A GROUP from any page, as ⌘K finds a command.
@@ -6998,7 +6998,8 @@ export default function App() {
             const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to], fresh: true });
             if (!r.ok) return r.error;
             void refresh();
-            teammatesUi.go(to === 'new' ? r.value?.teammate?.id ?? 'team' : to);
+            if (to === 'new') teammatesUi.go(r.value?.teammate?.id ?? 'team');
+            else showToast(`Sent to ${snap.teammates?.list.find((t) => t.id === to)?.name ?? 'your teammate'}`);
             return null;
           }}
           products={rankedProducts}

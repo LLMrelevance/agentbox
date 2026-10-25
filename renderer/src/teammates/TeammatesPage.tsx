@@ -254,7 +254,7 @@ function Message({ m, team, me, mePic, lead, call, onOpenThread, answered }: { m
       <em>{clockOf(m.ts)}</em>
     </div>}
     <div className="tx"><Folded long={longMessage(m.text ?? '')}><ReactMarkdown remarkPlugins={MD}>{m.text ?? ''}</ReactMarkdown></Folded>
-      {!mine && t && m.options?.length ? <div className="tq-chips">{m.options.map((o) => (
+      {!mine && t && m.options?.length ? <div className="tq-chips">{m.options.filter((o) => answered === null || answered.trim() === o).map((o) => (
         <button key={o} type="button" className={`tq-chip${answered === null ? '' : answered.trim() === o ? ' on' : ' dim'}`} disabled={answered !== null}
           onClick={() => { void call('post', { text: o, to: [t.id] }); }}>{o}</button>
       ))}</div> : null}
