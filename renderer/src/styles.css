@@ -496,7 +496,12 @@
   --work-fill: rgba(41, 47, 58, 0.55);
   --work-chip: rgba(255, 255, 255, 0.07);
   --work-blur: blur(18px) saturate(1.15);
-  --accent: #7aabff;
+  /* THE ONE ORANGE, HERE TOO (w-abed8ae491). Two modes, light and dark, both
+     with orange accents. This block is the dark set UNDER the launch film's
+     look rather than a look of its own, and it still carried the blue the app
+     wore before that, so anything painting dark without the picture got it.
+     tests/every-theme-wears-the-one-orange.test.mjs reads every declaration. */
+  --accent: #ee6018;
   /* THE READING SURFACE IN THE SETUP PICTURE, and the only place in the app
      that paints paper rather than a theme surface. The values are the landing
      page's own (~/dd-landing/index.html), because the article Agentbox offers you
@@ -511,11 +516,11 @@
   --read-kicker: #3A55A4;
   --read-ground: #0F1013;
 
-  --select-bar: #7aabff;
+  --select-bar: var(--accent);
   --on-solid: #24262a;
-  --chip-ask: #d8b44a;
+  --chip-ask: var(--accent);
   --state-stopped: #e08a6c;
-  --underline: rgba(149, 188, 255, 0.68);
+  --underline: rgba(238, 96, 24, 0.6);
   --chip-review: #7bc98e;
   /* Lifted from #d97a6c, which measured 4.32:1 on the new card and was 5.88:1
      on the old one: a lighter ground takes contrast off every ink. This value
@@ -7300,7 +7305,9 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
   --line-strong: rgba(255, 255, 255, 0.19);
   --bg-raised: #373a41;
   --wash: rgba(255, 255, 255, 0.065);
-  --accent: #7aabff;
+  /* A link in an html file is the window's orange, not a blue of its own: the
+     file is in the same window as the markdown beside it (w-abed8ae491). */
+  --accent: #ee6018;
   --doc-page: var(--doc-page-held);
   --doc-wash: rgba(255, 255, 255, 0.07);
 }
