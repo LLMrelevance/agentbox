@@ -61,10 +61,6 @@
    right end of the tabs row (and in the header only on the board). */
 .th-search { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--radius); background: none; color: var(--text-dim); font: inherit; cursor: pointer; flex: none; }
 .th-bar > .th-search { margin-left: auto; }
-.th-bar > .th-one { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border: 0; border-radius: var(--radius); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: pointer; white-space: nowrap; }
-.th-bar > .th-one + .th-search { margin-left: -16px; }
-.th-one kbd { font: 10.5px var(--mono); color: var(--text-faint); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 1px 5px; }
-.th-one:hover { background: var(--wash-strong); color: var(--text); }
 .th-new { height: 32px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; color: var(--text); font: inherit; font-size: 13.5px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
 .th-new svg { color: var(--text-dim); }
 .th-new:hover, .th-disp:hover { background: var(--wash-strong); }

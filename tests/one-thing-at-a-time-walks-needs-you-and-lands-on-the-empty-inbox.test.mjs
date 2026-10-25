@@ -3,17 +3,17 @@
 // Asked: "Needs you becomes a queue you move through", one thread per page,
 // and "once you're done it should just go back to your empty inbox". Read in
 // renderer/src/advance.ts: a reply on the LAST thread waiting kept you on it
-// (`replyMovesOn` is false when inboxSize is 1), so the queue had no end. In
-// this mode every answer moves on, the last one included, and with nothing
+// (`replyMovesOn` is false when inboxSize is 1), so the queue had no end. Now
+// every answer on Needs you moves on, the last one included, and with nothing
 // left the advance opens nothing and the list is what is on the screen.
 //
 // The page shows the newest answer whole and folds the rest behind "Show N
 // earlier messages"; these are the rules that pick the answer, your last
 // message and the count, measured against real conversation shapes.
 import { describe, it, expect } from 'vitest';
-import { nextAfterAdvance } from '../renderer/src/advance.ts';
+import { nextAfterAdvance, replyMovesOn } from '../renderer/src/advance.ts';
 import {
-  spotIn, stepIn, queueMovesOn, queueStartsHere, newestAnswer, yourLast, earlierCount, splitHeadline, repeatsTitle,
+  spotIn, stepIn, newestAnswer, yourLast, earlierCount, splitHeadline, repeatsTitle,
 } from '../renderer/src/one-thing-at-a-time.ts';
 
 const rows = [
@@ -48,28 +48,18 @@ describe('the up and down arrows', () => {
 });
 
 describe('after an answer', () => {
+  const on = (p) => replyMovesOn({ view: 'inbox', onBoard: false, ...p });
   it('moves on from a thread in the queue, the last one included', () => {
-    expect(queueMovesOn({ index: 0 })).toBe(true);
-    expect(queueMovesOn({ index: 4 })).toBe(true);
+    expect(on({ index: 0 })).toBe(true);
+    expect(on({ index: 4 })).toBe(true);
   });
   it('stays on a thread that is not in the queue, or while searching', () => {
-    expect(queueMovesOn({ index: -1 })).toBe(false);
-    expect(queueMovesOn({ index: 2, searching: true })).toBe(false);
+    expect(on({ index: -1 })).toBe(false);
+    expect(on({ index: 2, searching: true })).toBe(false);
   });
   it('and with the last one answered there is nothing to open, so the empty list shows', () => {
     const last = [{ id: 'w-1' }];
     expect(nextAfterAdvance(last, { index: 0, excludeId: 'w-1' })).toBeNull();
-  });
-});
-
-describe('the way in', () => {
-  it('is offered on Needs you with something in it', () => {
-    expect(queueStartsHere({ view: 'inbox', searching: false, waiting: 3 })).toBe(true);
-  });
-  it('and nowhere else', () => {
-    expect(queueStartsHere({ view: 'inbox', searching: false, waiting: 0 })).toBe(false);
-    expect(queueStartsHere({ view: 'progress', searching: false, waiting: 3 })).toBe(false);
-    expect(queueStartsHere({ view: 'inbox', searching: true, waiting: 3 })).toBe(false);
   });
 });
 

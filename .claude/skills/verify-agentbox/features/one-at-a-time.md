@@ -1,11 +1,12 @@
 # One thing at a time
 
-The person answers Needs you as a queue: each thread opens on its own page, the
-answer moves them to the next, and the last answer lands them on the empty inbox.
+Every thread in Needs you opens on this page, however it was opened: the answer
+moves them to the next, and the last answer lands them on the empty inbox. A
+thread anywhere else opens on the full thread page.
 
 ## Sub-features
 
-- `way-in` Space on Needs you, or the One at a time button beside search, opens the top thread.
+- `way-in` Enter or a click on a Needs you row, the board's Waiting column, search or an alert: any way a Needs you thread is opened.
 - `page` the short title in the top bar, the place in the queue and two arrows beside the menu; Context and your last message on top; the newest answer under its headline; the choices at the foot, apart from the reply box.
 - `moves-on` a pick, a typed reply or E moves to the next thread, and the answer reaches that thread's agent.
 - `walks` J and K, and the arrows, step through the queue without answering.
@@ -15,8 +16,8 @@ answer moves them to the next, and the last answer lands them on the empty inbox
 
 ## How to get to it (user POV)
 
-- On Needs you, press Space, or click One at a time.
-- Enter on a row still opens the whole thread page, as before.
+- Open any thread on Needs you.
+- A thread in In progress, Later or Done opens on the full thread page.
 
 ## Driving it with live.mjs
 
@@ -24,7 +25,7 @@ Preconditions: a clean `live.mjs doctor` on a fresh copy (`down`, then `up`), so
 
 - **Run it.** `live.mjs drive one-at-a-time`. It files four threads, has the stand-in answer each with choices, then holds replies for two minutes so the queue can be emptied.
 - **Checks.** Every sub-feature above but `files`, on the screen and in the ledger: the pick, the typed reply and the close are on their threads, and a pick starts the stand-in again.
-- **Proof.** `01-needs-you.png` to `06-empty.png`, `report.json`.
+- **Proof.** `01-needs-you.png` to `07-in-progress.png`, `report.json`.
 
 ## Gotchas
 
