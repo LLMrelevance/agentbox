@@ -8,7 +8,7 @@
 // its work to everyone goes back to its team only, what its Macs last
 // published is cleared, a card on none stays none, and a new card starts on
 // team.
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -60,6 +60,7 @@ beforeAll(async () => {
     alter table public.room_presence enable trigger room_presence_stamped;`);
   await db.exec(sql([THIS]));
 }, 60_000);
+afterAll(() => db.close());
 
 describe('after this update', () => {
   it('a card that showed thread names to everyone keeps them to its team', async () => {

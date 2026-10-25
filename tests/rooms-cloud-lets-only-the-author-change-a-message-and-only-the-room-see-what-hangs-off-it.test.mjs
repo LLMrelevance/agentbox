@@ -9,7 +9,7 @@
 //
 // Every migration runs in an in-process Postgres (PGlite) with Supabase's auth
 // schema stood in, as in rooms-cloud-shows-each-room-only-to-its-people.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -80,6 +80,7 @@ beforeAll(async () => {
   ({ id: room } = await one(MAYA, `select id from public.rooms where team_id = $1`, [team.id]));
   await as(JUN, `select public.join_listed_room($1)`, [GENERAL]);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('editing a message', () => {
   it('the author edits: new words, an edit time, and mentions only of people in the room', async () => {

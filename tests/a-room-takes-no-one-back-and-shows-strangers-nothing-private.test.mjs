@@ -19,7 +19,7 @@
 //      public.join_into(<team room>) joined them.
 //
 // Same PGlite stand-in as rooms-cloud-shows-each-room-only-to-its-people.
-import { it, expect, beforeAll, describe } from 'vitest';
+import { it, expect, beforeAll, afterAll, describe } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -102,6 +102,7 @@ beforeAll(async () => {
     [TMEMBER, 'tmember@rooms.test', 'Tom Member'],
   ]) await signUp(id, email, name);
 }, 60_000);
+afterAll(() => db.close());
 
 describe('a removed member cannot walk back into a room', () => {
   it('their own link stops working, and so does it in someone else’s hands', async () => {
@@ -220,6 +221,7 @@ describe('the internal helpers are no one’s to call, even on stock default gra
     await stock.exec('reset role;');
     [{ id: teamRoom }] = (await stock.query(`select id from public.rooms where team_id = $1`, [teamId])).rows;
   }, 60_000);
+  afterAll(() => stock.close());
 
   it('authenticated cannot execute them', async () => {
     for (const f of internal) expect(await can('authenticated', f), f).toBe(false);

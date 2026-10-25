@@ -433,15 +433,42 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     return `https://${host}`;
   };
 
+  // ONE CHECKOUT OPEN AT A TIME. A second subscription would bill twice, and
+  // until the webhook lands only the checkout this server opened knows one
+  // was paid: so it is remembered, reopened for the same plan, closed before
+  // another plan's, and a paid one sends you to the billing page.
   async function checkout(person, { plan }, headers) {
     if (!stripe) throw billingRefusal();
     if (!sellable(plan)) throw bad('choose pro, plus or max');
     const base = hostOf(headers);
+    const toBilling = async (customer) => ({ url: await stripe.billing({ customer, returnUrl: `${base}/v1/paid?billing=1` }), where: 'billing' });
     const rec = await recOf(person);
-    // A second subscription would bill twice; a change of plan is made on the billing page.
-    if (PAYING.has(rec.stripe?.status)) return { url: await stripe.billing({ customer: rec.stripe.customer, returnUrl: `${base}/v1/paid?billing=1` }), where: 'billing' };
-    const url = await stripe.checkout({ person, plan, customer: rec.stripe?.customer, successUrl: `${base}/v1/paid?plan=${plan}`, cancelUrl: `${base}/v1/paid?cancelled=1` });
-    return { url, where: 'checkout' };
+    // A change of plan is made on the billing page.
+    if (PAYING.has(rec.stripe?.status)) return toBilling(rec.stripe.customer);
+    // Open, paid or gone: what a checkout this server opened is now.
+    const settle = async (open, keep) => {
+      if (!open?.id) return null;
+      let s = await stripe.session(open.id).catch(() => null);
+      if (s?.status === 'open' && keep) return { url: s.url, where: 'checkout' };
+      if (s?.status === 'open') s = await stripe.expire(open.id).catch(() => stripe.session(open.id).catch(() => null));
+      return s?.status === 'complete' && s.customer ? toBilling(s.customer) : null;
+    };
+    const was = await settle(rec.checkout, rec.checkout?.plan === plan);
+    if (was) return was;
+    const made = await stripe.checkout({ person, plan, customer: rec.stripe?.customer, successUrl: `${base}/v1/paid?plan=${plan}`, cancelUrl: `${base}/v1/paid?cancelled=1` });
+    // Another press may have opened one while this one was being made.
+    let raced = null;
+    await update(person, (r) => {
+      raced = r.checkout?.id && r.checkout.id !== rec.checkout?.id ? r.checkout : null;
+      if (raced?.plan === plan) return;
+      r.checkout = { id: made.id, url: made.url, plan, at: now() };
+    });
+    if (raced?.plan === plan) {
+      await stripe.expire(made.id).catch(() => {});
+      return (await settle(raced, true)) ?? { url: raced.url, where: 'checkout' };
+    }
+    if (raced) await settle(raced, false);
+    return { url: made.url, where: 'checkout' };
   }
 
   async function billing(person, headers) {
@@ -472,6 +499,7 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
       if (!pays && rec.stripe?.subscription && rec.stripe.subscription !== sub.id && PAYING.has(rec.stripe.status)) return;
       rec.plan = plan;
       rec.stripe = { customer: sub.customer, subscription: sub.id, status: sub.status, at: now() };
+      if (pays) delete rec.checkout;
     });
     log(`${person} is on ${plan} (Stripe ${sub.status})`);
     return { received: true };
