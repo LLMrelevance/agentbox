@@ -56,10 +56,10 @@ describe('the line after Send', () => {
 });
 
 describe('the wiring in App.tsx', () => {
-  // Every place a task is made: the new-thread card, and Neo's compose.
+  // Every place a task is made.
   it('passes the new row\'s limit from the fresh snapshot into the line, everywhere a task is made', () => {
     const places = [...app.matchAll(/showToast\(sentLine\(\{/g)].map((m) => m.index);
-    expect(places.length).toBeGreaterThanOrEqual(2);
+    expect(places.length).toBeGreaterThanOrEqual(1);
     for (const at of places) expect(app.slice(at, at + 400)).toMatch(/limit: .*atLimit\?\.\[made\.id\]/);
   });
 });

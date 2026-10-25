@@ -6,9 +6,9 @@ import {PreviewLoading} from './PreviewLoading';
 import { isLocalPreview, type ArtifactMode } from '../artifact-layout';
 import { LOCAL_APP_SANDBOX, previewShows, previewStatus, useLocalPreview } from '../local-preview';
 import { LocalPreviewStatus } from './LocalPreviewStatus';
-import { WebsitePane, type Browsing } from './WebsitePane';
+import { WebsitePane, type Browsing, type PageControl } from './WebsitePane';
 import { BrowserChrome, type WebChromeKind } from './BrowserChrome';
-import { canFrameAWebsite } from '../../../shared/websites.mjs';
+import { addressYouTyped, canFrameAWebsite, isWebsiteAddress } from '../../../shared/websites.mjs';
 // THE DOCUMENT PANE. The right half of the window is the file itself.
 //
 // The look is settled and is not a question any more.
@@ -114,15 +114,19 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   onClose: () => void;
   onNotice: (text: string) => void;
 }) {
-  const kind: DocKind = docKind(doc.src) ?? 'html';
+  // An address typed into the bar, kept against the thread's own so opening
+  // another link puts it away.
+  const [typed, setTyped] = useState<{ from: string; to: string } | null>(null);
+  const src = typed?.from === doc.src ? typed.to : doc.src;
+  const kind: DocKind = docKind(src) ?? 'html';
   // Where the pane is standing. A webview keeps its own history, so after one
   // click the thread's address is no longer the page being read, and the bar
   // and the way out follow this rather than `doc.src`.
-  const [here, setHere] = useState<Browsing>({ url: doc.src, canBack: false, canForward: false, loading: true });
+  const [here, setHere] = useState<Browsing>({ url: src, canBack: false, canForward: false, loading: true });
   const [webFailed, setWebFailed] = useState<string | null>(null);
   const [webReady, setWebReady] = useState(false);
   // What the bar presses. Filled in by the webview while it is mounted.
-  const browsing = useRef<{ back: () => void; forward: () => void; reload: () => void } | null>(null);
+  const browsing = useRef<PageControl | null>(null);
   // Asked once: can this page draw a browser of its own.
   const [ownBrowser] = useState(() => canFrameAWebsite(typeof document === 'undefined' ? null : document));
   // The file this really is, found by the app's own finder in the main process,
@@ -152,11 +156,11 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
   useEffect(() => {
     let live = true;
     setResolved(null); setText(null); setFailed(null); setMtime(0); setUrl(null); setChange(null);
-    setHere({ url: doc.src, canBack: false, canForward: false, loading: true });
+    setHere({ url: src, canBack: false, canForward: false, loading: true });
     setWebFailed(null); setWebReady(false);
     // A website is not looked for on disk: the address is the document.
-    if (kind === 'website') { setResolved(doc.src); setUrl(doc.src); return () => { live = false; }; }
-    if (isLocalPreview(doc.src)) { setResolved(doc.src); setUrl(doc.src); return () => { live = false; }; }
+    if (kind === 'website') { setResolved(src); setUrl(src); return () => { live = false; }; }
+    if (isLocalPreview(src)) { setResolved(src); setUrl(src); return () => { live = false; }; }
     api.resolveDoc({ product: doc.product, src: doc.src }).then((r) => {
       if (!live) return;
       if (!r.ok || !r.opened) { setFailed(r.error ?? 'That file could not be found.'); return; }
@@ -179,7 +183,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
       });
     }
     return () => { live = false; };
-  }, [doc.product, doc.src, kind]);
+  }, [doc.product, doc.src, src, kind]);
 
   // FULLY RESIZABLE, hers. The pointer is captured on the divider, so a fast
   // drag over the document's own iframe does not lose the grip — an iframe eats
@@ -219,6 +223,17 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
     });
   };
 
+  // A website steps inside its own browser so Back comes home; anything else,
+  // a local app or a site in a tab with no webview, reopens the pane there.
+  const goTo = (text: string) => {
+    const to = addressYouTyped(text);
+    if (!to) return false;
+    if (kind === 'website' && isWebsiteAddress(to) && browsing.current) browsing.current.go(to);
+    else if (to === src) (browsing.current ? browsing.current.reload() : app.retry());
+    else setTyped({ from: doc.src, to });
+    return true;
+  };
+
   // Focus and close belong to the pane whatever is in it.
   const paneMarks = (
     <>
@@ -240,6 +255,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
       onForward={() => browsing.current?.forward()}
       onReload={() => (browsing.current ? browsing.current.reload() : app.retry())}
       onOpenOutside={openOutside}
+      onGo={goTo}
       marks={paneMarks}
     />
   ) : (
@@ -308,7 +324,7 @@ export function DocPane({ doc, roots, split, onSplit, onClose, onNotice, mode, o
               : <>
                   {!webReady && <PreviewLoading />}
                   <WebsitePane
-                    url={doc.src}
+                    url={src}
                     webview={ownBrowser}
                     ready={webReady}
                     control={browsing}

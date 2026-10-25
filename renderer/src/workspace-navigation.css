@@ -1092,15 +1092,3 @@ body {
 :root:root .workspace-title { font-weight: 400; letter-spacing: -.03em; }
 :root:root .row .subject { font-weight: 400; letter-spacing: -.01em; }
 
-/* Settings › Neo: the voice row's play buttons, beside the dropdown and in it
-   (renderer/src/neo/NeoSettings.tsx). */
-.neo-voice-ctl { display:flex; align-items:center; gap:6px; }
-.neo-voice-play { display:grid; place-items:center; width:26px; height:26px; flex:none; border:none; border-radius:var(--radius); background:transparent; color:var(--text-dim); cursor:pointer; padding:0; }
-.neo-voice-play svg { width:12px; height:12px; }
-.neo-voice-play:hover { color:var(--text); background:var(--wash); }
-.neo-voice-menu { min-width:190px; }
-.neo-voice-item { display:flex; align-items:center; gap:2px; }
-.neo-voice-item .set-picker-row { flex:1; display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
-.neo-voice-tag { font-size:11px; color:var(--text-faint); }
-.neo-page .neo-section { margin-top:0; }
-.neo-page .set-group.neo-section { margin-top:40px; }

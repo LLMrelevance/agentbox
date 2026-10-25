@@ -1,13 +1,13 @@
-// Neo said "I need the microphone. Allow it in System Settings" and gave no
-// way to (2026-10-16). Measured on her Mac: Agentbox runs from Terminal, so
+// The voice alpha said "I need the microphone. Allow it in System Settings"
+// and gave no way to (2026-10-16); voice notes ask the same way now. Measured on her Mac: Agentbox runs from Terminal, so
 // macOS asks on Terminal's behalf, and Terminal's microphone had been refused
 // on 2026-10-05. After a refusal macOS never shows its Allow box again, so
-// asking returned no at once. One press on Neo's card now clears that one
+// asking returned no at once. One press now clears that one
 // refusal (tccutil, for that one app and the microphone only) and asks again,
 // which brings back the Allow box; if that still fails it opens the exact
 // Settings page. Nothing is reset without the press.
 import { describe, expect, it, vi } from 'vitest';
-import { micOwner, getMic, SETTINGS_URL } from '../main/neo/mic.mjs';
+import { micOwner, getMic, SETTINGS_URL } from '../main/mic.mjs';
 
 function prefs(status, answer) {
   return { getMediaAccessStatus: vi.fn(() => status), askForMediaAccess: vi.fn(async () => answer) };

@@ -39,7 +39,6 @@ import { docKind, EVEN_SPLIT, escapeClosesDoc, escapeInTheFileClosesIt, focusIsI
 import { changeOwnsKey } from './code-keys';
 import { askStillStands, bringsBack, closesAgain, graceUndoneLine, nextUndo, shownAfterUndo, undoAsk, HOLDS_A_KEY, NOTHING_TO_UNDO, UNDID_CLOSING } from './undo-window';
 import { answeredAlready, TOO_LATE_TO_WITHDRAW } from './withdraw-send';
-import { useNeo } from './neo/useNeo';
 import { addUndoMark, UNDO_MARKS_EVENT, type UndidSpec } from './undo-marks';
 import { whatTheFileSentUp } from '../../shared/artifact-keys.mjs';
 import { ALIVE_EVERY_MS, markWindowAlive, type Place, placeIsSomewhere, readPlace, windowWasJustHere, writePlace, writeScroll } from './where-she-was';
@@ -47,7 +46,7 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames, projectsOffered, teammates, threadMessage } from './threads/composer-rules';
+import { joinNames, projectsOffered, teammates } from './threads/composer-rules';
 import { chosenNames, whoSees } from './threads/summary-rules';
 import { shownToPeople } from '../../shared/thread-cards.mjs';
 import { changePathFor } from './code-artifact';
@@ -59,7 +58,7 @@ import { ImportAgents } from './components/ImportAgents';
 import { importedLine } from './agent-import-card';
 import { whenLabel } from './components/When';
 import { RepeatFocus } from './components/RepeatFocus';
-import { Palette, type Command as CommandRow } from './components/Palette';
+import { Palette } from './components/Palette';
 import { Standing, STANDING } from './components/Standing';
 import { Settings } from './components/Settings';
 import { Snooze } from './components/Snooze';
@@ -165,6 +164,7 @@ import { agentLinks, chatProjects, chatTaskSharing, chatTranscript, taskBrief, t
 import { isCleanRun, ruleIdOf, ruleLabel, runToOpen } from '../../shared/repeats.mjs';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { NOT_ANSWERING, NOT_ANSWERING_MS, RESTART_IT, RESTART_IT_MS, SEND_NOT_TAKEN } from './not-answering';
+import { TEAM_WAIT_MS } from './boot-waits';
 import { isNew } from '../../shared/notify-rules.mjs';
 import { inMyInbox, isShared, heldByAPerson, runnerOf, iSpokeLast } from '../../shared/team-rules.mjs';
 import { Face, TeamContext, firstName, teamView } from './team/people';
@@ -932,7 +932,6 @@ export default function App() {
    * the screen reads it except the toast it already raised.
    */
   const undoAskRef = useRef<{ entry: Undoable & { at: number }; at: number } | null>(null);
-  const neoUndoAskRef = useRef<{ entry: Undoable & { at: number }; at: number; confirmation: string } | null>(null);
   /* * A TOAST CAN CARRY A WAY IN NOW, and on the one that says a task was made it does.
 
      `goes` is the row it was about, by id, NOT a closure that opens it. A
@@ -3825,10 +3824,6 @@ export default function App() {
 
   // Every resolving action goes through here: the UI advances instantly, the
   // write happens after the grace window (unless Z cancels it first).
-  // WHILE NEO SENDS, HER REPLY BOX STAYS AS IT IS. A send closes the box, and
-  // a pasted screenshot too big for the saved draft goes with it: "you removed
-  // an image I had previously attached" (2026-10-16).
-  const neoSending = useRef(false);
   const deferCommit = useCallback(async (
     item: WorkItem,
     run: () => Promise<void>,
@@ -3863,7 +3858,7 @@ export default function App() {
     // (tests/e-never-waits-for-the-app.test.mjs). This action's write goes after it.
     const flushed = flushPending().catch((err) => console.warn('a held action was not written', err));
     if (!stay) leaveResolved(item);
-    if (!neoSending.current) setModal(null);
+    setModal(null);
     holdRow(item.id); // out of the inbox NOW; the write can wait, the signal cannot
     // Only an answer passes `goes`, and only an answer starts an agent.
     setHeldAnswer(goes ? item.id : null);
@@ -4204,7 +4199,7 @@ export default function App() {
     const isRunning = snap?.supervisor.running.some((run) => run.itemId === item.id && run.product === item.product);
     if (isRunning) {
       setFollowing({ product: item.product, id: item.id });
-      if (!neoSending.current) setModal(null);
+      setModal(null);
       // ON THE SCREEN BEFORE ANYTHING IS ASKED OF ANYBODY. The moment she
       // presses send, her message is the last thing in the conversation, where
       // she is already looking, and it says in its own head that the agent has
@@ -5093,85 +5088,6 @@ export default function App() {
     return 'done' as const;
   }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks, letRowGo]);
 
-  const paletteCommands = useRef<CommandRow[]>([]);
-  // NEO, THE VOICE ALPHA (w-e85fd9144f). Nothing at all unless this Mac has
-  // the alpha flag. When it does, Neo's tool calls are carried out here with
-  // the same functions the keys use, so a voice can do nothing a hand could
-  // not; the rules about which thread and when to ask are in ./neo/bridge.
-  const neo = useNeo({
-    rows: () => shownInbox,
-    commands: () => paletteCommands.current,
-    threadsAnywhere: () => [...inbox, ...progress, ...snoozed, ...done],
-    threadById: (id) => items.find((i) => i.id === id) ?? null,
-    focused: () => focused,
-    options: (row) => (offerIsLive(row) ? itemOptions(row) : []),
-    summary: (row) => row.result || row.note || row.body || '',
-    answer: (row) => (row.wrote?.answer?.ts ?? 0) > (row.wrote?.result?.ts ?? 0) ? row.answer || '' : '',
-    about: (row) => row.problem || '',
-    projects: () => (snap?.products ?? []).filter((p) => !directSlugs.has(p.slug)).map((p) => ({ slug: p.slug, name: p.name })),
-    open: (row) => {
-      setSettingsOpen(false); setSettingsPane(null); setTeamOpen(false); setOpenCard(null); setModal(null);
-      setFocusedRepeat(null); setEditingRule(false);
-      setSearch(null); setFocused(row); markSeen(row);
-    },
-    pick: (row, n) => pickOption(row, n),
-    reply: async (row, text, { attach } = {}) => {
-      // The pictures in her reply box go out with the words, through the box's own send.
-      if (attach) {
-        let taken = false;
-        window.dispatchEvent(new CustomEvent('neo:send-from-box', { detail: { key: draftKey(row), text, answer: (sent: boolean) => { taken = sent; } } }));
-        if (taken) return 'with-pictures';
-      }
-      neoSending.current = true;
-      try { await answerWith(row, text); } finally { neoSending.current = false; }
-      return attach ? 'no-pictures' : undefined;
-    },
-    close: (row, confirmed) => markDone(row, { force: confirmed }),
-    closePrompt: (row) => {
-      const waiting = waitingFiled(row).length;
-      if (waiting) return `This thread has ${waiting} task${waiting === 1 ? '' : 's'} waiting for approval. Ask whether to close it anyway.`;
-      return offerIsLive(row) ? 'The agent is waiting on your answer. Closing leaves it waiting. Ask whether to close it anyway.' : null;
-    },
-    later: (row, ts, label) => snoozeUntil(row, ts, label),
-    compose: async (text, product) => {
-      const message = threadMessage(text, []);
-      if (!message) return null;
-      const made = await api.compose({ product, title: message.title, body: message.body || undefined, kind: 'directive', priority: 5 });
-      // Z and Neo's own undo take it back, the same as a task typed into the card.
-      if (made?.id) {
-        pushUndo({ label: `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, undoes: 'take back the task you just made',
-          undid: [{ product: made.product, id: made.id, words: 'Undid sending it' }],
-          run: async () => {
-            const row = (await api.snapshot())?.items.find((i) => i.id === made.id && i.product === made.product);
-            if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
-            await api.answer({ product: made.product, id: made.id, status: 'done' });
-          } });
-        const next = await refresh();
-        showToast(sentLine({ to: snap?.products.find((p) => p.slug === product)?.name ?? product, when: null, held: false,
-          limit: next?.supervisor?.atLimit?.[made.id] }), { product: made.product, id: made.id });
-      }
-      return made;
-    },
-    undo: async (confirmation) => {
-      if (pendingRef.current && !confirmation) return undo();
-      const now = Date.now();
-      const { take, instant } = nextUndo(undoStack, now);
-      if (confirmation) {
-        const asked = neoUndoAskRef.current;
-        neoUndoAskRef.current = null;
-        if (!asked || asked.confirmation !== confirmation || asked.entry !== take || pendingRef.current || now - asked.at > 60_000) return 'changed';
-        undoAskRef.current = { entry: take!, at: now };
-      }
-      if (!take) return 'none';
-      if (!instant && !confirmation) {
-        const token = crypto.randomUUID();
-        neoUndoAskRef.current = { entry: take, at: now, confirmation: token };
-        return { asked: `Do you want to ${take.undoes}?`, confirmation: token };
-      }
-      return undo();
-    },
-  });
-
   // INTO THE ROW THE TOAST IS ABOUT, from a click on it or from O
   // (w-f0bfe32859). One path, so the key can never open something the click
   // would not. The lookup is by id at the moment of the press, against whatever
@@ -5765,6 +5681,11 @@ export default function App() {
   // which is the same lost-place fault in a shorter form.
   const restoring = reloaded === null
     || (comingBack && !restored && placeIsSomewhere(wasAt.current));
+  const [teamWaitOver, setTeamWaitOver] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setTeamWaitOver(true), TEAM_WAIT_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // NOTHING RESETS THE PANEL. There used to be an effect here putting it back
   // up every time she left a task, so "up by default" meant every time rather
@@ -6028,6 +5949,7 @@ export default function App() {
   // below has to go on reading exactly as it always did.
   if (restoring) return <Booting />;
   if (!snap) return <Booting />;
+  if (snap.team?.settling && !teamWaitOver) return <Booting />;
 
   // Searching is never inbox zero, whatever the inbox holds: the zero state
   // takes the whole screen, and it appearing under a query she is typing would
@@ -7221,10 +7143,8 @@ export default function App() {
           a `scripted` prop for that now, so the tutorial opens the same card
           everybody else opens. Her words: "the tutorial is using the wrong
           component here, we no longer use this". */}
-      {/* Always worked out, drawn only while open: Neo runs its commands by name. */}
       <Palette
         open={modal === 'palette'}
-        commandsRef={paletteCommands}
         cloud={snap.cloud?.setUp ? snap.cloud : null}
         onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
         onFirstRun={walkAgain}
@@ -7551,7 +7471,6 @@ export default function App() {
              files. No team cloud, no pane and no Team row. */
           teamPane={snap?.team?.configured ? <TeamPage team={snap?.team} inviteFocus={inviteFocus} /> : undefined}
           roomsPane={roomsUi.settingsPane}
-          neoOn={neo.on}
           // WHO SEES A PROJECT'S THREADS (w-b989839656): the button beside a
           // project's name and the Projects list's column, only while someone
           // is signed in to a team, handed in for the same reason as the pane.

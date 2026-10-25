@@ -7,7 +7,7 @@
 // request a file from that domain, on the app's session rather than the
 // browsing one, and the privacy page promises nothing leaves the machine. The
 // mark is drawn by us instead.
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 // The app's own icon recipe (SearchIcon.tsx): a 24 grid, a hairline, round
 // caps, no fill.
@@ -58,7 +58,7 @@ export function addressParts(url: string): { host: string; rest: string } {
 
 export function BrowserChrome({
   kind, url, canBack, canForward, loading,
-  onBack, onForward, onReload, onOpenOutside, marks,
+  onBack, onForward, onReload, onOpenOutside, onGo, marks,
 }: {
   kind: WebChromeKind;
   url: string;
@@ -69,11 +69,20 @@ export function BrowserChrome({
   onForward?: () => void;
   onReload?: () => void;
   onOpenOutside: () => void;
+  // Asked to go where you typed; false keeps the field open, as it was refused.
+  onGo: (typed: string) => boolean;
   // Focus and close, which the pane owns whatever is in it.
   marks?: ReactNode;
 }) {
   const { host, rest } = addressParts(url);
   const mark = kind === 'local' ? <Local /> : <Globe />;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(url);
+  const [refused, setRefused] = useState(false);
+  useEffect(() => { if (!editing) setDraft(url); }, [url, editing]);
+  const putBack = (field: HTMLInputElement) => {
+    setDraft(url); setRefused(false); setEditing(false); field.blur();
+  };
   return (
     <div className="web-bar" data-kind={kind} data-loading={loading ? 'yes' : 'no'}>
       <div className="web-bar-nav">
@@ -81,11 +90,33 @@ export function BrowserChrome({
         <button type="button" className="web-bar-step" title="Forward" aria-label="Forward" disabled={!canForward} onClick={onForward}><Forward /></button>
         <button type="button" className="web-bar-step" title="Reload" aria-label="Reload" onClick={onReload}><Reload /></button>
       </div>
-      <div className="web-bar-address" title={url}>
+      {/* A real field under the drawn address, so a click selects the whole
+          of it to copy or type over, and the two inks come back on leaving. */}
+      <label className="web-bar-address" data-editing={editing ? 'yes' : 'no'} data-refused={refused ? 'yes' : 'no'} title={editing ? undefined : url}>
         <span className="web-bar-mark">{mark}</span>
-        <span className="web-bar-host">{host}</span>
-        <span className="web-bar-rest">{rest}</span>
-      </div>
+        <input
+          className="web-bar-input"
+          aria-label="Address"
+          spellCheck={false}
+          autoComplete="off"
+          value={draft}
+          onFocus={(e) => { setEditing(true); e.currentTarget.select(); }}
+          onBlur={() => { setDraft(url); setRefused(false); setEditing(false); }}
+          onChange={(e) => { setDraft(e.target.value); setRefused(false); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') { e.preventDefault(); putBack(e.currentTarget); }
+            else if (e.key === 'Enter') {
+              e.preventDefault();
+              if (onGo(draft)) { setEditing(false); e.currentTarget.blur(); } else setRefused(true);
+            }
+          }}
+        />
+        {refused && <span className="web-bar-refused" role="status">Not a web address</span>}
+        <span className="web-bar-shown" aria-hidden="true">
+          <span className="web-bar-host">{host}</span>
+          <span className="web-bar-rest">{rest}</span>
+        </span>
+      </label>
       <div className="web-bar-marks">
         <button type="button" className="web-bar-step web-bar-out" title="Open in your browser" aria-label="Open in your browser" onClick={onOpenOutside}>
           <Glyph>

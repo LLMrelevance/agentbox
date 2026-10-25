@@ -54,19 +54,16 @@ Your level comes from agent hours. Ranks are weekly. You can go invisible.
 - Invisible: explains itself before it happens, has a duration, and leaves a
   plain notice above the wall. A Rooms page in Settings holds name display, what
   your card shows, and invisible. Private threads never show.
-- Everything sits behind an Alpha features switch in Settings, with Neo.
+- Everything sits behind an Alpha features switch in Settings.
 
 ## The alpha switch
 
-- New Settings page "Alpha features" (Personal group), two switches:
-  "Neo" and "Rooms". Stored in `zero.config.json` as `alphaNeo` and `alphaRooms`
+- New Settings page "Alpha features" (Personal group), with a "Rooms" switch.
+  Stored in `zero.config.json` as `alphaRooms`
   through the existing `setWorkspaceSetting` path (pattern: `adhdMode`).
 - Rooms off (the default): no Rooms section, no room tabs, no messages page
   change, nothing about rooms is published, no room tables are read. The
   existing team features keep working exactly as today.
-- Neo: `neoEnabled` becomes `config.alpha?.neo === true || neo-alpha file`.
-  `createNeo` reads the gate once at boot today, so the switch says "Takes
-  effect after a restart" rather than refactoring Neo's lifecycle in this work.
 - Rooms needs the team cloud (signed in). With Rooms on and no team cloud, the
   Rooms page says why and offers sign-in.
 
@@ -340,7 +337,7 @@ Rooms paragraph in this work.
 
 ## Build order (each step lands with its tests)
 
-1. Alpha switch: Settings page, config keys, Neo gate reads the config.
+1. Alpha switch: Settings page, config keys.
 2. Agent hours: `runs.jsonl`, backfill, `shared/agent-hours.mjs`, level.
 3. Cloud migration and both backends (Supabase and the in-memory stand-in),
    RLS proven in PGlite.
