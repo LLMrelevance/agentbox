@@ -669,7 +669,6 @@ function yourAsks(items, now) {
  * alike enough to be one job, under a key no offer has used. One open offer at
  * a time, and one a day at most.
  */
-// Each distinct ask once, with how many times it was asked.
 function askedOnce(group) {
   const seen = new Map();
   for (const i of group) {

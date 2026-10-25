@@ -175,10 +175,9 @@ function mcpSession(server) {
   };
 }
 
-// A TEAMMATE'S RUN, PLAYED. A stand-in that only answered left every new
-// teammate "Setting up" for good, so a power test never reached a working one.
-// Through the same store server a real run is given, it asks its setup
-// question, sets itself up once answered, and otherwise answers in the chat.
+// A TEAMMATE'S RUN, PLAYED, through the store server a real run is given:
+// it asks its setup question, sets itself up once answered, and otherwise
+// answers in the chat. Without it no teammate on stand-ins ever finished setup.
 const ROLES = [[/\b(ci|tests?|flaky|bugs?|qa|quality)\b/i, 'Quality lead'], [/\b(api|backend|endpoints?|server|deploys?|infra)\b/i, 'Engineering lead'],
   [/\b(investors?|fundrais\w*|raise)\b/i, 'Fundraiser'], [/\b(support|customers?|tickets?)\b/i, 'Support lead'], [/\b(summar\w*|changelog|digest|shipped)\b/i, 'Release notes lead'],
   [/\b(marketing|posts?|tweets?|videos?|launch)\b/i, 'Marketing lead'], [/\b(growth|signups?|metrics?)\b/i, 'Growth lead']];
