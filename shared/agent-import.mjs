@@ -132,6 +132,7 @@ export const threadLabel = (id) => `thread:${String(id ?? '').trim()}`;
  *  the choices it offers. `ask` is that question, cut from the front when it is
  *  long, because the question is at the end of the line. */
 const ASK_CHARS = 140;
+const SHORT_ASK = 40;
 const CHOICE = /^(\d+[.)]|[-*+]|[a-z][.)])\s+/i;
 const NOT_WAITING = Object.freeze({ waiting: false, ask: '' });
 
@@ -150,7 +151,11 @@ function plainLine(line) {
 function shortAsk(line) {
   if (line.length <= ASK_CHARS) return line;
   const sentences = line.split(/(?<=[.!?])\s+/);
-  const last = sentences[sentences.length - 1];
+  let last = sentences.pop();
+  // "Shall I do that?" says nothing without the sentence it follows.
+  while (last.length < SHORT_ASK && sentences.length && sentences.at(-1).length + 1 + last.length <= ASK_CHARS) {
+    last = `${sentences.pop()} ${last}`;
+  }
   if (last.length <= ASK_CHARS) return last;
   const tail = line.slice(-(ASK_CHARS - 1));
   const sp = tail.indexOf(' ');

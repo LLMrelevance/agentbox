@@ -134,8 +134,9 @@ describe('where the app wires it', () => {
   });
   it('the choices go to the foot, apart from the reply box, without their heading', () => {
     expect(focus).toContain('{offerInPane && (queue || closeAsk ? null : (');
-    expect(focus).toContain('{offerInDock && (queue || closeAsk ? null : (');
-    expect(focus).toMatch(/\{queue && stripShown && !closeAsk && \(\s*<div className="one-choices">\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
+    // Under a full screen page they come up with the box instead
+    // (tests/a-full-screen-page-in-one-at-a-time-shows-no-options-until-the-box-opens).
+    expect(focus).toMatch(/\{queue && stripShown && !fullScreenDoc && !closeAsk && \(\s*<div className="one-choices">\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
   });
   it('the conversation folds behind the summary', () => {
     expect(thread).toMatch(/<QueueSummary/);
