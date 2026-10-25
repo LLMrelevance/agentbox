@@ -18,7 +18,7 @@ import { listDocuments, readDocument, writeDocument } from './core/documents.mjs
 import { listSkills, fetchSkill, fetchReference } from './core/skills.mjs';
 import { listWorkItems, updateItem, createClaimRegistry } from './core/work.mjs';
 import { readStandingInstruction, setStandingInstruction } from './core/repeats.mjs';
-import { teamPost, teamPass, teamRemember, teamSetup, teamRoster } from './core/teammates.mjs';
+import { teamPost, teamPass, teamRemember, teamSetup, teamRoster, teamPlaybook } from './core/teammates.mjs';
 import { readTeammates, teamDir } from '../main/store/teammates-files.mjs';
 import { legacyRoot } from '../main/store/project.mjs';
 import { listProductChats, readProductChat } from './core/chat.mjs';
@@ -280,8 +280,17 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
       run: ({ text: words }) => json(teamRemember({ text: words })),
     },
     {
+      name: 'team_playbook',
+      description: 'Keep a lesson about how the person likes a kind of work done ("open videos on the product, never a logo") in the playbook of that title ("How you like videos made"), made if new, with the thread you are on as where it came from. Every teammate that reads the playbook is briefed with it. Leave out lesson to start reading a playbook another teammate wrote.',
+      schema: {
+        playbook: z.string().describe('its title, like "How you write posts"'),
+        lesson: z.string().optional().describe('the lesson, one sentence in their terms'),
+      },
+      run: ({ playbook, lesson }) => json(teamPlaybook({ playbook, lesson })),
+    },
+    {
       name: 'team_setup',
-      description: 'Set or change who you are as a teammate: your first name, role, job, goal, how the goal is counted, what you ask the person first, when you work on your own (every: day, weekday, week or never; at: HH:MM; on: 0-6 for a weekly round), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
+      description: 'Set or change who you are as a teammate: your name (your role, like Marketing lead), role, job (as long as it needs, in plain words to yourself), goal, how the goal is counted, what you ask the person first, what you do on your own (duties: a list, each { what, every: day|weekday|week, at: ["09:00", "15:00"], on: 0-6 for weekly } or { what, after: "ship", most: runs a week }, with tell: when to bring the person in; the list you send replaces the old one), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
       schema: {
         name: z.string().optional(),
         role: z.string().optional(),
@@ -289,6 +298,15 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
         goal: z.string().optional(),
         counted: z.string().optional(),
         asksFirst: z.string().optional(),
+        duties: z.array(z.object({
+          what: z.string(),
+          every: z.enum(['day', 'weekday', 'week']).optional(),
+          at: z.union([z.string(), z.array(z.string())]).optional(),
+          on: z.number().int().optional(),
+          after: z.enum(['ship']).optional(),
+          most: z.number().int().optional(),
+          tell: z.string().optional(),
+        })).optional(),
         every: z.enum(['day', 'weekday', 'week', 'never']).optional(),
         at: z.string().optional(),
         on: z.number().int().optional(),

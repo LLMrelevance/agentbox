@@ -6,7 +6,7 @@
 // starts, Needs you, deadlines, the clean marker) applies to it unchanged.
 // What is new lives in two append-only files per account: the teammates
 // themselves, and one team chat that you and every teammate write to.
-import { periodKey, isRepeatRule, servedOf, dateKey } from './repeats.mjs';
+import { periodKey, isRepeatRule, servedOf, dateKey, clockLabel, DAY_NAMES } from './repeats.mjs';
 
 export const TEAMMATE_LABEL_PREFIX = 'teammate:';
 export const FROM_LABEL_PREFIX = 'from:';
@@ -56,7 +56,7 @@ export function isTeammateId(id) {
 const FIELDS = [
   'name', 'letter', 'role', 'job', 'goal', 'counted', 'works', 'asksFirst',
   'product', 'engine', 'model', 'effort', 'limit', 'paused', 'status',
-  'endedAt', 'served', 'starter', 'createdAt',
+  'endedAt', 'served', 'starter', 'createdAt', 'duties', 'dutyServed',
 ];
 
 export const STATUSES = ['draft', 'active'];
@@ -64,6 +64,62 @@ export const STATUSES = ['draft', 'active'];
 export function isWorks(works) {
   return isRepeatRule(works);
 }
+
+// ---------------------------------------------------------------- duties
+// What a teammate does on its own, each with its own times or "after a ship"
+// in its project. A teammate with only the older single `works` schedule has
+// none, and its round runs as before.
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const EVERY_DUTY = ['day', 'weekday', 'week'];
+
+export function cleanDuty(d) {
+  if (!d || typeof d !== 'object') return null;
+  const id = typeof d.id === 'string' && /^d-[\w-]{1,40}$/.test(d.id) ? d.id : null;
+  const what = cleanText(d.what, 300);
+  if (!id || !what) return null;
+  const tell = cleanText(d.tell, 300);
+  if (d.after === 'ship') {
+    const most = Number.isInteger(d.most) && d.most >= 1 && d.most <= 14 ? d.most : null;
+    return { id, what, after: 'ship', ...(most ? { most } : {}), ...(tell ? { tell } : {}) };
+  }
+  const at = (Array.isArray(d.at) ? d.at : [d.at]).filter((x) => typeof x === 'string' && TIME.test(x));
+  if (!EVERY_DUTY.includes(d.every) || !at.length || at.length !== (Array.isArray(d.at) ? d.at : [d.at]).length) return null;
+  if (d.every === 'week' && !(Number.isInteger(d.on) && d.on >= 0 && d.on <= 6)) return null;
+  return { id, what, every: d.every, at: [...new Set(at)].sort().slice(0, 6), ...(d.every === 'week' ? { on: d.on } : {}), ...(tell ? { tell } : {}) };
+}
+
+const TIMES_WORD = ['', 'once', 'twice', 'three times', 'four times', 'five times'];
+
+/** When a duty runs, in plain words: "Daily at 9:00am and 3:00pm", "After a ship, at most twice a week". */
+export function dutyWhen(d) {
+  if (d?.after === 'ship') return d.most ? `After a ship, at most ${TIMES_WORD[d.most] ?? `${d.most} times`} a week` : 'After a ship';
+  const at = (Array.isArray(d?.at) ? d.at : []).map((x) => clockLabel(x));
+  if (!at.length) return '';
+  const times = at.length === 1 ? at[0] : `${at.slice(0, -1).join(', ')} and ${at.at(-1)}`;
+  if (d.every === 'day') return `Daily at ${times}`;
+  if (d.every === 'weekday') return `Weekdays at ${times}`;
+  return `${DAY_NAMES[d.on]}s at ${times}`;
+}
+
+/** The latest time slot of a timed duty that has come, as "YYYY-MM-DDTHH:MM", or null before the first. */
+export function dutySlot(d, now = Date.now()) {
+  let best = null;
+  for (const at of d.at ?? []) {
+    const key = periodKey({ every: d.every, at, ...(d.every === 'week' ? { on: d.on } : {}) }, now);
+    if (!key) continue;
+    const slot = `${key}T${at}`;
+    if (!best || slot > best) best = slot;
+  }
+  return best;
+}
+
+/** What a duty has seen so far when it is set, so a time or a ship already past fires nothing. */
+export function dutyStart(d, now = Date.now()) {
+  return d.after === 'ship' ? `ship@${now}` : dutySlot(d, now) ?? '';
+}
+
+export const DUTY_LABEL_PREFIX = 'duty:';
+export const dutyOf = (item) => (item?.labels ?? []).find((l) => typeof l === 'string' && l.startsWith(DUTY_LABEL_PREFIX))?.slice(DUTY_LABEL_PREFIX.length) ?? null;
 
 function cleanText(v, max = 2000) {
   if (typeof v !== 'string') return null;
@@ -87,6 +143,13 @@ function coerce(field, value) {
     case 'status': return STATUSES.includes(value) ? value : undefined;
     case 'endedAt': case 'createdAt': return Number.isFinite(value) ? value : value === null ? null : undefined;
     case 'served': return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+    case 'duties': return Array.isArray(value) ? value.map(cleanDuty).filter(Boolean).slice(0, 12) : value === null ? [] : undefined;
+    case 'dutyServed': {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const out = {};
+      for (const [k, v] of Object.entries(value)) if (/^d-[\w-]{1,40}$/.test(k) && typeof v === 'string' && v.length <= 40) out[k] = v;
+      return out;
+    }
     default: return undefined;
   }
 }
@@ -102,7 +165,7 @@ export function foldTeammates(lines, now = Date.now()) {
     if (!isTeammateId(id) || !Number.isFinite(ts) || !patch || typeof patch !== 'object') continue;
     let t = byId.get(id);
     if (!t) {
-      t = { id, createdAt: ts, updatedAt: ts, status: 'active', paused: false, served: '', memory: [], limit: DEFAULT_LIMIT };
+      t = { id, createdAt: ts, updatedAt: ts, status: 'active', paused: false, served: '', memory: [], limit: DEFAULT_LIMIT, duties: [], dutyServed: {} };
       byId.set(id, t);
     }
     t.updatedAt = Math.max(t.updatedAt, ts);
@@ -112,6 +175,12 @@ export function foldTeammates(lines, now = Date.now()) {
       if (v === undefined) continue;
       if (field === 'served') {
         if (v <= today && v > t.served) t.served = v;
+        continue;
+      }
+      // What each duty has served is kept per duty, so two runs marking two
+      // duties at once both land.
+      if (field === 'dutyServed') {
+        t.dutyServed = { ...(t.dutyServed ?? {}), ...v };
         continue;
       }
       t[field] = v;
@@ -135,6 +204,42 @@ export function letterFor(name, teammates = []) {
   for (const ch of letters) if (!taken.has(ch)) return ch;
   for (const ch of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') if (!taken.has(ch)) return ch;
   return letters[0] ?? '?';
+}
+
+// ---------------------------------------------------------------- playbooks
+// What the person taught their teammates about one kind of work, by topic, so
+// every teammate doing that work reads the same lessons. Lines: `book` (made),
+// `lesson` (added, by a teammate, from a thread), `reader` (a teammate reads
+// it), `forget` (a lesson taken out).
+export function foldPlaybooks(lines) {
+  const books = new Map();
+  const lessonBook = new Map();
+  for (const line of lines ?? []) {
+    if (!line || typeof line !== 'object' || !Number.isFinite(line.ts)) continue;
+    if (line.kind === 'book' && typeof line.id === 'string' && cleanText(line.title, 120)) {
+      const had = books.get(line.id);
+      if (had) { had.title = cleanText(line.title, 120); had.updatedAt = Math.max(had.updatedAt, line.ts); continue; }
+      books.set(line.id, { id: line.id, title: cleanText(line.title, 120), readers: [], lessons: [], updatedAt: line.ts });
+      continue;
+    }
+    const book = books.get(line.book);
+    if (line.kind === 'lesson' && book && typeof line.id === 'string' && cleanText(line.text, 400) && !book.lessons.some((l) => l.id === line.id)) {
+      const from = line.from && typeof line.from === 'object' && typeof line.from.id === 'string'
+        ? { product: String(line.from.product ?? ''), id: line.from.id, title: cleanText(line.from.title, 200) ?? '' } : null;
+      book.lessons.push({ id: line.id, text: cleanText(line.text, 400), ts: line.ts, by: typeof line.by === 'string' ? line.by : null, from });
+      lessonBook.set(line.id, book);
+      if (isTeammateId(line.by) && !book.readers.includes(line.by)) book.readers.push(line.by);
+      book.updatedAt = Math.max(book.updatedAt, line.ts);
+    } else if (line.kind === 'reader' && book && isTeammateId(line.teammate) && !book.readers.includes(line.teammate)) {
+      book.readers.push(line.teammate);
+      book.updatedAt = Math.max(book.updatedAt, line.ts);
+    } else if (line.kind === 'forget' && lessonBook.has(line.id)) {
+      const b = lessonBook.get(line.id);
+      b.lessons = b.lessons.filter((l) => l.id !== line.id);
+      b.updatedAt = Math.max(b.updatedAt, line.ts);
+    }
+  }
+  return [...books.values()];
 }
 
 // ---------------------------------------------------------------- the chat
@@ -236,6 +341,7 @@ function clip(text, max) {
 
 export function runTitle(trigger, teammate) {
   if (trigger.kind === 'schedule') return trigger.label === 'week' ? "This week's round" : "Today's round";
+  if (trigger.kind === 'duty') return clip(trigger.what, 120);
   if (trigger.kind === 'pass') return clip(trigger.title || 'Work passed on', 120);
   // Inbox rows lead with the teammate's name, so a title never repeats it.
   if (trigger.opening === 'setup') return 'Set up its job';
@@ -267,7 +373,7 @@ function partFor(text, name) {
 // - One run at a time: a new run behind an active one is made queued, and a
 //   teammate with nothing active gets its oldest queued run released.
 // - A teammate past its weekly runs takes nothing new except your own words.
-export function planWakes({ teammates = [], chat = { messages: [], seen: new Set() }, items = [], now = Date.now() } = {}) {
+export function planWakes({ teammates = [], chat = { messages: [], seen: new Set() }, items = [], now = Date.now(), shipped = {} } = {}) {
   const actions = [];
   const live = teammates.filter((t) => !t.endedAt);
   const byId = new Map(live.map((t) => [t.id, t]));
@@ -337,6 +443,28 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
     if (!key || key <= servedOf(t)) continue;
     const id = newRun(t, { kind: 'schedule', key, label: t.works.every === 'week' ? 'week' : 'round' }, `${t.id}@${key}`);
     if (id) actions.push({ type: 'served', teammate: t.id, key });
+  }
+
+  for (const t of live) {
+    if (t.paused || t.status !== 'active') continue;
+    for (const d of t.duties ?? []) {
+      const served = t.dutyServed?.[d.id] ?? '';
+      let key = null;
+      if (d.after === 'ship') {
+        const at = shipped?.[t.product];
+        const seenAt = Number(String(served).replace(/^ship@/, '')) || 0;
+        if (!Number.isFinite(at) || at <= seenAt) continue;
+        const week = runsOf(t.id, items).filter((i) => dutyOf(i) === d.id && now - (i.createdAt ?? 0) < WEEK_MS).length;
+        if (d.most && week >= d.most) continue;
+        key = `ship@${at}`;
+      } else {
+        const slot = dutySlot(d, now);
+        if (!slot || slot <= served) continue;
+        key = slot;
+      }
+      const id = newRun(t, { kind: 'duty', duty: d.id, what: d.what, ...(d.tell ? { tell: d.tell } : {}), key }, `${t.id}#${d.id}@${key}`);
+      if (id) actions.push({ type: 'dutyServed', teammate: t.id, duty: d.id, key });
+    }
   }
 
   for (const t of live) {
@@ -433,7 +561,7 @@ export const TEAMMATE_EFFORT = 'high';
 
 export const STARTERS = [
   {
-    starter: 'quality', name: 'Ada', role: 'Quality lead',
+    starter: 'quality', name: 'Quality lead', role: 'Quality lead',
     ask: 'Find bugs before your users do',
     outcome: 'Finds bugs before your users do',
     sends: 'A bug, with the steps to make it happen',
@@ -444,7 +572,7 @@ export const STARTERS = [
     works: { every: 'weekday', at: '09:00' },
   },
   {
-    starter: 'maintainer', name: 'Felix', role: 'Maintainer',
+    starter: 'maintainer', name: 'Maintainer', role: 'Maintainer',
     ask: 'Fix what gets filed',
     outcome: 'Fixes what gets filed, and asks you before shipping',
     sends: 'A fix that is ready to ship',
@@ -455,18 +583,18 @@ export const STARTERS = [
     works: null,
   },
   {
-    starter: 'video', name: 'Vera', role: 'Video marketer',
-    ask: 'Bring video ideas each week',
-    outcome: 'Brings you three video ideas a week, then makes the ones you pick',
-    sends: 'Three video ideas for this week',
-    job: 'Every Monday, bring the person three short video ideas about the project, not only about new features. When they pick one, write the script and a shot list, and make what you can. Nothing is posted without their yes.',
-    goal: 'Post something worth watching three times a week',
-    counted: 'Videos posted each week',
+    starter: 'marketing', name: 'Marketing lead', role: 'Marketing lead',
+    ask: 'Post about what we build',
+    outcome: 'Brings you posts and clips about what you build, then makes the ones you pick',
+    sends: 'Posts and clips ready for your yes',
+    job: 'Keep people hearing about the project without the person having to think about it. When something ships, decide whether it is worth a post. Bring whole posts, each with a short clip, written the way the person writes. Nothing is posted without their yes.',
+    goal: 'Something worth sharing goes out every week',
+    counted: 'Posts the person approved each week',
     asksFirst: 'Before anything is posted or sent in their name',
     works: { every: 'week', on: 1, at: '09:00' },
   },
   {
-    starter: 'support', name: 'June', role: 'Support lead',
+    starter: 'support', name: 'Support lead', role: 'Support lead',
     ask: 'Answer user emails',
     outcome: 'Answers user emails, and asks you before any refund',
     sends: 'A refund or a tricky reply to approve',
@@ -477,7 +605,7 @@ export const STARTERS = [
     works: { every: 'weekday', at: '10:00' },
   },
   {
-    starter: 'growth', name: 'Rui', role: 'Growth lead',
+    starter: 'growth', name: 'Growth lead', role: 'Growth lead',
     ask: 'Tell me what moved signups',
     outcome: 'Tells you what moved signups, and what to try next',
     sends: 'What moved signups this week',
@@ -488,7 +616,7 @@ export const STARTERS = [
     works: { every: 'week', on: 5, at: '15:00' },
   },
   {
-    starter: 'fundraising', name: 'Hugo', role: 'Fundraiser',
+    starter: 'fundraising', name: 'Fundraiser', role: 'Fundraiser',
     ask: 'Find investors who fit',
     outcome: 'Finds investors who fit, and drafts intros from you',
     sends: 'Intro emails ready for your yes',

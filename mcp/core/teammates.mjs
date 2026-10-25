@@ -8,8 +8,9 @@ import { readWorkItem } from '../../main/store/work-items.mjs';
 import { listProjects, legacyRoot } from '../../main/store/project.mjs';
 import {
   teamDir, readTeammates, readChat, writeTeammate, writeChat, newMemoryId,
+  readPlaybooks, writePlaybook, newPlaybookId, newLessonId, newDutyId,
 } from '../../main/store/teammates-files.mjs';
-import { teammateIdOf, hopOf, mentionsIn, isWorks, letterFor, YOU } from '../../shared/teammates.mjs';
+import { teammateIdOf, hopOf, mentionsIn, isWorks, letterFor, cleanDuty, dutyStart, YOU } from '../../shared/teammates.mjs';
 import { periodKey } from '../../shared/repeats.mjs';
 import { resolveProduct, resolveAccount } from './account.mjs';
 
@@ -106,12 +107,36 @@ function answeredSince(dir, id) {
   return messages.some((m) => m.kind === 'msg' && m.from === YOU && !m.setup && (m.to ?? []).includes(id) && m.ts > (asked?.ts ?? 0));
 }
 
-export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, runsOn, ready } = {}, ctx = {}) {
+// What a change to these says in the chat, so you can see it saved.
+const SAID = {
+  name: 'its name', role: 'its role', job: 'its job', goal: 'its goal', counted: 'how it counts its goal',
+  asksFirst: 'what needs your yes first', works: 'when it works', duties: 'what it does on its own',
+};
+
+// Duties keep their id, and what they have served, when one with the same
+// words is set again.
+function dutiesFrom(list, me, now) {
+  if (!Array.isArray(list)) throw new Error('duties is a list of { what, every, at, on } or { what, after: "ship", most }');
+  const out = [];
+  const served = {};
+  for (const raw of list) {
+    const what = String(raw?.what ?? '').trim();
+    if (!what) throw new Error('each duty needs what it does');
+    const had = (me.duties ?? []).find((d) => d.what.toLowerCase() === what.toLowerCase());
+    const d = cleanDuty({ ...raw, what, id: had?.id ?? newDutyId(), at: raw?.after === 'ship' ? undefined : (Array.isArray(raw?.at) ? raw.at : raw?.at ? [raw.at] : []) });
+    if (!d) throw new Error(`"${what}" cannot run as written: every is day, weekday or week, at is a list of HH:MM times in 24 hours, on is 0 (Sunday) to 6 for weekly, or after is "ship" with most runs a week`);
+    out.push(d);
+    if (!had) served[d.id] = dutyStart(d, now);
+  }
+  return { duties: out, served };
+}
+
+export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, duties, runsOn, ready } = {}, ctx = {}) {
   const { dir, me, team, item } = teammateContext(ctx);
   const now = ctx.now ?? Date.now();
   const patch = {};
   if (typeof name === 'string' && name.trim()) {
-    const clean = name.trim().split(/\s+/)[0].slice(0, 20);
+    const clean = name.trim().replace(/\s+/g, ' ').slice(0, 40);
     if (team.some((t) => t.id !== me.id && t.name.toLowerCase() === clean.toLowerCase())) throw new Error(`${clean} is taken; pick another name`);
     patch.name = clean;
     patch.letter = letterFor(clean, team.filter((t) => t.id !== me.id));
@@ -127,6 +152,12 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
       patch.served = periodKey(works, now) ?? '';
     }
   }
+  if (duties !== undefined) {
+    const made = dutiesFrom(duties, me, now);
+    patch.duties = made.duties;
+    patch.works = null;
+    if (Object.keys(made.served).length) patch.dutyServed = made.served;
+  }
   if (runsOn !== undefined) {
     if (runsOn !== 'claude' && runsOn !== 'codex') throw new Error('runsOn is claude or codex');
     patch.engine = runsOn;
@@ -139,8 +170,41 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
   if (ready === true) patch.status = 'active';
   writeTeammate(dir, me.id, patch, now);
   if (ready === true && me.status === 'draft') writeChat(dir, { kind: 'act', from: me.id, verb: 'started' }, now);
+  const changed = Object.keys(SAID).filter((k) => k in patch && JSON.stringify(patch[k]) !== JSON.stringify(me[k] ?? null));
+  if (me.status === 'active' && changed.length) {
+    const parts = changed.map((k) => SAID[k]);
+    writeChat(dir, { kind: 'act', from: me.id, verb: 'updated', text: `Updated ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}` }, now);
+  }
   const after = readTeammates(dir, now).find((t) => t.id === me.id);
-  return { teammate: { name: after.name, role: after.role, job: after.job, goal: after.goal, counted: after.counted, asksFirst: after.asksFirst, works: after.works, runsOn: after.engine ?? 'your default', status: after.status } };
+  return { teammate: { name: after.name, role: after.role, job: after.job, goal: after.goal, counted: after.counted, asksFirst: after.asksFirst, works: after.works, duties: after.duties, runsOn: after.engine ?? 'your default', status: after.status } };
+}
+
+// A lesson about how the person likes a kind of work done, kept in the
+// playbook of that title so every teammate doing that work reads it. With no
+// lesson it starts reading a playbook another teammate wrote.
+export function teamPlaybook({ playbook, lesson } = {}, ctx = {}) {
+  const { dir, me, item, project } = teammateContext(ctx);
+  const now = ctx.now ?? Date.now();
+  const title = plain(playbook).slice(0, 120);
+  if (!title) throw new Error('name the playbook, like "How you write posts"');
+  const books = readPlaybooks(dir);
+  let book = books.find((b) => b.title.toLowerCase() === title.toLowerCase());
+  if (lesson === undefined) {
+    if (!book) throw new Error(`no playbook called ${title}. The team has: ${books.map((b) => b.title).join(', ') || 'none yet'}. Add a lesson to start one.`);
+    if (!book.readers.includes(me.id)) writePlaybook(dir, { kind: 'reader', book: book.id, teammate: me.id }, now);
+    return { playbook: book.id, reading: true, lessons: book.lessons.map((l) => l.text) };
+  }
+  const text = String(lesson ?? '').trim().slice(0, 400);
+  if (!text) throw new Error('the lesson is empty');
+  if (!book) {
+    book = { id: newPlaybookId(), title, lessons: [], readers: [] };
+    writePlaybook(dir, { kind: 'book', id: book.id, title }, now);
+  }
+  if (book.lessons.some((l) => l.text.toLowerCase() === text.toLowerCase())) return { playbook: book.id, kept: false, note: 'already in it' };
+  const id = newLessonId();
+  writePlaybook(dir, { kind: 'lesson', id, book: book.id, text, by: me.id, from: { product: project.id, id: item.id, title: plain(item.label || item.title) } }, now);
+  writeChat(dir, { kind: 'act', from: me.id, verb: 'lesson', ref: book.id, text }, now);
+  return { playbook: book.id, kept: true, id };
 }
 
 export function teamRoster(ctx = {}) {
