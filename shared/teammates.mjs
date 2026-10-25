@@ -119,6 +119,9 @@ export function dutyStart(d, now = Date.now()) {
 }
 
 export const DUTY_LABEL_PREFIX = 'duty:';
+// A run your own words in a teammate's chat woke. You are in that chat
+// waiting for its answer, so it is next for a free agent.
+export const CHAT_LABEL = 'from-chat';
 export const dutyOf = (item) => (item?.labels ?? []).find((l) => typeof l === 'string' && l.startsWith(DUTY_LABEL_PREFIX))?.slice(DUTY_LABEL_PREFIX.length) ?? null;
 
 function cleanText(v, max = 2000) {

@@ -5,7 +5,7 @@ import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
   offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT, GREETING, starterAsks,
-  dutyWhen, dutyOf, DUTY_LABEL_PREFIX,
+  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL,
 } from '../shared/teammates.mjs';
 import { isShippedNote } from '../shared/shipped-note.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
@@ -286,6 +286,7 @@ export class Teammates {
           const labels = ['founder', teammateLabel(t.id), `${HOP_LABEL_PREFIX}${hop}`];
           if (a.trigger.kind === 'pass' && a.trigger.from && a.trigger.from !== YOU) labels.push(`${FROM_LABEL_PREFIX}${a.trigger.from}`);
           if (a.trigger.kind === 'duty') labels.push(`${DUTY_LABEL_PREFIX}${a.trigger.duty}`);
+          if (a.trigger.kind === 'message' && a.trigger.from === YOU && !a.trigger.via) labels.push(CHAT_LABEL);
           await lock.withProjectLock(dir, async () => {
             const opening = this.openingFor(t, a.trigger, team);
             const made = workItemsDisk.createWorkItemIfAbsent(dir, a.id, {
