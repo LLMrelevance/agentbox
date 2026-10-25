@@ -179,8 +179,9 @@ function mcpSession(server) {
 // teammate "Setting up" for good, so a power test never reached a working one.
 // Through the same store server a real run is given, it asks its setup
 // question, sets itself up once answered, and otherwise answers in the chat.
-const ROLES = [[/market|post|tweet|video|launch/i, 'Marketing lead'], [/support|customer|ticket/i, 'Support lead'], [/test|bug|qa|quality/i, 'Quality lead'],
-  [/investor|fundrais|raise/i, 'Fundraiser'], [/growth|signup|metric/i, 'Growth lead']];
+const ROLES = [[/\b(ci|tests?|flaky|bugs?|qa|quality)\b/i, 'Quality lead'], [/\b(api|backend|endpoints?|server|deploys?|infra)\b/i, 'Engineering lead'],
+  [/\b(investors?|fundrais\w*|raise)\b/i, 'Fundraiser'], [/\b(support|customers?|tickets?)\b/i, 'Support lead'], [/\b(summar\w*|changelog|digest|shipped)\b/i, 'Release notes lead'],
+  [/\b(marketing|posts?|tweets?|videos?|launch)\b/i, 'Marketing lead'], [/\b(growth|signups?|metrics?)\b/i, 'Growth lead']];
 async function actAsTeammate(brief, prompt, answer) {
   const server = Object.entries(mcpServers()).find(([name, s]) => name !== 'zero-approvals' && s?.env?.STORE_ACCOUNT_ID)?.[1];
   if (!server) return;
@@ -191,7 +192,7 @@ async function actAsTeammate(brief, prompt, answer) {
     if (brief.includes('You are a new teammate, still being set up.')) {
       let you = null;
       try { you = JSON.parse(text(await session.call('team_roster', {}))).you; } catch { /* named from the ask */ }
-      const name = you && you !== 'New teammate' ? you : ROLES.find(([re]) => re.test(prompt))?.[1] ?? 'Operations lead';
+      const name = you && you !== 'New teammate' ? you : ROLES.find(([re]) => re.test(prompt.split('\n').filter((l) => !/^(#|Title:)/.test(l)).join('\n')))?.[1] ?? 'Operations lead';
       const fields = {
         role: name, job: `Looks after ${name.toLowerCase().replace(/ lead$/, '')} for you, and brings you what needs a decision.`,
         goal: 'Nothing in its area waits on you without a reason', asksFirst: 'Anything that goes out in public or costs money',
