@@ -88,9 +88,17 @@ describe('every action that puts something on the undo pile', () => {
 describe('moving a thread to Later', () => {
   const body = pushers.get('snoozeUntil') ?? '';
 
-  it('says it on the one row and on many', () => {
-    expect(body).toMatch(/\$\{picked\.length\} moved to Later\. Back \$\{label\.toLowerCase\(\)\}\$\{SAYS_UNDO\}/);
-    expect(body).toMatch(/`Moved to Later\. Back \$\{label\.toLowerCase\(\)\}\$\{SAYS_UNDO\}`/);
+  it('names the key, on the one row and on many', () => {
+    expect(body).toMatch(/`Later: \$\{moved\}\. Back \$\{label\.toLowerCase\(\)\}\$\{SAYS_UNDO\}`/);
+  });
+
+  // AND NAMES THE THREAD, which is the half the toast was missing: the row
+  // leaves the list as the toast is said, so "Moved to Later" named nothing
+  // you could check it against. Every other toast of this family does
+  // ("Done: Add"), and `rowTitle` is the one that answers for an agent's row
+  // as well as a thread's.
+  it('names what it moved, clipped the way every toast clips a title', () => {
+    expect(body).toMatch(/const moved = picked\.length > 1 \? `\$\{picked\.length\} threads` : clipToSentence\(rowTitle\(picked\[0\]\), TOAST_TITLE\);/);
   });
 
   // The case that must not match: the write was refused, so nothing was put

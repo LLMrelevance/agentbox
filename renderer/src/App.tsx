@@ -4759,10 +4759,16 @@ export default function App() {
     // from inside a task the picker is opened on `focused` and nothing else,
     // and a bulk schedule from the list has no task open to leave.
     leaveResolved(picked[0]);
+    // AND IT NAMES THE THREAD, the way every other toast of this family does
+    // ("Done: Add"). "Moved to Later. Back in 30 minutes" named nothing, so
+    // from the list, where the row vanishes as it is said, there was no telling
+    // which one had gone.
+    //
     // The COUNT IS WHAT SHE PICKED. A thread she moved as one row is one row to
     // her, so saying 13 after she selected 12 would report the repair as a
     // miscount and put the old doubt back in different words.
-    showToast(picked.length > 1 ? `${picked.length} moved to Later. Back ${label.toLowerCase()}${SAYS_UNDO}` : `Moved to Later. Back ${label.toLowerCase()}${SAYS_UNDO}`);
+    const moved = picked.length > 1 ? `${picked.length} threads` : clipToSentence(rowTitle(picked[0]), TOAST_TITLE);
+    showToast(`Later: ${moved}. Back ${label.toLowerCase()}${SAYS_UNDO}`);
     // Undo restores only inbox reminders. Execution schedules stay intact.
     const prior = new Map(list.map((i) => [i.id, (i.agent ? i.runAt : i.snoozedUntil) ?? 0]));
     // AND THE TASK IT PUTS BACK IS OPENED (w-874411cc63). Without `brings` the
