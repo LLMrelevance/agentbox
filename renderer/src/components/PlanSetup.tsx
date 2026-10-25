@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import {
-  COPY, afterCheck, afterFound, enginesFor, foundLede, foundRows, litRow, planName, planNote,
+  COPY, afterCheck, afterFound, enginesFor, foundHead, foundLede, foundRows, litRow, planName, planNote,
   planRows, readLog, readyEngines, setupLede, setupRows,
   type AskRow, type Engine, type EngineSetupState, type Plan, type StepRow,
 } from '../plan-setup';
@@ -277,16 +277,17 @@ export function PlanQuestion({ onPick, onReady, onSkip, look, found = null }: {
    * yes and carries on; any other row is that plan to set up; the last one,
    * when nothing here can run an agent yet, is the way past.
    *
-   * WITH NOTHING SIGNED IN THERE IS NO PLAN TO CLAIM, so the lede says what the
-   * next press does instead -- which is open a page in somebody's browser, the
+   * WITH NOTHING SIGNED IN THERE IS NO PLAN TO CLAIM, so the heading and the
+   * lede both say so: the next press opens a page in somebody's browser, the
    * thing that used to happen with no warning at all.
    */
   if (ready) {
     const rows = foundRows(ready);
     const have = readyEngines(ready);
+    const head = foundHead(have);
     return (
       <div className="fr-stack fr-stack-folders">
-        <h1 className="fr-page">{COPY.foundHead}</h1>
+        <h1 className="fr-page">{head}</h1>
         <p className="fr-lede">{foundLede(have) ?? COPY.foundOut}</p>
         <AskList
           // THE TWO SCREENS ARE TWO LISTS. A copy opened straight onto this
@@ -295,7 +296,7 @@ export function PlanQuestion({ onPick, onReady, onSkip, look, found = null }: {
           key="found"
           rows={rows}
           start={litRow(rows)}
-          label={COPY.foundHead}
+          label={head}
           onPick={(key) => {
             if (key === 'skip') return onSkip();
             const next = afterFound(key, have);

@@ -338,7 +338,7 @@ export const DRIVES = {
     },
   },
   'one-at-a-time': {
-    what: 'Every thread in Needs you opens one thing at a time: Enter or a click opens the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox, and a thread in In progress keeps the full page',
+    what: 'Every thread in Needs you opens one thing at a time: Enter or a click opens the page, a pick moves on, J and the arrows walk, earlier messages open, esc leaves, the last answer lands on the empty inbox, and a thread in In progress opens on the same page without the queue',
     notInstalled: 'it rewrites the stand-in world, which only the browser copy reads',
     async run({ tab, state, claim, capture }) {
       // Every answer ends with choices; replies are held back once the three
@@ -349,10 +349,12 @@ export const DRIVES = {
       const page = () => tab.evaluate(`(() => ({
         on: !!document.querySelector('.app.one-at-a-time'),
         name: document.querySelector('.thread-crumb-name')?.textContent ?? null,
+        title: document.querySelector('.one-sum > .one-title')?.textContent ?? null,
         pos: document.querySelector('.one-pos')?.textContent ?? null,
         choices: document.querySelectorAll('.one-choices .opt-row').length,
         heading: !!document.querySelector('.one-choices .opt-head'),
         panel: !!document.querySelector('.ts-panel, .ts-rail'),
+        barName: (() => { const n = document.querySelector('.thread-crumb-name'); return !!n && getComputedStyle(n).display !== 'none'; })(),
         summary: !!document.querySelector('.one-sum'),
         answer: !!document.querySelector('.one-answer'),
         earlier: document.querySelector('.one-earlier')?.textContent ?? null,
@@ -388,17 +390,30 @@ export const DRIVES = {
         // Enter opens the pointed row, which need not be the top one.
         const at = order.findIndex((t) => first.name && t.includes(first.name.replace(/…$/, '').slice(0, 20)));
         claim(at >= 0 && first.pos === `${at + 1} of 4`, 'the corner says where you are', first.pos ?? 'no position');
-        claim(titles.some((t) => first.name && t.startsWith(first.name.replace(/…$/, '').slice(0, 20))), 'the top bar names the thread', first.name ?? '');
+        claim(!first.barName, 'the bar keeps only the way back; the name is said once, on the page');
+        claim(!!first.title && titles.some((t) => t.startsWith(first.title.replace(/…$/, '').slice(0, 20))), 'the page names the thread above its Context', first.title ?? '');
         claim(first.summary && first.answer, 'the summary on top and the newest answer under it');
         claim(first.choices === 3 && !first.heading, 'the three choices at the foot, without a heading', `${first.choices} choices`);
         claim(!first.panel, 'no summary panel beside the page');
         await capture('first');
+
+        // The arrows name their keys on hover, on the plate the rest of the corner wears.
+        const arrow = await tab.evaluate(`(() => { const r = document.querySelector('.one-step[data-hint="next-thread"]')?.getBoundingClientRect(); return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null; })()`);
+        if (arrow) {
+          await tab.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: arrow.x - 4, y: arrow.y });
+          await tab.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: arrow.x, y: arrow.y });
+        }
+        const plate = await tab.until(`[...document.querySelectorAll('[class*="hint-plate"]')].map((e) => e.textContent).find((t) => /Next thread/.test(t))`, { why: 'the plate on the down arrow', ms: 5000 }).catch(() => null);
+        claim(plate, 'hovering the down arrow names its key', plate ?? 'no plate');
+        await tab.call('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 4, y: 700 });
 
         // A number pressed the moment the app moves you waits a beat (pick-settles).
         await tab.wait(1000);
         await tab.press('1');
         const next = await tab.until(`document.querySelector('.app.one-at-a-time') && document.querySelector('.thread-crumb-name')?.textContent !== ${JSON.stringify(first.name)}`, { why: 'the next thread to come up', ms: 10_000 }).catch(() => false);
         claim(next, 'picking 1 brings the next thread up');
+        const sent = await tab.until(`(() => { const up = document.querySelector('.ts-top > .sent-line'); return up && !document.querySelector('.focus-dock-inner > .sent-line') ? up.textContent : null; })()`, { why: 'the sent line in the bar', ms: 4000 }).catch(() => null);
+        claim(sent, 'where the answer went is said in the bar, not above the reply box', sent ?? 'no sent line in the bar');
         await capture('second');
         const firstRow = answered.find((r) => first.name && r.title.startsWith(first.name.replace(/…$/, '').slice(0, 20)));
         const landed = firstRow && await until(() => rows(state).find((r) => r.id === firstRow.id && /^Option 1:/.test(String(r.answer ?? ''))), 15_000);
@@ -469,12 +484,14 @@ export const DRIVES = {
         const all = await until(() => { const r = ours(); return r.every((x) => x.status === 'done' || /^Option 1:|Keep it for 30 days/.test(String(x.answer ?? ''))) ? r : null; }, 15_000);
         claim(all, 'every thread holds what was done to it: a pick, a reply or a close');
 
-        // Out of Needs you, a thread keeps the full page.
+        // Out of Needs you, a thread opens on the same page, without the place in the queue.
         await clickTab(tab, /^in progress/i);
         await tab.until(`!!(${ourRow})`, { why: 'In progress to list a picked thread', ms: 10_000 }).catch(() => false);
         await tab.evaluate(`${ourRow}?.click()`);
-        const full = await tab.until(`!!document.querySelector('.thread-crumb-name') && !document.querySelector('.app.one-at-a-time')`, { why: 'an In progress thread to open', ms: 8000 }).catch(() => false);
-        claim(full, 'a thread in In progress opens on the full page, not this one');
+        const same = await tab.until(`!!document.querySelector('.app.one-at-a-time .one-sum > .one-title') && !document.querySelector('.one-pos') && !document.querySelector('.ts-panel')`, { why: 'an In progress thread to open', ms: 8000 }).catch(() => false);
+        claim(same, 'a thread in In progress opens on the same page, without the place in the queue');
+        const floating = await tab.evaluate(`[...document.querySelectorAll('.toast')].filter((t) => getComputedStyle(t).position === 'fixed').length`);
+        claim(floating === 0, 'no toast floats over the page; any is in the bar', `${floating} floating`);
         await capture('in-progress');
         await tab.press('Escape');
       } finally {

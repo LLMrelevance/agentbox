@@ -886,6 +886,21 @@ export class Supervisor {
     return signInStamp(this._signInFilesFor(`codex:${profile}`)) > 0;
   }
 
+  /**
+   * HAS ANYBODY EVER SIGNED IN ON THE LOGIN THIS RUN WAS SPENDING.
+   *
+   *  Codex writes `auth.json` when somebody signs in and at no other time, so
+   *  its absence is proof. CLAUDE CODE CANNOT BE ASKED THIS: it writes
+   *  `.claude.json` on its first run signed in or not, and on a Mac its
+   *  credentials are in the Keychain rather than in any file. So a Claude run
+   *  answers yes, as does anything unreadable, and keeps the sentence it has.
+   */
+  _everSignedIn(session) {
+    if (engineOf(session?.engine) !== 'codex') return true;
+    try { return this._codexSignedIn(session?.profile || 'default'); }
+    catch { return true; }
+  }
+
   _kill(session, signal) {
     if (!session) return false;
     session.stoppedByUs = true;
@@ -3203,7 +3218,11 @@ export class Supervisor {
       const raw = stderrLines.map((l) => l.replace(/^stderr: /, '')).join('\n').slice(-1000);
       const errorResult = session.resultIsError ? String(session.result ?? '').slice(-1000) : '';
       const fromStderr = troubleCause(raw);
-      const cause = fromStderr === 'unknown' && errorResult ? troubleCause(errorResult) : fromStderr;
+      const diagnosed = fromStderr === 'unknown' && errorResult ? troubleCause(errorResult) : fromStderr;
+      // A refusal on a login nobody ever made is not a login that ran out. Only
+      // the sentence changes: what benches the account and what brings it back
+      // are the signed-out paths they have always been.
+      const cause = refineCause(diagnosed, null, { everSignedIn: this._everSignedIn(session) });
       const runs = this._fruitless[`${item.product}:${item.id}`]?.runs ?? 1;
       // THE RESET TIME COMES OFF THE SAME LINE THAT SAID "limit". Read from
       // both halves in the same order the cause was, so it is always the text

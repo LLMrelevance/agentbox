@@ -31,7 +31,7 @@
 // about status lines.
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { headlineLimit, limitRows, usageSentence } from '../../../shared/usage.mjs';
+import { headlineLimit, limitRows, limitsStillRunning, usageSentence } from '../../../shared/usage.mjs';
 import { agoQuiet } from '../format';
 import type { Usage } from '../types';
 import { engineLabel } from '../../../shared/engines.mjs';
@@ -42,9 +42,10 @@ import { engineLabel } from '../../../shared/engines.mjs';
 // moment it always was.
 const CLOSE = 80;
 
-// A BEAT BEFORE A HOVER CLOSES IT. The panel hangs below the bar with a gap
-// between them, and a pointer travelling from one to the other crosses that gap.
-// Closing on the first mouseleave would make the panel impossible to reach.
+// A BEAT BEFORE A HOVER CLOSES IT, so a pointer that slips off the edge of the
+// bar does not snap the panel shut under the hand that opened it. A hovered
+// panel takes no pointer (styles.css, w-7b7182ef61), so hovering is about the
+// bar, and reading it without holding the mouse still is what the press is for.
 const LINGER_MS = 220;
 
 // In the sidebar it is a row like Feedback and Settings: this gauge, the agent's
@@ -56,7 +57,9 @@ const GaugeIcon = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColo
 // agent counts while it has a reading from this week; older figures have reset.
 const WEEK = 7 * 24 * 60 * 60 * 1000;
 export function agentsInUse(all: Usage[], recent: string | null, sent: Usage | null, now: number): { word: string; usage: Usage }[] {
-  const fresh = all.filter((u) => now - u.at < WEEK && headlineLimit(u.limits));
+  // A reading whose every window has started over since it was taken is not a
+  // figure about this agent any more (w-7b7182ef61).
+  const fresh = all.filter((u) => now - u.at < WEEK && headlineLimit(limitsStillRunning(u.limits, now)));
   const last = fresh.find((u) => u.engine === recent) ?? fresh.find((u) => u.engine === sent?.engine) ?? fresh[0];
   return last ? [last, ...fresh.filter((u) => u !== last)].map((u) => ({ word: engineLabel(u.engine), usage: u })) : [];
 }
@@ -94,7 +97,8 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
    *  her answer was that this does not belong in Settings. */
   onOpen?: () => void;
 }) {
-  const limits = usage?.limits ?? [];
+  // Only the windows this reading can still answer for (`limitsStillRunning`).
+  const limits = limitsStillRunning(usage?.limits, now);
   // OPEN BECAUSE SHE CLICKED, which outlives the pointer leaving. Hover is held
   // separately, so moving away closes a hovered panel and leaves a clicked one
   // exactly where it is.
@@ -102,6 +106,7 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
   const [hovering, setHovering] = useState(false);
   const linger = useRef<ReturnType<typeof setTimeout> | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLButtonElement>(null);
   const panelId = useId();
 
   const open = pinned || hovering;
@@ -117,8 +122,11 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
       e.stopPropagation();
       setPinned(false);
     };
+    // A press on the panel closes it too: it hangs over Settings, and counting
+    // that as a press inside left the row unreachable (w-7b7182ef61). The bar is
+    // left out because its own click already toggles.
     const onDown = (e: MouseEvent) => {
-      if (!box.current?.contains(e.target as Node)) setPinned(false);
+      if (!bar.current?.contains(e.target as Node)) setPinned(false);
     };
     window.addEventListener('keydown', onKey, true);
     window.addEventListener('mousedown', onDown);
@@ -159,6 +167,7 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
     <div className="usage-box" ref={box} onMouseEnter={enter} onMouseLeave={leave}>
       <button
         type="button"
+        ref={bar}
         className={`usage-pill ${used >= CLOSE ? 'is-close' : ''}`}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
@@ -177,7 +186,7 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
         </span>}
       </button>
       {open && (
-        <div className="usage-panel" id={panelId} role="group" aria-label={engineWord ?? 'Your limits'}>
+        <div className={`usage-panel ${pinned ? 'is-pinned' : ''}`} id={panelId} role="group" aria-label={engineWord ?? 'Your limits'}>
           {/* THE ONE WORD IT ALREADY HAD, MADE TRUE. Naming the agent costs the
               panel no extra line: the heading either says whose limits these
               are, or goes on saying what it always said. A second row saying

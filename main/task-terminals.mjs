@@ -4,6 +4,7 @@ import {randomUUID} from 'node:crypto';
 import {execFileSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {commandRunning} from '../shared/terminal-state.mjs';
+import {loginShell} from './shell-path.mjs';
 const require=createRequire(import.meta.url);
 const LIMIT=262144;
 export function terminalEnv(source=process.env){
@@ -37,17 +38,6 @@ export function terminalPlace({store,supervisor,product,id,agent}){
   return {cwd,notice};
 }
 export function terminalFolder(args){return terminalPlace(args).cwd;}
-// The shell a person actually has. `$SHELL` when that file exists, then
-// zsh, bash, and sh. A machine with no zsh used to spawn `/bin/zsh` and
-// the terminal never came up.
-export function loginShell(env=process.env,exists=fs.existsSync){
-  const preferred=env.SHELL;
-  if(preferred&&exists(preferred))return preferred;
-  for(const candidate of ['/bin/zsh','/bin/bash','/bin/sh']){
-    if(exists(candidate))return candidate;
-  }
-  return preferred||'/bin/sh';
-}
 // Enumerate only descendants of our own shell, including background process
 // groups. Kill children before shell; closing a pane never calls this.
 export function disposeTerminalProcess(pty){
