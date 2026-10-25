@@ -60,8 +60,8 @@ import {
   allModels, findPeople, harnessFields, laterHint, momentFromWords, mondayMorning, moreCount,
   joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels,
   sharingFields, startingProject, startingVisibility, startingChosen, teammates, threadMessage, tomorrowMorning, chosenWords, VISIBILITY_ROWS,
-  dueChoices, dueWords, headRows, taskFields,
-  type Harness, type ModelPick, type SendAs, type Visibility,
+  dueChoices, dueWords, headRows, keyOnTheNewThreadCard, taskFields,
+  type Harness, type Keyboard, type ModelPick, type SendAs, type Visibility,
 } from './composer-rules';
 import './thread-composer.css';
 import { TeammateMark } from '../teammates/TeammatesRail';
@@ -94,7 +94,7 @@ export interface ThreadSent {
 type MenuKey = 'to' | 'model' | 'sendAs' | 'dueOn' | 'project' | 'priority' | 'visibility' | 'later';
 
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, agentMates, onToTeammate,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate,
 }: {
   /** Your teammates, offered in To beside the agents, and Someone new. */
   agentMates?: readonly { id: string; name: string; letter: string; role: string | null }[];
@@ -141,6 +141,10 @@ export function ThreadComposer({
    *  for on 2026-10-05: making a project is a thing you should be able to do
    *  from the menu you are already in, whether you have none or ten. */
   onNewProject?: () => void;
+  /** A project made from that row, which the card then sends to: making one in
+   *  order to file a task there and being left on the old project is a task in
+   *  the wrong repository (w-abed8ae491). */
+  selectProject?: string | null;
   /* NOTHING HERE OFFERS THE CHAT IMPORT, and that is a decision rather than an
      omission (w-6418318cd5, 2026-10-16). It was offered here for one round, as
      a faint line on an empty card. The founder, on the picture of it: "This
@@ -217,6 +221,9 @@ export function ThreadComposer({
     setProductSlug(slug);
     try { localStorage.setItem(LAST_PRODUCT_KEY, slug); } catch { /* still picked for this card */ }
   };
+  // The card is already open, so the remembered slot it read on opening is of
+  // no use: the project made from its own menu arrives here.
+  useEffect(() => { if (selectProject) pickProject(selectProject); }, [selectProject]);
 
   /* ---------------------------- priority -------------------------------- */
   // Every new thread opens on Medium; only a half-written card keeps its tag
@@ -390,11 +397,64 @@ export function ThreadComposer({
     setDropped(stored.dropped);
   }, [text, attachments, prio]);
 
-  useEffect(() => {
+  // A LAYOUT EFFECT, SO THE CARD HAS THE KEYBOARD BEFORE THE NEXT KEYSTROKE.
+  // N opens the card inside a keydown; a passive effect is scheduled and can
+  // land after the key behind it has already been dispatched, and that key goes
+  // nowhere. It is how "Task" arrived in the box as "ask" (w-abed8ae491).
+  useLayoutEffect(() => {
     const t = textRef.current;
     if (!t) return;
     t.focus();
     t.setSelectionRange(t.value.length, t.value.length);
+  }, []);
+
+  /* ----------------------------- the keyboard ----------------------------- */
+  // Every character belongs to the message, wherever the keyboard is sitting;
+  // `keyOnTheNewThreadCard` holds the rule and what it is for. It listens on
+  // the window rather than on the card because a click on the card's own
+  // padding leaves the keyboard on BODY, which is not inside the card, and a
+  // handler on the card never hears a key pressed there.
+  const card = useRef<HTMLDivElement>(null);
+  const caretTo = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    const at = caretTo.current;
+    const box = textRef.current;
+    if (at === null || !box) return;
+    caretTo.current = null;
+    box.focus();
+    box.setSelectionRange(at, at);
+  });
+  // The character lands where the caret was, which a text field remembers
+  // after it has been blurred.
+  const typeIntoTheMessage = (ch: string) => {
+    const box = textRef.current;
+    const from = box ? box.selectionStart : text.length;
+    const to = box ? box.selectionEnd : text.length;
+    setText(text.slice(0, from) + ch + text.slice(to));
+    caretTo.current = from + ch.length;
+  };
+  const typing = useRef(typeIntoTheMessage);
+  typing.current = typeIntoTheMessage;
+  const menuUp = useRef(open);
+  menuUp.current = open;
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      const at = document.activeElement as HTMLElement | null;
+      const where: Keyboard = !at || at === document.body ? 'nothing'
+        : at.tagName === 'TEXTAREA' || at.tagName === 'INPUT' || at.isContentEditable ? 'a field'
+          : card.current?.contains(at) ? 'the card' : 'away';
+      const means = keyOnTheNewThreadCard({
+        key: e.key, meta: e.metaKey, ctrl: e.ctrlKey, alt: e.altKey, menuOpen: !!menuUp.current, on: where,
+      });
+      if (means !== 'the message') return;
+      // Before the button under it hears it: Space and Enter on a focused
+      // button are a press, and on Send that press is the half-written task.
+      e.preventDefault();
+      typing.current(e.key === 'Enter' ? '\n' : e.key);
+    };
+    window.addEventListener('keydown', on);
+    return () => window.removeEventListener('keydown', on);
   }, []);
 
   // Long project names fade rather than end in an ellipsis, which was turned
@@ -913,6 +973,7 @@ export function ThreadComposer({
   return (
     <div className="modal-backdrop tc-veil" onClick={onClose}>
       <div
+        ref={card}
         className="tc-card"
         role="dialog"
         aria-label="New thread"

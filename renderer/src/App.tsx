@@ -183,7 +183,7 @@ import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
-import { opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
+import { SAYS_UNDO, opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
 import { SentLine } from './components/SentLine';
 
 type Modal = null | 'compose' | 'filter' | 'palette' | 'reply' | 'snooze' | 'standing';
@@ -3587,7 +3587,7 @@ export default function App() {
   }) : []), [roomsOn, items, snap?.products, snap?.team?.me?.id, snap?.team?.people, inbox, seenAt]);
   const roomsUi = useRooms({
     rooms: snap?.team?.rooms, on: !!snap?.alpha?.rooms, meId: snap?.team?.me?.id ?? null,
-    myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, teamCards: snap?.team?.cards ?? [], now: Date.now(), toast: showToast,
+    myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, now: Date.now(), toast: showToast,
     directs,
     onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
     onLeavePage: () => { setFocused(null); setFocusedRepeat(null); setTeamOpen(false); closeSearch(); },
@@ -3602,10 +3602,6 @@ export default function App() {
     // A teammate's card opens over the room, and Back comes back to it.
     renderBoard: (people, { later }) => <RoomBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
       cards={[...cards, ...roomMateCards(snap?.team?.rooms?.rooms ?? [])]} picked={people} onOpenCard={(c) => { if (!isPresenceCard(c)) openTeammateCard(c); }} columnOrder={columnOrder} later={later}
-      onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
-    // A room-mate outside the team has no thread cards; their presence lines stand in, and open nothing.
-    renderPersonBoard: (people) => <InboxBoard items={items} products={snap?.products ?? []} display={DEFAULT_DISPLAY.team} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
-      cards={[...cards, ...roomMateCards(snap?.team?.rooms?.rooms ?? [])]} picked={people} onOpenCard={(c) => { if (!isPresenceCard(c)) openTeammateCard(c); }} columnOrder={columnOrder} onReorderColumns={reorderColumns}
       onOpenItem={(item) => { setFocused(item); markSeen(item); }} />,
   });
   const roomShown = !!roomsUi.openId && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
@@ -4671,7 +4667,6 @@ export default function App() {
     const out = await api.moveItem(item.product, item.id, slug);
     if (!out.ok || !out.item) { showToast(out.error ?? 'That thread could not be moved.'); return; }
     const made = out.item;
-    showToast(`Moved to ${name}`, { product: made.product ?? slug, id: made.id });
     // Z PUTS IT BACK WHERE IT WAS. The ledger only grows, so the copy cannot be
     // unwritten; it is closed, and the row that was here opens again, which is
     // the state the move found.
@@ -4685,6 +4680,7 @@ export default function App() {
         await refresh();
       },
     });
+    showToast(`Moved to ${name}${SAYS_UNDO}`, { product: made.product ?? slug, id: made.id });
     await refresh();
   }, [pushUndo, refresh, showToast]);
 
@@ -4759,10 +4755,16 @@ export default function App() {
     // from inside a task the picker is opened on `focused` and nothing else,
     // and a bulk schedule from the list has no task open to leave.
     leaveResolved(picked[0]);
+    // AND IT NAMES THE THREAD, the way every other toast of this family does
+    // ("Done: Add"). "Moved to Later. Back in 30 minutes" named nothing, so
+    // from the list, where the row vanishes as it is said, there was no telling
+    // which one had gone.
+    //
     // The COUNT IS WHAT SHE PICKED. A thread she moved as one row is one row to
     // her, so saying 13 after she selected 12 would report the repair as a
     // miscount and put the old doubt back in different words.
-    showToast(picked.length > 1 ? `${picked.length} moved to Later. Back ${label.toLowerCase()}` : `Moved to Later. Back ${label.toLowerCase()}`);
+    const moved = picked.length > 1 ? `${picked.length} threads` : clipToSentence(rowTitle(picked[0]), TOAST_TITLE);
+    showToast(`Later: ${moved}. Back ${label.toLowerCase()}${SAYS_UNDO}`);
     // Undo restores only inbox reminders. Execution schedules stay intact.
     const prior = new Map(list.map((i) => [i.id, (i.agent ? i.runAt : i.snoozedUntil) ?? 0]));
     // AND THE TASK IT PUTS BACK IS OPENED (w-874411cc63). Without `brings` the
@@ -4793,9 +4795,9 @@ export default function App() {
     // those words is true of it: it is starting for the first time.
     const allHeld = list.every((i) => notStarted(i));
     const one = allHeld ? 'Started' : allParked ? 'Running again' : 'Back in the inbox';
-    showToast(list.length > 1
+    const said = (list.length > 1
       ? `${list.length} ${allHeld ? 'started' : allParked ? 'running again' : 'back in the inbox'}`
-      : one);
+      : one) + SAYS_UNDO;
     // The old localStorage snoozes are still honored on read, so a row deferred
     // before this shipped needs clearing there too or it would not come back.
     setSnoozes((s) => {
@@ -4822,6 +4824,9 @@ export default function App() {
       for (const item of wasHeld) await api.threadEdit(item.product, item.id, { start: 'later' });
       refresh();
     } });
+    // After the entry, not before the writes above it: a toast promising Z
+    // while the pile still has the last action on top points the press at that.
+    showToast(said);
     refresh();
   }, [showToast, refresh, writeMoment, pushUndo]);
 
@@ -4856,9 +4861,9 @@ export default function App() {
         else await api.answer({ product: item.product, id: item.id, status: 'open' });
       }
     } });
-    showToast(kept.length
+    showToast((kept.length
       ? `${DONE.verb}: ${targets.length} items. Still open: ${kept.length}, work never reached main`
-      : `${DONE.verb}: ${targets.length} items`);
+      : `${DONE.verb}: ${targets.length} items`) + SAYS_UNDO);
     setMultiSel(new Set(kept.map((i) => i.id)));
     await refresh();
   }, [selectable, refresh, showToast, run, nudgeOnStopped]);
@@ -5044,7 +5049,10 @@ export default function App() {
       // thread that she did it and took it back.
       const now = Date.now();
       leaveUndoMarks(pending.undid, now, now);
-      setFocused(pending.item);
+      // Opened in the same case as the late Z below (./undo-window): from a
+      // task, because the action moved her off it. From a list it is already
+      // back in front of her.
+      if (restored || focused) setFocused(pending.item);
       showToast(graceUndoneLine({ said: pending.said, restored: !!restored }));
       return 'done' as const;
     }
@@ -5102,7 +5110,7 @@ export default function App() {
     leaveUndoMarks(last.undid, from, Date.now());
     const restored = last.restore?.();
     const item = restoredItem(restored ?? null);
-    const shown = shownAfterUndo(restored, last.brings);
+    const shown = shownAfterUndo(restored, last.brings, { onATask: !!focused });
     // Say what the undo actually did, AND WHERE THE WORDS WENT, because the two
     // boxes are different places and she has to be told which one to look in. A
     // bare "Undone" left her hunting for a task Z had silently pulled out of
@@ -5116,13 +5124,14 @@ export default function App() {
     // A withdrawn reply reopens where she was writing it, words and all. A
     // withdrawn new task reopens the card instead: there is no thread to go to,
     // and the whole point of the press was to add a sentence to what was written.
-    // AND A ROW IT PUT BACK IS OPENED, the same as a Z inside the grace window
-    // opens it. It used to be announced and left in the list, while she stayed
-    // on whatever the close had moved her to (w-7eb39d3c97).
+    // AND A ROW IT PUT BACK IS OPENED WHEN A TASK WAS COVERING THE LIST, the
+    // same as a Z inside the grace window opens it. It used to be announced and
+    // left in the list, while she stayed on whatever the close had moved her to
+    // (w-7eb39d3c97); from a list it moved her off one she had not left (F-50).
     if (shown.open) { setFocused(shown.open); markSeen(shown.open); }
     else if (shown.compose) { setFocused(null); setModal('compose'); }
     return 'done' as const;
-  }, [undoStack, refresh, showToast, markSeen, leaveUndoMarks, letRowGo]);
+  }, [undoStack, focused, refresh, showToast, markSeen, leaveUndoMarks, letRowGo]);
 
   // INTO THE ROW THE TOAST IS ABOUT, from a click on it or from O
   // (w-f0bfe32859). One path, so the key can never open something the click
@@ -7053,7 +7062,10 @@ export default function App() {
              exactly that), so the draft is still here afterwards and the
              project just made is the one the thread is addressed to. */
           onNewProject={() => setNewProject(true)}
-          onClose={() => { setModal(null); setComposeInitial(null); }}
+          // And this is how the project just made reaches the open card, which
+          // read the remembered slot before that project existed (w-abed8ae491).
+          selectProject={pickProject}
+          onClose={() => { setModal(null); setComposeInitial(null); setPickProject(null); }}
           // THE CARD CLOSES ON SEND, NOT ON THE ANSWER (w-461fbd8d2d). On the
           // web and on a phone the answer is a round trip away, and for that
           // long the card sat there as if Send had not worked. It goes now, the
@@ -7063,6 +7075,7 @@ export default function App() {
           onSending={walkCard ? undefined : (how) => {
             setModal(null);
             setComposeInitial(null);
+            setPickProject(null);
             const later = (how.runAt != null && how.runAt > Date.now()) || how.start === 'later';
             const to = how.kind === 'message'
               ? firstNames(how.toMany ?? [how.to ?? ''])

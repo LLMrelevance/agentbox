@@ -78,3 +78,19 @@ export function accountsOnce({ here, cloud = [], readings = [], current = null }
     };
   }
 }
+
+/**
+ * The same for Codex. A Codex login in the cloud names its email and no
+ * folder, so it is matched here by email. `readings` is each login's own, out
+ * of its folder's logs; `current` is the one in use, as Codex pushes it.
+ */
+export function codexAccountsOnce({ here, cloud = [], readings = [], current = null }: {
+  here: HereLogin[];
+  cloud?: CloudAccount[];
+  readings?: AccountUsageReading[];
+  current?: Usage | null;
+}): OneAccount[] {
+  const matched = cloud.map((c) => ({ ...c, profile: c.profile ?? (c.name ? here.find((h) => h.email === c.name)?.profile : null) ?? null }));
+  const inUse = here.find((h) => h.chosen)?.profile ?? 'default';
+  return accountsOnce({ here, cloud: matched, readings, current: current && { ...current, profile: inUse } });
+}

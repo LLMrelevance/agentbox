@@ -235,7 +235,7 @@ export function codexPlan(snapshot) {
  * carrying only the five hour window would take the week away, and one carrying
  * neither would take both -- and this repo already puts exactly that on the wire
  * (`{ rateLimits: {} }`, in
- * tests/one-codex-process-carries-many-threads-and-a-card-nobody-answers-denies.test.mjs).
+ * tests/one-codex-process-carries-many-threads-and-a-card-nobody-answers-waits.test.mjs).
  * The failure would look like the corner going quiet for no reason, which is the
  * complaint this whole surface started from.
  *

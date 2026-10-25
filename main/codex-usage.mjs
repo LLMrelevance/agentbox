@@ -62,6 +62,7 @@
 // level down.
 
 import { codexLimits, mergeRateLimits } from '../shared/codex-usage.mjs';
+import { limitsStillRunning } from '../shared/usage.mjs';
 import { loggedCodexLimits } from './codex-usage-file.mjs';
 
 const LOG_EVERY_MS = 30_000;
@@ -75,6 +76,23 @@ const LOG_EVERY_MS = 30_000;
  * thing anybody knows, so past this it is compared against the log instead.
  */
 const PUSH_FRESH_MS = 60_000;
+
+/**
+ * Every Codex login's own reading, for the Settings page: each out of the
+ * session logs under its own home, and the one in use from `current`, which
+ * the push keeps newer while it works. A login that has never run here gets
+ * no limits rather than zeroes, and a window that has reset since is dropped,
+ * because a login not in use can go days without a new reading.
+ */
+export function codexAccountReadings({ profiles, homeOf, current = null, currentHome = null, now = Date.now(), readLog = loggedCodexLimits }) {
+  return profiles.map((profile) => {
+    const home = homeOf(profile);
+    const live = !!current?.limits?.length && home === currentHome;
+    const reading = live ? current : readLog(home, { now });
+    const limits = limitsStillRunning(live ? current.limits : codexLimits(reading?.snapshot), now);
+    return limits.length ? { profile, limits, at: reading.at } : { profile };
+  });
+}
 
 export class CodexUsage {
   /**
