@@ -208,3 +208,6 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-from-table td { padding: 10px 16px; border-top: 1px solid var(--line); color: var(--text); vertical-align: top; }
 .tq-from-table td:last-child { text-align: right; color: var(--text-faint); white-space: nowrap; }
 .tq-from-table td:last-child .tq-link { color: var(--text-dim); }
+
+.tq-log-day { font: 400 10.5px/16px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); margin: 14px 0 6px; }
+.tq-log-day:first-of-type { margin-top: 2px; }

@@ -282,7 +282,11 @@ function LogPanel({ view, team, t, call, onClose, onOpenThread }: { view: Teamma
   return <aside className="gr-side tq-side tq-log" aria-label={`${t.name}'s log`}>
     <div className="tq-sh">Log<button type="button" className="tq-edit" onClick={onClose}>Close</button></div>
     {lines.length
-      ? lines.map((e) => <Activity key={e.id} e={e} view={view} team={team} only={t} call={call} onOpenThread={onOpenThread} />)
+      ? lines.flatMap((e, i) => {
+        const day = dayOf(e.ts);
+        const row = <Activity key={e.id} e={e} view={view} team={team} only={t} call={call} onOpenThread={onOpenThread} />;
+        return i === 0 || dayOf(lines[i - 1].ts) !== day ? [<div key={`day-${e.id}`} className="tq-log-day">{day}</div>, row] : [row];
+      })
       : <p className="tq-empty">Nothing yet. What it does and says to other teammates shows here.</p>}
   </aside>;
 }

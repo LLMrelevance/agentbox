@@ -153,3 +153,14 @@ describe('a teammate\'s page', () => {
     expect(fs.readFileSync(new URL('../renderer/src/teammates/teammates.css', import.meta.url), 'utf8')).toMatch(/\.tq-from-table \{[^}]*border-radius: 0/);
   });
 });
+
+// The first build of the Log listed yesterday's 7:40pm lines above today's
+// 4:20pm ones with only a clock time, so it read as out of order.
+describe('a teammate\'s Log', () => {
+  it('says which day its lines are from when the day changes', () => {
+    const page = fs.readFileSync(new URL('../renderer/src/teammates/TeammatesPage.tsx', import.meta.url), 'utf8');
+    const log = page.slice(page.indexOf('function LogPanel('), page.indexOf('\nfunction ', page.indexOf('function LogPanel(') + 10));
+    expect(log).toMatch(/dayOf\(e\.ts\)/);
+    expect(log).toMatch(/className="tq-log-day"/);
+  });
+});
