@@ -1,21 +1,19 @@
-// The one-at-a-time page's own pieces (w-65bcefb857). The page is the thread page
-// in a mode; these are the parts it adds: the summary on top, the answer under
-// its headline, and the place in the queue with the arrows beside the menu.
-import { useEffect, useState, type ReactNode } from 'react';
+// The one-at-a-time page's own pieces (w-65bcefb857). The page is how the thread
+// page draws a thread in Needs you; these are the parts it adds: the name and
+// summary on top, the answer under its headline, and the place in the queue
+// with the arrows beside the menu.
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { onPhone } from '../phone-screen';
-import { clock, dayHeading } from '../thread-history';
 import { splitHeadline, type Spot } from '../one-thing-at-a-time';
 import '../one-thing-at-a-time.css';
 
 /** What this page reads in place rather than as a tile: a page an agent made, or a note. */
 export const readsInPlace = (path: string) => /\.(html?|md|markdown)$/i.test(path);
 
-const when = (at: number) => `${dayHeading(at)} ${clock(at)}`;
-
-export function QueueSummary({ context, you, earlier, steps = false, open, onToggle }: {
+export function QueueSummary({ title, context, earlier, steps = false, open, onToggle }: {
+  title?: string;
   context: string | null | undefined;
-  you: { at: number; text: string } | null;
   /** Messages behind the fold. */
   earlier: number;
   /** Whether the fold holds the agent's steps even with no earlier message. */
@@ -23,16 +21,38 @@ export function QueueSummary({ context, you, earlier, steps = false, open, onTog
   open: boolean;
   onToggle: () => void;
 }) {
-  const both = !!context && !!you;
   const toggle = earlier > 0
     ? (open ? 'Hide earlier messages' : `Show ${earlier} earlier ${earlier === 1 ? 'message' : 'messages'}`)
     : steps ? (open ? 'Hide what the agent did' : 'Show what the agent did') : null;
+  // Cut is only known once laid out, at this width.
+  const cols = useRef<HTMLDivElement>(null);
+  const [cut, setCut] = useState(false);
+  const [whole, setWhole] = useState(false);
+  useLayoutEffect(() => {
+    const el = cols.current;
+    if (!el || whole) return undefined;
+    const measure = () => { const c = el.querySelector('.one-col'); setCut(!!c && c.scrollHeight > c.clientHeight + 1); };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [context, whole]);
+  const opens = cut || whole;
+  const flip = () => setWhole((w) => !w);
   return (
     <div className="one-sum">
-      {(context || you) && (
-        <div className={both ? 'one-cols' : 'one-cols one-single'}>
-          {context && <div className="one-col"><span className="one-lab">Context</span>{context}</div>}
-          {you && <div className="one-col one-you"><span className="one-lab">You, {when(you.at)}</span>{you.text}</div>}
+      {title && <h2 className="one-title">{title}</h2>}
+      {context && (
+        <div
+          ref={cols}
+          className={`one-cols${whole ? ' one-whole' : cut ? ' one-cut' : ''}`}
+          role={opens ? 'button' : undefined}
+          tabIndex={opens ? 0 : undefined}
+          aria-expanded={opens ? whole : undefined}
+          onClick={opens ? flip : undefined}
+          onKeyDown={opens ? (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); flip(); } } : undefined}
+        >
+          {/* The label says the line can be skipped; the answer under it is what to read. */}
+          <div className="one-col"><span className="one-lab">Context</span>{context}</div>
         </div>
       )}
       {toggle && <button type="button" className="one-earlier" onClick={onToggle}>{toggle}</button>}
@@ -75,15 +95,18 @@ export function QueueFile({ product, path, md, onOpen }: { product: string; path
     }
     return () => { live = false; };
   }, [product, path, page]);
+  const [folded, setFolded] = useState(false);
   if (text === null) return null;
   return (
-    <section className={page ? 'one-file one-page' : 'one-file one-note'}>
+    <section className={`${page ? 'one-file one-page' : 'one-file one-note'}${folded ? ' one-folded' : ''}`}>
       <div className="one-filehead">
-        <span className="one-filename">{path.split('/').pop()}</span>
+        <button type="button" className="one-filefold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)}>
+          {chevron(!folded)}<span className="one-filename">{path.split('/').pop()}</span>
+        </button>
         <button type="button" className="one-fileopen" onClick={onOpen}>Open full screen</button>
       </div>
-      {page && url && <iframe className="one-frame" src={url} title={path} sandbox={onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'} />}
-      {!page && text != null && <div className="markdown one-notebody">{md(text)}</div>}
+      {!folded && page && url && <iframe className="one-frame" src={url} title={path} sandbox={onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'} />}
+      {!folded && !page && text != null && <div className="markdown one-notebody">{md(text)}</div>}
     </section>
   );
 }
@@ -94,12 +117,35 @@ const chevron = (up: boolean) => (
   </svg>
 );
 
+/** The small arrow in the corner of the choices at the foot, which folds them away. */
+export function ChoicesFold({ onFold }: { onFold: () => void }) {
+  return (
+    <button type="button" className="one-choices-fold" aria-label="Fold the choices" onClick={onFold}>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+    </button>
+  );
+}
+
+/**
+ * With the choices folded, the sign on the reply box that they are there: how
+ * many, and an arrow to bring them back. It rides inside the box's button, as
+ * the model's name does, so it stops the click from opening the reply.
+ */
+export function ChoicesShow({ count, onShow }: { count: number; onShow: () => void }) {
+  return (
+    <span className="one-choices-show" role="button" tabIndex={-1} aria-label={`Show the ${count} choices`} onClick={(e) => { e.stopPropagation(); onShow(); }}>
+      <span className="one-choices-count">{count}</span>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 10l4-4 4 4" /></svg>
+    </span>
+  );
+}
+
 export function QueueNav({ spot, onStep }: { spot: Spot; onStep: (dir: 1 | -1) => void }) {
   return (
     <span className="one-nav">
       <span className="one-pos">{spot.pos} of {spot.total}</span>
-      <button type="button" className="ts-more one-step" aria-label="Previous thread (K)" title="Previous thread (K)" disabled={spot.index <= 0} onClick={() => onStep(-1)}>{chevron(true)}</button>
-      <button type="button" className="ts-more one-step" aria-label="Next thread (J)" title="Next thread (J)" disabled={spot.pos >= spot.total} onClick={() => onStep(1)}>{chevron(false)}</button>
+      <button type="button" className="ts-more one-step" data-hint="previous-thread" data-hint-align="right" aria-label="Previous thread (K)" disabled={spot.index <= 0} onClick={() => onStep(-1)}>{chevron(true)}</button>
+      <button type="button" className="ts-more one-step" data-hint="next-thread" data-hint-align="right" aria-label="Next thread (J)" disabled={spot.pos >= spot.total} onClick={() => onStep(1)}>{chevron(false)}</button>
     </span>
   );
 }

@@ -135,7 +135,7 @@ import {
 } from '../shared/engines.mjs';
 import { createCodexAppServer } from './codex-app-server.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
-import { CodexUsage } from './codex-usage.mjs';
+import { CodexUsage, codexAccountReadings } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mjs';
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { cloudCodexMode } from './cloud-permission.mjs';
@@ -884,6 +884,21 @@ export class Supervisor {
   /** Whether one Codex login has a sign-in on disk at all. Only the file's time is read. */
   _codexSignedIn(profile) {
     return signInStamp(this._signInFilesFor(`codex:${profile}`)) > 0;
+  }
+
+  /**
+   * HAS ANYBODY EVER SIGNED IN ON THE LOGIN THIS RUN WAS SPENDING.
+   *
+   *  Codex writes `auth.json` when somebody signs in and at no other time, so
+   *  its absence is proof. CLAUDE CODE CANNOT BE ASKED THIS: it writes
+   *  `.claude.json` on its first run signed in or not, and on a Mac its
+   *  credentials are in the Keychain rather than in any file. So a Claude run
+   *  answers yes, as does anything unreadable, and keeps the sentence it has.
+   */
+  _everSignedIn(session) {
+    if (engineOf(session?.engine) !== 'codex') return true;
+    try { return this._codexSignedIn(session?.profile || 'default'); }
+    catch { return true; }
   }
 
   _kill(session, signal) {
@@ -3203,7 +3218,11 @@ export class Supervisor {
       const raw = stderrLines.map((l) => l.replace(/^stderr: /, '')).join('\n').slice(-1000);
       const errorResult = session.resultIsError ? String(session.result ?? '').slice(-1000) : '';
       const fromStderr = troubleCause(raw);
-      const cause = fromStderr === 'unknown' && errorResult ? troubleCause(errorResult) : fromStderr;
+      const diagnosed = fromStderr === 'unknown' && errorResult ? troubleCause(errorResult) : fromStderr;
+      // A refusal on a login nobody ever made is not a login that ran out. Only
+      // the sentence changes: what benches the account and what brings it back
+      // are the signed-out paths they have always been.
+      const cause = refineCause(diagnosed, null, { everSignedIn: this._everSignedIn(session) });
       const runs = this._fruitless[`${item.product}:${item.id}`]?.runs ?? 1;
       // THE RESET TIME COMES OFF THE SAME LINE THAT SAID "limit". Read from
       // both halves in the same order the cause was, so it is always the text
@@ -8352,8 +8371,8 @@ export class Supervisor {
       turnParams: this.codexTurnParamsFor(plan),
       resumeThreadId: plan.resumeId,
       // The card, which is the other half of what a worker needs to be able to
-      // do its job at all. Same spool, same shape, same fifteen minutes as a
-      // Claude Code worker's (main/codex-approvals.mjs).
+      // do its job at all. Same spool, same shape, and the same wait as a
+      // Claude Code worker's: for her, not for a clock (main/codex-approvals.mjs).
       onApproval: cards.handle,
       // A worker that cannot write to her store does not run.
       requireMcpServer: storeServer?.name ?? null,
@@ -8375,9 +8394,10 @@ export class Supervisor {
     // app-server dying underneath it -- so this is the one hook that covers a
     // stopped run, a preempted one, an archived row and a lost connection
     // without four separate call sites. Without it the question sits on her
-    // screen for fifteen minutes about a command nothing is waiting to run, and
-    // because the front card is always the oldest, it sits in front of every
-    // real card until it expires.
+    // screen about a command nothing is waiting to run, and because the front
+    // card is always the oldest, it sits in front of every real card. No clock
+    // takes it away any more (w-4b00022acb), so this hook is the whole of how a
+    // dead run's card leaves.
     worker.once('exit', () => {
       try { cards.close('the run that asked this has stopped'); } catch (e) { console.warn('zero: could not close a codex worker cards:', e?.message ?? e); }
     });
@@ -8903,6 +8923,16 @@ export class Supervisor {
   /** The same, read again rather than off the cache (`CodexUsage.refreshNow`). */
   refreshCodexUsage() {
     return this._codexUsage().refreshNow();
+  }
+
+  /** Every Codex login's own reading, for the Settings page. */
+  codexAccountUsage() {
+    return codexAccountReadings({
+      profiles: this._codexProfiles(),
+      homeOf: (profile) => this._codexProfileHome(profile),
+      current: this.refreshCodexUsage(),
+      currentHome: this._codexUsageHome(),
+    });
   }
 
   /**

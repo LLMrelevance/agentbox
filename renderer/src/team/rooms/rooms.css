@@ -232,8 +232,7 @@
 .rm-stats b, .rm-stats .lnk { font: 300 30px/32px var(--mono); color: var(--text); display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
 .rm-stats .lnk { background: none; border: 0; padding: 0; text-decoration: underline; text-underline-offset: 5px; text-decoration-thickness: 1px; text-decoration-color: var(--text-faint); }
 .rm-stats b svg { color: var(--text-faint); }
-.rm-ptabs { display: flex; align-items: flex-end; margin: 0 -20px 0 calc(-1 * var(--text-x, 32px)); padding: 26px 20px 0 var(--text-x, 32px); border-bottom: 1px solid var(--rm-line); }
-.rm-ptabs .tm-tabs { margin-bottom: -1px; }
+.rm-prule { margin: 34px -20px 0 calc(-1 * var(--text-x, 32px)); border-bottom: 1px solid var(--rm-line); }
 .rm-pgrid { display: grid; grid-template-columns: minmax(0, 1fr) 240px; column-gap: 56px; padding: 28px 0 0; }
 .rm-chartbox { position: relative; min-width: 0; }
 .rm-chartbox svg { display: block; overflow: visible; }
@@ -255,9 +254,6 @@
 .rm-prof button.line:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--text-faint); }
 .rm-ptotal { display: flex; flex-direction: column; gap: 9px; margin-bottom: 22px; }
 .rm-ptotal b { font: 300 30px/32px var(--mono); color: var(--text); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.rm-pact { padding: 28px 0 0; display: flex; flex-direction: column; gap: 14px; }
-.rm-pboard { overflow-x: auto; margin-right: -20px; }
-.rm-pboard .th-board { padding: 0 20px 0 0; }
 
 /* the bio */
 .rm-bio { font-size: 13.5px; line-height: 20px; color: var(--text-dim); max-width: 620px; }

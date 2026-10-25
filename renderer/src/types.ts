@@ -654,8 +654,10 @@ export interface SupervisorStatus {
 // her, and neither is fixed by trying again. 'api-key' is a Codex signed in
 // with an API key, which is refused rather than billed; 'codex-config' is a
 // config.toml Codex cannot read. 'open-elsewhere' is a Codex conversation
-// another Codex window is writing to.
-export type TroubleCause = 'signed-out' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'open-elsewhere' | 'unknown';
+// another Codex window is writing to. 'no-plan' is the same refusal as
+// 'signed-out' on a login nobody ever signed into, which is what a person who
+// skipped setup meets: the remedy is setting a plan up, not signing back in.
+export type TroubleCause = 'signed-out' | 'no-plan' | 'org-blocked' | 'subscription-ended' | 'at-limit' | 'workspace' | 'interrupted' | 'model-not-on-plan' | 'level-not-offered' | 'too-old' | 'network' | 'api-key' | 'codex-config' | 'open-elsewhere' | 'unknown';
 
 // A worker frozen mid-action, waiting on the user's allow/deny.
 export interface Approval {
@@ -1334,7 +1336,7 @@ declare global {
     zero?: {
       snapshot(): Promise<Snapshot>;
       refreshUsage?(p?: { engine?: 'claude' | 'codex' }): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
-      accountUsage?(p: { refresh?: boolean }): Promise<{ readings: AccountUsageReading[] }>;
+      accountUsage?(p: { refresh?: boolean; engine?: 'claude' | 'codex' }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
       // accessibility tree. Optional: a preload from before this channel
       // existed has no such function, and `api.assistiveTech` reads that as no.

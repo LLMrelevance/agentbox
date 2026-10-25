@@ -4,7 +4,7 @@ import {updateFixture} from './agent-update-fixture';
 // bridge; fixtures mode (?fixtures=1) serves canned data so the UI can be
 // developed, reviewed, and screenshotted without a live store or any agents.
 
-import type { AccountUsageReading, AgentConversation, CloudPlan, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, RoomsResult, Settings, Snapshot, TeammatesResult, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, WorkItem } from './types';
+import type { AccountUsageReading, AgentConversation, CloudPlan, AnswerMode, CodexModeId, DemoOpened, FolderListing, FreshUser, PermissionMode, PhoneLink, PhoneRoute, RepeatRule, RepeatShape, RoomsResult, Settings, Snapshot, TeammatesResult, TeamCallResult, TeamMessageFile, ThreadEditPatch, UpdateState, Usage, UsageLimit, WorkItem } from './types';
 import type { LedgerLine } from './thread-history';
 import type { AgentFile as AgentFileRow } from './onboarding';
 import type { AgentFolder, SessionThread } from './agent-import-card';
@@ -133,6 +133,22 @@ if (params.get('codexPlan') === 'free') {
     codexFreePlan: { endedAt: Date.parse('2026-10-18T19:00:00Z') },
   });
 }
+// The Codex page as it was reported on 2026-10-25, with ?engines=codex:
+// &codexaccounts=two is two logins here with the free one in use,
+// &codextrouble a Codex that is found but failing, and &codexmonth a free
+// plan's monthly reading.
+if (params.get('codexaccounts') === 'two' && fixtureSettingsState.workspace.codex) {
+  fixtureSettingsState.workspace.codex.accounts = [
+    { profile: 'default', email: 'work@example.com', name: null, plan: 'Free', accountId: null, signedIn: true, chosen: true },
+    { profile: 'codex-2', email: 'you@example.com', name: null, plan: 'Plus', accountId: null, signedIn: true, chosen: false },
+  ];
+}
+if (params.has('codextrouble') && fixtureSettingsState.workspace.codex) {
+  fixtureSettingsState.workspace.codex.trouble = `Codex sessions are dying on arrival, so its tasks are not moving. ${NAME} keeps trying.`;
+}
+const codexMonth = params.has('codexmonth')
+  ? [{ span: 'month', qualifier: null, name: 'This month', percent: 27, resetsText: null, resetsOn: null, resetsAt: Date.now() + (24 * 24 + 4) * 3_600_000, zone: null }] as unknown as UsageLimit[]
+  : null;
 // &memory=held draws the Running page the way it read when memory ran out on
 // 2026-10-11 (w-ec27ff1a51): six running, memory tight, commands waiting, and
 // new agents held. &memory=fine is the same page with memory back to normal.
@@ -207,6 +223,19 @@ function fixtureAccountUsage(): AccountUsageReading[] {
   return [
     { profile: first.profile, ...failed, limits: firstLimits },
     { profile: second.profile, at: now - 60_000, limits: [limit('session', 5, '8pm', at(20)), limit('week', 9, '4pm', week, 'all models'), limit('week', 6, '4pm', week, 'Fable')] },
+  ];
+}
+
+// &codexaccounts=two: the Plus login not in use has its own session and week.
+function fixtureCodexAccountUsage(): AccountUsageReading[] {
+  if (params.get('codexaccounts') !== 'two') return [];
+  const now = Date.now();
+  const window = (span: 'session' | 'week', percent: number, resetsAt: number) => ({
+    span, qualifier: null, name: span === 'session' ? 'This session' : 'This week', percent, resetsText: null, resetsOn: null, resetsAt, zone: null,
+  });
+  return [
+    ...(codexMonth ? [{ profile: 'default', limits: codexMonth, at: now }] : []),
+    { profile: 'codex-2', at: now - 3 * 3_600_000, limits: [window('session', 12, now + 2 * 3_600_000), window('week', 31, now + 4 * 86_400_000)] },
   ];
 }
 
@@ -414,7 +443,8 @@ export const api = {
               ] : null,
             },
             // &cloudcodex adds a Codex login in the cloud, so the Codex page draws its cloud rows.
-            ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: null, ready: true, state: 'ready' as const }] : []),
+            // &cloudcodex=<email> names it.
+            ...(params.has('cloudcodex') ? [{ engine: 'codex' as const, key: 'c1', name: params.get('cloudcodex') || null, ready: true, state: 'ready' as const }] : []),
             // &cloudonly adds a Claude login signed in nowhere here, whose last look failed.
             // Its email is unknown: the cloud's token cannot read it, and no folder here names it.
             ...(params.has('cloudonly') ? [{
@@ -491,6 +521,7 @@ export const api = {
   async refreshUsage(engine: 'claude' | 'codex' = 'claude'): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
     if (useFixtures) {
       if (params.get('account') === 'unreadable') return { ok: false, error: USAGE_UNREADABLE };
+      if (codexMonth && engine === 'codex') return { ok: true, reading: { engine, limits: codexMonth, profile: 'default', at: Date.now() } };
       const reading = fixtureSnapshot.usageByEngine?.find(r => r.engine === engine) ?? (fixtureSnapshot.usage?.engine === engine ? fixtureSnapshot.usage : null);
       return reading ? { ok: true, reading: { ...structuredClone(reading), profile: 'default', at: Date.now() } } : { ok: false, error: 'No usage reading yet.' };
     }
@@ -499,9 +530,9 @@ export const api = {
     catch { return { ok: false, error: USAGE_UNREADABLE }; }
   },
 
-  /** Every Claude login's own usage, for Settings. Empty from a main process that predates it. */
-  async accountUsage(p: { refresh?: boolean } = {}): Promise<AccountUsageReading[]> {
-    if (useFixtures) return fixtureAccountUsage();
+  /** Every Claude or Codex login's own usage, for Settings. Empty from a main process that predates it. */
+  async accountUsage(p: { refresh?: boolean; engine?: 'claude' | 'codex' } = {}): Promise<AccountUsageReading[]> {
+    if (useFixtures) return p.engine === 'codex' ? fixtureCodexAccountUsage() : fixtureAccountUsage();
     if (!window.zero?.accountUsage) return [];
     try { return (await window.zero.accountUsage(p)).readings ?? []; } catch { return []; }
   },

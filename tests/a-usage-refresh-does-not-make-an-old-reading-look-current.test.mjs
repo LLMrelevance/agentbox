@@ -36,7 +36,7 @@ it('a failed refresh keeps the meters and says when they were read, however rece
 
 it('the header still says when this computer was last checked', () => {
   const source = fs.readFileSync(new URL('../renderer/src/components/Settings.tsx', import.meta.url), 'utf8');
-  expect(source).toContain('{!refreshing && checked && <span className="acct-checked">{checked}</span>}');
+  expect(source).toContain('{!busy && checked && <span className="acct-checked">{checked}</span>}');
 });
 
 it('a failure with no old reading shows why, without inventing zero or a checked time', () => {

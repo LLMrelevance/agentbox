@@ -45,25 +45,20 @@ const enginePage = settings.slice(settings.indexOf('const enginePage = (engine')
 describe('the live account cannot be missed', () => {
   // HER NOTE, AND THE WHOLE REASON THIS ROUND EXISTS. One cue was missable and
   // she proved it, so the live row now says it four ways at once.
-  it('says it four ways: a brighter film, full white, a rule, and the word', () => {
-    const on = pageRule('.set-plate > .set-acct-row.on');
-    expect(on).toMatch(/background:\s*var\(--film-strong\)/);
-    // The rule is the app's own selection bar since 2026-10-05, the orange a
-    // selected inbox row wears, on a square row inset from the card's corners.
-    expect(on).toMatch(/border-left:\s*2px solid var\(--select-bar\)/);
-    expect(pageRule('.set-plate > .set-acct-row.on .set-row-label')).toMatch(/color:\s*var\(--text\)/);
-    expect(card).toContain('{live && <span className="set-badge">In use</span>}');
-    expect(card).toContain("className={`set-row set-acct-row${live ? ' on' : ''}`}");
+  // Since both agents draw tiles (2026-10-25): a brighter film and a stronger
+  // edge on the tile, and the word.
+  it('says it with a brighter tile and the word', () => {
+    expect(settingsCss).toMatch(/\.acct-tile\.on \{[^}]*background:\s*var\(--film-strong\)/);
+    expect(card).toContain("className={`acct-tile${a.inUse ? ' on' : ''}");
+    expect(card).toContain('{a.inUse ? <span className="set-badge">In use</span>');
   });
 
   // THE WORD SITS BESIDE THE ADDRESS. On the round she rejected it was out on
   // the right margin, where a row's quietest corner is, and she missed it.
   it('puts the words beside the address and not on the right margin', () => {
-    const row = card.slice(card.indexOf('set-acct-row'), card.indexOf('</div>\n            {/* One account'));
-    expect(row.indexOf('{label}')).toBeGreaterThan(-1);
-    expect(row.indexOf('{label}')).toBeLessThan(row.indexOf('set-badge'));
-    // Inside the label's own line, not in the control column on the right.
-    expect(row.slice(row.indexOf('set-row-label'), row.indexOf('set-badge'))).not.toContain('</div>');
+    const head = card.slice(card.indexOf('<div className="acct-tile-head">'), card.indexOf('<div className="acct-tile-about">'));
+    expect(head.indexOf('acct-tile-name')).toBeGreaterThan(-1);
+    expect(head.indexOf('acct-tile-name')).toBeLessThan(head.indexOf('set-badge'));
   });
 
   // AND ONE ACCOUNT IS ALWAYS MARKED (w-dac993a554). Nothing was marked until
@@ -72,7 +67,7 @@ describe('the live account cannot be missed', () => {
   // login -- and main answers which (`readSettings`), so the card says it
   // rather than leaving a person to guess which plan is being spent.
   it('marks the one account that is in use', () => {
-    expect(card).toContain('const live = a.chosen;');
+    expect(card).toContain('inUse: !!h?.chosen,');
     expect(card).not.toContain('accounts.some((a) => a.chosen)');
   });
 });
@@ -124,7 +119,7 @@ describe('nothing in the card is a black square', () => {
     // The cards are a wash and the live row a stronger film; the buttons are
     // `.set-ghost`, which the test above proves is a film too.
     expect(pageRule('.set-plate:not(.set-keys)')).toMatch(/background:\s*var\(--wash\)/);
-    expect(pageRule('.set-plate > .set-acct-row.on')).toMatch(/background:\s*var\(--film-strong\)/);
+    expect(pageRule('.acct-tile.on')).toMatch(/background:\s*var\(--film-strong\)/);
     // Nothing on the page reaches for the opaque token.
     expect(settingsCss).not.toMatch(/var\(--surface\)/);
     expect(card).not.toContain('Segbar');
@@ -144,9 +139,8 @@ describe('the card gathers what the page used to scatter', () => {
     // The reading is `agent.reading` or something newer that Refresh fetched
     // (`newerReading`, w-18bae174fe); what this holds is that the limits are on
     // the card at all.
-    expect(enginePage).toContain('<UsageRows reading={codexShown}');
     expect(enginePage).toContain('newerReading(agent.reading, codexReading)');
-    expect(enginePage).toContain('<AccountRows');
+    expect(enginePage).toContain('accounts={tiles}');
     expect(settings).toContain("{model && w && pane === 'claude' && enginePage('claude')}");
   });
 
@@ -154,13 +148,13 @@ describe('the card gathers what the page used to scatter', () => {
   it('leaves no second copy of the old groups', () => {
     const general = settings.slice(settings.indexOf("pane === 'general' && ("), settings.indexOf("pane === 'claude' && enginePage"));
     expect(general.length).toBeGreaterThan(0);
-    for (const piece of ['<UsageOverview', '<UsageRows', '<AccountRows', '<ClaudeCode', '<CodexCli']) {
+    for (const piece of ['<UsageOverview', '<PlaceTiles', 'name="Signed in"', '<ClaudeCode', '<CodexCli']) {
       expect(general).not.toContain(piece);
     }
   });
 
   it('keeps the usage markup it was already using', () => {
-    expect(card).toContain('className="usage-meter wide"');
+    expect(card).toContain('className="usage-meter"');
   });
 });
 

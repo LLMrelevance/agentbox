@@ -146,6 +146,9 @@ export const HINTS: Record<string, HintLine[]> = {
   // w-a3482b8c2c it hangs from the summary's rail and the icon that closes it.
   summary: [{ key: 'S', what: 'Show or hide the summary' }],
   back: [{ key: 'esc', what: 'Go back one level' }],
+  // The up and down arrows on a thread in Needs you (w-65bcefb857).
+  'previous-thread': [{ key: 'K', what: 'Previous thread' }],
+  'next-thread': [{ key: 'J', what: 'Next thread' }],
 };
 
 export interface Rect { top: number; left: number; right: number; bottom: number; width: number; height: number }

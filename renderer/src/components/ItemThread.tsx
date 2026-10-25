@@ -42,7 +42,7 @@ import type { TraceSession } from '../notes';
 import type { AgentTurn, RunningSession, WorkItem } from '../types';
 import { ActLine, Thread, ThreadWaiting, answerTurn } from './Thread';
 import { QueueAnswer, QueueSummary } from './OneThingAtATime';
-import { earlierCount, newestAnswer, repeatsTitle, yourLast } from '../one-thing-at-a-time';
+import { appWrote, earlierCount, earlierThan, newestAnswer, standsAt } from '../one-thing-at-a-time';
 import { rowTitle } from '../list-rules';
 import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
@@ -370,25 +370,36 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   const markUnread = () => { askMarkUnread({ product: item.product, id: item.id }); };
   const copied = () => say('Copied');
 
-  // With no answer to lead with, the queue draws the conversation as it always is, under the summary.
-  const newest = queue ? newestAnswer(events, outcome) : null;
-  const mine = queue ? yourLast(events, me) : null;
+  // With no answer to lead with, the page draws the conversation as it always is, under the summary.
+  // The app's own note ("Shipped to main as …") goes under the agent's answer rather than in its place.
+  const byApp = !!queue && appWrote(outcome, item.wrote);
+  const newest = queue ? newestAnswer(events, byApp ? null : outcome) : null;
+  // Answered since (a reply or a pick the agent is working on): drawn from that answer down.
+  const from = queue && newest && !earlierOpen ? standsAt(events, newest) : -1;
   const queueHead = queue && (
     <QueueSummary
+      key={`${item.product}:${item.id}`}
+      title={rowTitle(item)}
       context={queue.context}
-      // Left out when it is the title the bar already shows.
-      you={mine && !repeatsTitle(mine.text, rowTitle(item)) ? mine : null}
-      earlier={newest ? earlierCount(events, outcome) : 0}
+      earlier={from >= 0 ? earlierThan(events, from) : newest ? earlierCount(events, byApp ? null : outcome) : 0}
       steps={!!newest && (events.some((e) => e.kind === 'work') || after.length > 0)}
       open={earlierOpen}
       onToggle={() => { setEarlierOpen((open) => !open); setWhole(true); }}
     />
   );
-  if (queue && newest && !earlierOpen) {
+  // What you did after the answer, under it and in order.
+  const afterList = after.length > 0 && (
+    <div className={`act-after${chat ? ' is-chat' : ''}`}>
+      {after.map((act, i) => <ActLine key={`${act.at}-${i}`} act={act} />)}
+    </div>
+  );
+  if (queue && newest && !earlierOpen && from < 0) {
     return (
       <>
         {queueHead}
         <QueueAnswer text={clean(newest.text)} md={md} />
+        {byApp && outcome && <p className="one-app-note">{clean(outcome.text)}</p>}
+        {afterList}
         {madeList(made.atFoot)}
       </>
     );
@@ -398,8 +409,8 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
     <>
       {queueHead}
       <Thread
-        events={events}
-        omitted={omitted}
+        events={from >= 0 ? events.slice(from) : events}
+        omitted={from >= 0 ? 0 : omitted}
         chat={chat}
         name={teammate?.name ?? THEM}
         // AND WHAT THAT AGENT WAS, on the answers the row has a record for. A
@@ -417,7 +428,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
         code={changed.length && onOpenDoc
           ? { paths: changed, open: (path) => onOpenDoc(changePathFor(item.id), path) }
           : null}
-        tail={(i) => { const rows = made.onTurn.get(i); return rows ? madeList(rows) : null; }}
+        tail={(i) => { const rows = made.onTurn.get(i + Math.max(from, 0)); return rows ? madeList(rows) : null; }}
         {...(chat ? {
           // ONLY IN A CHAT. The chips, the bar on pointing and the quote are
           // drawing A's, and a thread with an agent keeps exactly the screen it
@@ -457,12 +468,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
         thread.host,
       )}
       {answer}
-      {/* What you did after that answer, under it and in order. */}
-      {after.length > 0 && (
-        <div className={`act-after${chat ? ' is-chat' : ''}`}>
-          {after.map((act, i) => <ActLine key={`${act.at}-${i}`} act={act} />)}
-        </div>
-      )}
+      {afterList}
       {/* AND WHAT THE NEWEST TURN FILED, under its own last word. */}
       {madeList(made.atFoot)}
     </>

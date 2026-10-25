@@ -27,6 +27,11 @@ export function stepIn<T extends Keyed>(rows: T[], item: Keyed, dir: 1 | -1): T 
 
 const said = (e: AgentEvent): e is AgentTurn & { kind?: undefined } => e.kind !== 'work';
 
+/** A note the app wrote on the row (the ship queue's "Shipped to main as …"), not an answer to lead with. */
+export function appWrote(outcome: ItemOutcome | null, wrote?: Record<string, { source: string } | undefined>): boolean {
+  return !!outcome && outcome.field === 'note' && wrote?.note?.source === 'system';
+}
+
 /** The newest answer: the one lifted to the foot, or else the last thing said that was not yours. */
 export function newestAnswer(events: AgentEvent[], outcome: ItemOutcome | null): { at: number; text: string } | null {
   if (outcome) return { at: outcome.at, text: outcome.text };
@@ -37,27 +42,27 @@ export function newestAnswer(events: AgentEvent[], outcome: ItemOutcome | null):
   return null;
 }
 
-/** The newest thing you said; on a shared thread a teammate's words are theirs, not yours. */
-export function yourLast(events: AgentEvent[], me: string | null, opening?: { at: number; text: string } | null): { at: number; text: string } | null {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const e = events[i];
-    if (said(e) && e.who === 'you' && (!e.by || e.by === me) && e.text?.trim()) return { at: e.at, text: e.text };
-  }
-  return opening ? { at: opening.at, text: opening.text } : null;
-}
-
-/** Whether your message is the thread's title, or the title was cut from it, so the bar already says it. */
-export function repeatsTitle(text: string, title: string): boolean {
-  const plain = (s: string) => s.replace(/\s+/g, ' ').replace(/(…|\.\.\.)$/, '').trim().toLowerCase();
-  const said = plain(text);
-  const named = plain(title);
-  return !!named && (said === named || (named.length >= 24 && said.startsWith(named)));
-}
-
 /** How many messages sit behind "Show N earlier messages": all but the newest answer. */
 export function earlierCount(events: AgentEvent[], outcome: ItemOutcome | null, opening?: { at: number; text: string } | null): number {
   const messages = events.filter(said).length + (opening ? 1 : 0);
   return outcome ? messages : Math.max(0, messages - (newestAnswer(events, null) ? 1 : 0));
+}
+
+/**
+ * Where the page starts on a thread that has been answered since its newest
+ * answer, by a reply or a pick: at that answer, so the question stays in view
+ * above what was said or picked and the agent's work since. -1 when the answer
+ * is still the newest word, or there is none.
+ */
+export function standsAt(events: AgentEvent[], newest: { at: number } | null): number {
+  if (!newest) return -1;
+  const answered = events.some((e) => e.at > newest.at && (said(e) ? e.who === 'you' : !!e.yours));
+  return answered ? events.findIndex((e) => said(e) && e.who !== 'you' && e.at === newest.at) : -1;
+}
+
+/** How many messages the fold holds above the one the page is drawn from. */
+export function earlierThan(events: AgentEvent[], from: number): number {
+  return events.slice(0, from).filter(said).length;
 }
 
 /** An answer opening with a line that is bold and nothing else wears it as its headline. */
