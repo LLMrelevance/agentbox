@@ -1593,12 +1593,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   const [accountReadings, setAccountReadings] = useState<AccountUsageReading[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const readAccounts = useCallback(async (refresh = false) => {
-    if (refresh) setRefreshing(true);
+    setRefreshing(true);
     try {
       const readings = await api.accountUsage({ refresh });
       setAccountReadings(readings);
       if (readings.length) await load();
-    } finally { if (refresh) setRefreshing(false); }
+    } finally { setRefreshing(false); }
   }, [load]);
   useEffect(() => { if (pane !== 'claude') return; void readAccounts(); }, [pane, readAccounts]);
 
@@ -1762,7 +1762,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
         // Signing in to the cloud from a tile is Claude's alone.
         cloud: !!cloud?.setUp, onCloudSignIn: engine === 'claude' ? onCloudSignIn : undefined,
       });
-      if (engine !== 'codex' || a.limits?.length) return tile;
+      if (a.limits?.length) return tile;
+      if (engine !== 'codex') return refreshing ? { ...tile, none: 'Reading its usage…' } : tile;
       // Codex writes an account's usage down only once it has worked.
       return { ...tile, none: tile.inUse ? 'Codex reports usage as it works' : 'No reading until this account runs' };
     });
