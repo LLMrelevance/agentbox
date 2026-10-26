@@ -1,0 +1,72 @@
+/* Everything else (w-b5f23cff71): the team's cards, the bar over the open one, its space. */
+.ev-page { display: flex; flex-direction: column; min-height: 0; }
+.list-pane.ev-open { display: flex; flex-direction: column; overflow: hidden; }
+.ev-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+
+.ev-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; padding: 14px var(--row-r, 24px) 4px var(--text-x, 32px); flex: none; }
+.ev-card { box-sizing: border-box; min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 14px; align-items: center; padding: 13px 15px; background: var(--wash); border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; position: relative; user-select: none; -webkit-user-select: none; }
+.ev-card:hover { border-color: var(--line-strong); }
+.ev-card.on { background: var(--wash-strong); border-color: var(--text-faint); }
+/* A chat is a place, not a member: no fill, its people's faces, a speech mark by its name. */
+.ev-card.chat { background: none; border-style: solid; border-color: var(--line-strong); }
+.ev-card.chat.on { background: var(--wash); border-color: var(--text-faint); }
+.ev-card.drop-before::before, .ev-card.drop-after::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 2px; background: var(--text-dim); }
+.ev-card.drop-before::before { left: -7px; }
+.ev-card.drop-after::after { right: -7px; }
+.ev-strip.compact { grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 8px; }
+.ev-strip.compact .ev-card { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
+.ev-strip.compact .ev-n { flex: 1; min-width: 0; font-size: 13.5px; }
+.ev-c { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 11px var(--mono); color: var(--text-dim); }
+.ev-c .live-mark { width: 11px; height: 11px; gap: 1px; color: var(--text); }
+.ev-card.ev-add { background: none; border-style: dashed; text-align: left; font: inherit; color: inherit; }
+.ev-card.ev-add.on { border-color: var(--text-faint); }
+.ev-t { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.ev-n { display: flex; align-items: baseline; gap: 0; min-width: 0; font-size: 14px; line-height: 19px; color: var(--text); }
+.ev-n .rm-quiet { margin-left: 8px; }
+.ev-role { margin-left: 8px; color: var(--text-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-bubble { flex: none; margin-right: 7px; color: var(--text-dim); position: relative; top: 1px; }
+.ev-on { font-size: 13px; line-height: 18px; color: var(--text-dim); }
+.ev-on.idle { color: var(--text-faint); }
+.ev-t .rm-ag { margin-top: 2px; }
+.ev-new { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text-dim); }
+
+.ev-ai { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px dashed var(--line-strong); color: var(--text-dim); font-family: var(--mono); }
+.ev-hash { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--line-strong); color: var(--text-dim); font-family: var(--mono); }
+.ev-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; flex: none; }
+.ev-mosaic.n1 { grid-template-columns: 1fr; }
+.ev-mosaic .rm-pic { width: 100% !important; height: 100% !important; }
+.ev-mosaic .rm-ini { font-size: 8px !important; }
+
+.ev-bar { display: flex; align-items: center; gap: 12px; margin: 18px var(--row-r, 24px) 0 var(--text-x, 32px); height: 44px; box-sizing: border-box; border-bottom: 1px solid var(--line); flex: none; }
+.ev-bar .rm-pic, .ev-bar .ev-ai, .ev-bar .ev-hash, .ev-bar .ev-mosaic { flex: none; }
+.ev-bn { font-size: 15px; color: var(--text); white-space: nowrap; }
+.ev-bn em { font-style: normal; color: var(--text-faint); margin-left: 8px; }
+.ev-bar .tm-tabs { margin-left: 22px; align-self: stretch; }
+.ev-bar .tm-tab { height: 43px; line-height: 43px; }
+.ev-slot { display: flex; align-items: center; min-width: 0; margin-left: auto; }
+/* An open conversation names its person; the bar already did. */
+.ev-slot .cx-person { display: none; }
+.ev-right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
+.ev-slot + .ev-right { margin-left: 16px; }
+.ev-right .live-mark { width: 13px; height: 13px; gap: 1.5px; color: var(--text); }
+
+.ev-space { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ev-space > .gr-page, .ev-space > .focus-pane { flex: 1; min-height: 0; }
+.ev-space .tq-chats .tq-lines, .ev-space .gr-chat .rm-full .rm-chat-list { padding-left: var(--text-x, 32px); }
+.ev-space .rm-compose.tq-compose { margin-left: var(--text-x, 32px); }
+/* A person's conversation sits on the bar's edge, not beside the Chats list it used to have. */
+.ev-open .cx-frame-main .focus, .ev-open .cx-frame-main .focus-dock-inner { margin-left: calc(var(--text-x, 32px) - 32px); }
+.ev-space .gr-side.tq-details { background: none; }
+.ev-rows { padding-top: 4px; }
+/* Inside a teammate's own space every row is theirs; the name on each says nothing. */
+.ev-rows .tq-from { display: none; }
+.ev-empty { margin: 22px var(--row-r, 24px) 0 var(--text-x, 32px); font-size: 14px; color: var(--text-faint); }
+.ev-empty .rm-btn { margin-left: 12px; }
+
+/* Needs you's corner: one face per member, its agents on its corner. */
+.ev-corner { display: flex; align-items: center; gap: 16px; margin-left: auto; margin-right: 10px; }
+.ev-cgap { width: 6px; }
+.ev-cf { position: relative; display: inline-flex; padding: 0; background: none; border: 0; cursor: pointer; }
+.ev-cf:hover .rm-pic, .ev-cf:hover .ev-ai { border-color: var(--text-dim); }
+.ev-cn { position: absolute; right: -8px; bottom: -6px; box-sizing: border-box; min-width: 15px; height: 13px; padding: 0 3px; font: 9px/11px var(--mono); text-align: center; color: var(--text-dim); background: var(--bg); border: 1px solid var(--line-strong); }
+.th-bar .ev-corner + .th-search { margin-left: 0; }

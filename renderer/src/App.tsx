@@ -112,6 +112,8 @@ import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
+import { AgentsLine, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip } from './team/everything/TeamStrip';
+import { buildMembers, mateRunsOf, orderMembers, personCardsOf, readOrder, writeOrder } from './team/everything/members';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.mjs';
 import { UsagePill } from './components/UsagePill';
@@ -3487,7 +3489,13 @@ export default function App() {
   }) : []), [roomsOn, items, snap?.products, snap?.team?.me?.id, snap?.team?.people, inbox, seenAt]);
   // A person's chat opened from the Chats list, drawn inside Chats with the list beside it.
   const [chatsDirect, setChatsDirect] = useState<string | null>(null);
+  // EVERYTHING ELSE (w-b5f23cff71). With AI teammates or Rooms on, the inbox
+  // is two tabs: Needs you, and Everything else, where your team sits as cards
+  // over whichever one you opened. The Chats page and its sidebar row are gone;
+  // their chats open under the cards.
+  const teamMode = !!snap?.teammates || roomsOn;
   const roomsUi = useRooms({
+    inline: teamMode,
     rooms: snap?.team?.rooms, on: !!snap?.alpha?.rooms, meId: snap?.team?.me?.id ?? null,
     myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, now: Date.now(), toast: showToast,
     team: snap?.team?.people, directs,
@@ -3532,7 +3540,7 @@ export default function App() {
   const teammatesShown = !!teammatesUi.open && !roomShown && !settingsOpen && !teamShown && !focused && !focusedRepeat && search === null;
   // With teammates on, Groups is Chats: your AI teammates, people and groups
   // in one list, and the sidebar's row opens the chat you had open last.
-  const chatsValue: ChatsValue | null = teammatesUi.live ? {
+  const chatsValue: ChatsValue | null = teammatesUi.live || teamMode ? {
     teammates: teammatesUi.list, groups: roomsUi.live ? roomsUi.groups : [], now,
     onTeammate: (id) => teammatesUi.go(id), onNew: teammatesUi.onNew, onGroup: (key) => roomsUi.pickGroup(key),
   } : null;
@@ -3544,6 +3552,75 @@ export default function App() {
     if (last && !mate && roomsUi.groups.some((g) => g.key === last)) { roomsUi.pickGroup(last); return; }
     teammatesUi.go(teammatesUi.list[0]?.id ?? 'new');
   };
+
+  const [evOrder, setEvOrder] = useState<string[] | null>(() => readOrder());
+  // A person, or an AI teammate's Agents, open under the cards; null is you.
+  // Chats, rooms and a teammate's Messages are known from the page they open.
+  const [evPick, setEvPick] = useState<string | null>(null);
+  const [evTab, setEvTab] = useState<'messages' | 'agents'>('messages');
+  const teamRoom = roomsUi.live ? (snap?.team?.rooms?.rooms ?? []).find((r) => r.teamId) ?? null : null;
+  // A teammate's one-to-one chat in Groups, which their card opens.
+  const personChats = useMemo(() => {
+    const out = new Map<string, string>();
+    if (!roomsUi.live || !team) return out;
+    for (const r of snap?.team?.rooms?.rooms ?? []) {
+      const others = r.wall.filter((c) => !c.me);
+      if (r.kind === 'group' && r.members === 2 && others.length === 1 && team.byId.has(others[0].id) && !out.has(others[0].id)) out.set(others[0].id, `room:${r.id}`);
+    }
+    return out;
+  }, [roomsUi.live, team, snap?.team?.rooms?.rooms]);
+  const members = useMemo(() => {
+    if (!teamMode) return [];
+    const mateAgents = new Map<string, number>();
+    let mine = 0;
+    let myNow: string | null = null;
+    for (const r of runningRows) {
+      const item = items.find((i) => i.id === r.itemId && i.product === r.product);
+      const mate = item ? teammateIdOf(item) : null;
+      if (mate) mateAgents.set(mate, (mateAgents.get(mate) ?? 0) + 1);
+      else { mine += 1; if (!myNow && item) myNow = rowTitle(item); }
+    }
+    const me = team?.byId.get(team.me ?? '') ?? null;
+    return orderMembers(buildMembers({
+      me: me ? { id: me.id, name: me.name, avatarUrl: me.avatarUrl } : null,
+      people: team?.state.people ?? [], wall: teamRoom?.wall ?? null, cards,
+      teammates: teammatesUi.list, mateAgents,
+      chats: roomsUi.live ? roomsUi.groups : [], personChats, teamRoomId: teamRoom?.id ?? null,
+      myAgents: mine, myNow,
+    }), evOrder);
+  }, [teamMode, runningRows, items, team, teamRoom, cards, teammatesUi.list, roomsUi.live, roomsUi.groups, personChats, evOrder]);
+  const directWith = (personId: string) => directs.find((d) => d.people.length === 1 && d.people[0] === personId) ?? null;
+  // A card opens its space under the cards: your threads, a chat, a person or
+  // an AI teammate on Messages or Agents.
+  const pickMember = (key: string, tab: 'messages' | 'agents' = 'messages') => {
+    setEvTab(tab);
+    setSelected(0);
+    setMultiSel(new Set());
+    if (view === 'inbox') setView('progress');
+    if (key === 'me') { roomsUi.leave(); teammatesUi.leave(); setEvPick(null); setFocused(null); return; }
+    if (key.startsWith('mate:') && tab === 'messages') { setEvPick(null); teammatesUi.go(key.slice('mate:'.length)); return; }
+    if (key.startsWith('room:')) { setEvPick(null); teammatesUi.leave(); roomsUi.open(key.slice('room:'.length)); return; }
+    roomsUi.leave(); teammatesUi.leave();
+    if (key.startsWith('direct:')) {
+      setEvPick(null);
+      const item = items.find((i) => i.id === key.slice('direct:'.length));
+      if (item) { setChatsDirect(item.id); setFocused(item); markSeen(item); }
+      return;
+    }
+    setEvPick(key);
+    // A person's Messages: your direct record with them, else your chat with them in Groups.
+    const person = key.startsWith('person:') && tab === 'messages' ? key.slice('person:'.length) : null;
+    const talk = person ? directWith(person) : null;
+    const chat = person && !talk ? personChats.get(person) : undefined;
+    if (talk) { setChatsDirect(talk.id); setFocused(talk.item); markSeen(talk.item); }
+    else if (chat) roomsUi.open(chat.slice('room:'.length));
+    else setFocused(null);
+  };
+  const goNeedsYou = () => {
+    roomsUi.leave(); teammatesUi.leave(); setEvPick(null); setFocused(null);
+    setView('inbox'); setSelected(0); setMultiSel(new Set());
+  };
+  const reorderMembers = (keys: string[]) => { setEvOrder(keys); writeOrder(keys); };
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -5118,6 +5195,8 @@ export default function App() {
         if (e.key === 'Escape') { e.preventDefault(); teammatesUi.back(); }
         return;
       }
+      // A person's space, or a teammate's Agents, under the cards: Escape goes back to yours.
+      if (evPick && e.key === 'Escape' && !focused && !roomShown && !modal && !inInput) { e.preventDefault(); setEvPick(null); setEvTab('messages'); return; }
       // G FINDS A GROUP from any page, as ⌘K finds a command.
       if ((e.key === 'g' || e.key === 'G') && roomsUi.findGroup && !roomsUi.dialogOpen && !modal && !inInput && !e.metaKey && !e.ctrlKey && !e.altKey) {
         e.preventDefault(); roomsUi.findGroup();
@@ -5179,6 +5258,8 @@ export default function App() {
         setHoveredId(null);
         (document.activeElement as HTMLElement | null)?.blur?.();
         setMultiSel(new Set());
+        // With a team on, the two tabs: Needs you and Everything else.
+        if (teamMode) { if (view === 'inbox' && !evPick) pickMember('me'); else goNeedsYou(); return; }
         setView(nextTab(stateTabOrder, view, e.shiftKey) as View);
         setSelected(0);
         return;
@@ -5494,7 +5575,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow, clearSlot]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow, clearSlot, teamMode, evPick, pickMember, goNeedsYou]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -5984,7 +6065,54 @@ export default function App() {
   // A teammate's direct record is one of your groups, so Groups is the page it is on.
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
   const inChats = !!focused && directOpen && !!chatsValue && focused.id === chatsDirect;
-  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); };
+  const inTeamChat = teamMode && inChats;
+  const mateOpen = teammatesShown ? teammatesUi.list.find((t) => teammatesUi.open === t.id || !!teammatesUi.open?.endsWith(`:${t.id}`))?.id ?? null : null;
+  const talkPeople = inTeamChat ? directs.find((d) => d.id === focused!.id)?.people ?? [] : [];
+  const roomPerson = roomShown ? [...personChats].find(([, key]) => key === `room:${roomsUi.openId}`)?.[0] ?? null : null;
+  const evKey = !teamMode ? null
+    : roomShown ? (roomPerson ? `person:${roomPerson}` : members.some((m) => m.key === `room:${roomsUi.openId}`) ? `room:${roomsUi.openId}` : null)
+    : teammatesShown ? (mateOpen ? `mate:${mateOpen}` : 'new')
+    : inTeamChat ? (talkPeople.length === 1 ? `person:${talkPeople[0]}` : `direct:${focused!.id}`)
+    : evPick ?? 'me';
+  const evOn = teamMode && search === null && !settingsOpen && !teamShown && !focusedRepeat
+    && (inTeamChat || (!focused && (teammatesShown || (roomShown ? evKey !== null : view !== 'inbox' || !!evPick))))
+    && !(evKey === 'me' && inboxDisplay.view === 'board');
+  const evMember = evOn ? members.find((m) => m.key === evKey) ?? null : null;
+  // A chat fills the space and keeps its box at the foot; a list scrolls with the cards.
+  const evFill = evOn && (teammatesShown || roomShown || inTeamChat);
+  const teamTabs = teamMode ? {
+    on: evOn, onNeeds: goNeedsYou, onEverything: () => pickMember('me'),
+    corner: evOn ? null : <CornerFaces members={members} onPick={(key) => pickMember(key)} />,
+  } : null;
+  const dayStart = new Date(now).setHours(0, 0, 0, 0);
+  const evItems = evMember?.kind === 'mate' ? (mateRunsOf(items, evMember.key.slice('mate:'.length), dayStart)) : [];
+  const evCards = evMember?.kind === 'person' ? personCardsOf(cards, evMember.key.slice('person:'.length), dayStart) : [];
+  const evBar = !evMember ? null
+    : evMember.kind === 'me' ? <SpaceBar m={evMember} onTab={(v) => { setView(v as View); setSelected(0); setMultiSel(new Set()); }}
+      tabs={INBOX_TABS.filter((t) => t.view !== 'inbox').map((t) => ({ id: t.view, label: t.label, on: view === t.view,
+        count: t.view === 'progress' ? shownCount(progressTab) : t.view === 'snoozed' ? shownCount(snoozed) : undefined }))} />
+    : evMember.kind === 'chat' ? <SpaceBar m={evMember} tabs={[]} slot={inTeamChat ? setTaskHeader : undefined} />
+    : <SpaceBar m={evMember} onTab={(t) => pickMember(evMember.key, t as 'messages' | 'agents')} slot={inTeamChat ? setTaskHeader : undefined}
+      tabs={[{ id: 'messages', label: 'Messages', on: evTab === 'messages' }, { id: 'agents', label: 'Agents', count: evMember.agents ?? undefined, on: evTab === 'agents' }]}
+      right={<>{teammatesShown ? teammatesUi.right : null}<AgentsLine n={evMember.agents} /></>} />;
+  // The tabs over a chat that is open under the cards, the same row the list draws.
+  const needsYouCount = { inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length };
+  const evTabsRow = teamTabs ? <StateTabs view={view} counts={needsYouCount}
+    needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
+  const evTop = evOn ? <>
+    <TeamStrip members={members} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
+      onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'} compact={evFill} />
+    {evBar}
+  </> : null;
+  // A person or an AI teammate that has no page of its own to open: its threads, or the way to start talking.
+  const evSpace = !evMember || evFill || evMember.kind === 'me' || evMember.kind === 'chat' ? null
+    : evTab === 'agents'
+      ? (evMember.kind === 'mate'
+        ? <MateThreads items={evItems} products={snap?.products ?? []} now={now} onOpen={(item) => { setFocused(item); markSeen(item); }} />
+        : <PersonThreads cards={evCards} name={evMember.name.split(' ')[0]} now={now} onOpen={openTeammateCard} />)
+      : <p className="ev-empty">No messages with {evMember.name.split(' ')[0]} yet.
+        <button type="button" className="rm-btn" onClick={() => { setComposeInitial({ to: evMember.key.slice(evMember.key.indexOf(':') + 1) }); setModal('compose'); }}>Message {evMember.name.split(' ')[0]}</button></p>;
+  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };
   // `asking` is on the class list for the same reason the composer is: the
   // approval card stands in the corner the toast stands in and under it, so the
   // toast covered Allow and Deny. Read off the same stage the card is drawn
@@ -6000,7 +6128,7 @@ export default function App() {
     <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
     <TeammatesContext.Provider value={teammatesById}>
-    <ChatsContext.Provider value={chatsValue}>
+    <ChatsContext.Provider value={teamMode ? null : chatsValue}>
     <FreeAgentContext.Provider value={freeWaitIds}>
     <CloudOfferContext.Provider value={cloudOfferNow ? { offer: cloudOfferNow, onGo: (go) => void onCloudGo(go) } : null}>
     <div data-design-toolbar={toolbarExploration ? designToolbar : 'corner'} data-preview-treatment={previewTreatment} data-reading-width={readingWidth} data-artifact-layout={openDoc ? artifactView : undefined} data-chrome={fullScreenDoc ? (chromeUp ? 'up' : 'away') : undefined} className={`app workspace-layout${narrowSidebar ? ` gt-rail gt-inset gt-sumleft${railOpen ? ' gt-rail-open' : ''}` : ''}${focused && !settingsOpen && !inChats ? ' workspace-task' : ''}${settingsOpen ? ' workspace-settings' : ''}${teamShown ? ' workspace-team' : ''}${sideFolded ? ' workspace-collapsed' : ''}${panelShown ? ' panel-up' : ''}${openDoc ? ' doc-open' : ''}${inPractice ? ' banded' : ''}${modal === 'reply' ? ' composing' : ''}${cardOnScreen ? ' asking' : ''}${(queueSpot || onePage) && focused ? ' one-at-a-time' : ''}`}>
@@ -6056,9 +6184,9 @@ export default function App() {
         onAccount={() => { setTeamOpen(false); setOpenCard(null); closeSearch(); setFocused(null); setInviteFocus(false); setSettingsPane('team'); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }}
         onSignOut={() => { void api.teamSignOut().then(() => refresh()); }}
         onTeam={() => { setSettingsOpen(false); setSettingsPane(null); closeSearch(); setFocused(null); setOpenCard(null); setTeamOpen(true); }} onSettings={() => { setTeamOpen(false); setSettingsPane(null); setSettingsVisit((n) => n + 1); setSettingsOpen(true); }} inboxCount={inbox.length + roomsUi.mentions.length} scheduledCount={scheduledCount} view={view} collapsed={sideFolded} onSearch={openSearch} onCompose={() => setModal('compose')} onView={openView}
-        onTeammatesPage={teammatesShown} rail={narrowSidebar} onHover={setRailOpen} onGroupsPage={roomShown || directOpen}
+        onTeammatesPage={teammatesShown && !teamMode} rail={narrowSidebar} onHover={setRailOpen} onGroupsPage={(roomShown || directOpen) && !teamMode}
         /* Without Groups the one row under Threads is Chats, and only while there are teammates. */
-        groups={roomsUi.live ? roomsUi.sidebarGroups(roomShown || directOpen || teammatesShown, teammatesUi.live ? openChats : undefined) : teammatesUi.rail(teammatesShown)} />
+        groups={teamMode ? null : roomsUi.live ? roomsUi.sidebarGroups(roomShown || directOpen || teammatesShown, teammatesUi.live ? openChats : undefined) : teammatesUi.rail(teammatesShown)} />
       {/* THE REACH (w-5dcff78971). The corner is transparent and it is the
           only part of our own document lying over the file, so a pointer
           brought up there wakes the marks that a pointer moving across the
@@ -6129,7 +6257,7 @@ export default function App() {
               <CrossIcon />
             </button>
           </nav>
-        ) : (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? (inChats ? <><div className="gc-head"><div className="gc-head-col"><span className="workspace-title gc-col-title">Chats</span></div><div className="workspace-task-header cx-task-header" ref={setTaskHeader} /></div><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : teammatesShown ? teammatesUi.title : roomsUi.live && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>))}
+        ) : (settingsOpen ? <div className="workspace-page-heading"><button className="workspace-back" aria-label="Back to previous page" title="Back to previous page (Esc)" onClick={() => { setSettingsOpen(false); setSettingsPane(null); }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m14 6-6 6 6 6"/></svg></button><h1 className="workspace-title">{settingsPage === 'projects' ? 'Projects' : settingsPage === 'team' ? 'Team' : 'Settings'}</h1></div> : focused ? (inTeamChat ? <><h1 className="workspace-title">{roomsUi.live ? 'Inbox' : 'Threads'}</h1><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : inChats ? <><div className="gc-head"><div className="gc-head-col"><span className="workspace-title gc-col-title">Chats</span></div><div className="workspace-task-header cx-task-header" ref={setTaskHeader} /></div><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (teamShown ? <h1 className="workspace-title">{openCard ? 'Threads' : 'Team'}</h1> : evOn ? <h1 className="workspace-title">{roomsUi.live ? 'Inbox' : 'Threads'}</h1> : teammatesShown ? teammatesUi.title : roomsUi.live && !roomShown ? <h1 className="workspace-title">Inbox</h1> : roomShown && roomsUi.heading ? roomsUi.heading.title : <h1 className="workspace-title">Threads</h1>))}
         {/* THE PLUS, THE COMMAND MARK AND THE COG STEP OFF WHILE SHE IS
             SEARCHING, and that is the half of the chosen design that is not the
             cross. It is forced, not chosen: .topbar and .body carry the same 22px
@@ -6180,7 +6308,7 @@ export default function App() {
               Not over a teammate's card or the team's setup. Search is drawn
               here only on the board; on the list it ends the tabs row
               (w-3c51d02de5). */}
-          {!focused && !settingsOpen && !teamShown && (teammatesShown ? teammatesUi.right : roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
+          {!focused && !settingsOpen && !teamShown && (teammatesShown && !evOn ? teammatesUi.right : roomShown && roomsUi.heading?.right !== undefined ? roomsUi.heading.right : (
             <HeaderActions
               page="inbox"
               display={inboxDisplay}
@@ -6199,7 +6327,7 @@ export default function App() {
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
               onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
-              filters={!roomShown}
+              filters={!roomShown && (!evOn || evKey === 'me')}
               view={roomShown ? roomsUi.viewButton : null}
             />
           ))}
@@ -6298,9 +6426,9 @@ export default function App() {
         </div>
       )}
       <div ref={setArtifactBody} hidden={settingsOpen || teamShown} className="body">
-            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}`}>
+            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}${evFill ? ' ev-open' : ''}`}>
               {noPlan && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
-              {teammatesShown ? teammatesUi.page : focusedRepeat ? (
+              {teammatesShown ? (evOn ? <>{evTabsRow}{evTop}<div className="ev-space">{teammatesUi.page}</div></> : teammatesUi.page) : focusedRepeat ? (
                 <RepeatFocus
                   rule={focusedRepeat}
                   items={items}
@@ -6328,6 +6456,7 @@ export default function App() {
                 />
               ) : focused ? (
                 <TicketItems.Provider value={items}>
+                {inTeamChat && <>{evTabsRow}{evTop}</>}
                 <ChatsFrame current={inChats ? `direct:${focused.id}` : null}>
                 <Focus
                   // A run of a repeating task carries its rule into the
@@ -6505,7 +6634,7 @@ export default function App() {
                   stoppable={!walking && stoppableNow(focused)}
                 />
                 {/* Who is in it, down the right, as a group lists them. */}
-                {inChats && roomsUi.live && roomsUi.chatPeople(directs.find((d) => d.id === focused.id)?.people ?? [])}
+                {inChats && roomsUi.live && !(inTeamChat && talkPeople.length === 1) && roomsUi.chatPeople(directs.find((d) => d.id === focused.id)?.people ?? [])}
                 </ChatsFrame>
                 </TicketItems.Provider>
               ) : (
@@ -6542,9 +6671,11 @@ export default function App() {
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
                     onSearch={openSearch}
+                    team={teamTabs}
                   />
                 )}
-                {roomShown ? roomsUi.page : <>
+                {evTop}
+                {roomShown ? (evOn ? <div className="ev-space">{roomsUi.page}</div> : roomsUi.page) : evSpace ? evSpace : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
                 {clearMoves || (emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
