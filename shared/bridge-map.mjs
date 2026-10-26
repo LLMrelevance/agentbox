@@ -15,6 +15,9 @@ export const REQUEST_CHANNELS = {
   terminal: 'zero:terminal',
   agentUpdate: 'zero:agent-update',
   snapshot: 'zero:snapshot',
+  // Which thread is on screen. The one thing that reads it is which approval
+  // card is in front (shared/which-card-is-in-front.mjs).
+  looking: 'zero:looking',
   refreshUsage: 'zero:refresh-usage',
   accountUsage: 'zero:account-usage',
   // Whether a screen reader is running, which is the terminal pane's question

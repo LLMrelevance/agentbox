@@ -73,6 +73,7 @@ import {
   type SentDraft, type ComposeDraft,
 } from './drafts';
 import { approvalStage } from './approval-stage';
+import { roomForTheCard } from './room-for-the-card';
 import { approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
 // one it took went. Only the second is raised from here, because by the time
@@ -3052,6 +3053,18 @@ export default function App() {
   useEffect(() => {
     if (!answered) frontApproval.current = snap?.approvals?.[0] ?? null;
   }, [snap?.approvals, answered]);
+  // The list scrolls clear of the card while it is up (./room-for-the-card).
+  const cardRoomUndo = useRef<(() => void) | null>(null);
+  const cardRoom = useCallback((el: HTMLDivElement | null) => {
+    cardRoomUndo.current?.();
+    cardRoomUndo.current = el ? roomForTheCard(el) : null;
+  }, []);
+  // AND THE OPEN THREAD'S OWN CARD IS THE ONE IN FRONT. The order is decided in
+  // the main process, because ⌘Y is answered there, ahead of this page; all
+  // this says is which thread is being read (shared/which-card-is-in-front.mjs).
+  useEffect(() => {
+    void api.lookingAt(focused ? { product: focused.product, id: focused.id } : null);
+  }, [focused?.product, focused?.id]);
 
   // A saved draft is a conversation in progress: opening the item opens the
   // reply dock with it, instead of the draft hiding behind R (drafts already
@@ -7468,7 +7481,7 @@ export default function App() {
         // first thing she reads. approval-card.ts is the only copy.
         const reads = approvalReads(a.input, a.tool);
         return (
-          <div className="approvals">
+          <div className="approvals" ref={cardRoom}>
             <div className="approval-stack">
               {waiting > 1 && <div className="approval-ghost g2" />}
               {waiting > 0 && <div className="approval-ghost g1" />}

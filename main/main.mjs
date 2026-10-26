@@ -329,6 +329,12 @@ async function createWindow() {
   // What a reply may do is kept in her own folder, not that home, which every
   // worker is granted (main/answer-modes.mjs).
   keepAnswerModesIn({ userDir, storeRoot: config.storeRoot });
+  // THE CARDS THE LAST RUN LEFT ARE NOT CARDS. Quitting takes every worker with
+  // it, so an approval still in the spool at this moment has nothing waiting on
+  // it and no way to be answered: the key that makes an answer the user's is
+  // made fresh at every start. Before the supervisor, so nothing of this run's
+  // can be caught by it.
+  approvals.dropCardsFromTheLastRun(config.storeRoot);
 
   // Menu needs the config (approval hotkeys answer the oldest pending card),
   // so it installs here rather than at whenReady. The spool watcher in ipc
@@ -355,10 +361,15 @@ async function createWindow() {
     console.warn(`zero: an approval (${id}) was answered ${allow ? 'yes' : 'no'} before the app had finished starting; nothing was decided`);
     return false;
   };
+  // THE CARD IN FRONT, which is the open thread's own and not simply the oldest
+  // (shared/which-card-is-in-front.mjs). Late-bound beside the door above,
+  // because only the IPC surface knows which thread is on screen, and before it
+  // exists the spool's own order is the whole of what is known.
+  let cardInFront = () => approvals.listPending(config.storeRoot)[0] ?? null;
   installMenu({
     onApproval: (allow) => {
-      const oldest = approvals.listPending(config.storeRoot)[0];
-      if (oldest) answerApproval(oldest.id, allow);
+      const front = cardInFront();
+      if (front) answerApproval(front.id, allow);
     },
     onReload: reloadRenderer,
     // A click in the View menu names the window it was chosen from, so it zooms
@@ -829,6 +840,7 @@ async function createWindow() {
   // See the `installMenu` call above for what writing the file instead did to a
   // Codex card.
   answerApproval = ipc.answerApproval;
+  cardInFront = () => ipc.pendingApprovals()[0] ?? null;
   // What the window answers itself (badge, boot info) gets the plain stand-ins
   // a browser tab gets.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
@@ -955,12 +967,12 @@ async function createWindow() {
       return;
     }
     if (key !== 'y' && key !== 'n') return;
-    const oldest = approvals.listPending(config.storeRoot)[0];
-    if (!oldest) return;
+    const front = cardInFront();
+    if (!front) return;
     // Through the ipc layer's own door, so the renderer is told what was
     // decided and can acknowledge it. Answering the file directly from here is
     // what made the chord feel like nothing had happened (2026-08-06).
-    ipc.answerApproval(oldest.id, key === 'y');
+    ipc.answerApproval(front.id, key === 'y');
     event.preventDefault(); // the page never sees the chord; no double-answer
   });
 

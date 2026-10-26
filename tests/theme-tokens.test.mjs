@@ -235,6 +235,10 @@ describe('no raw colour outside the token blocks', () => {
       // ../renderer/src/scroll-gutter.ts so the reply box centres in the same
       // width as the words. Geometry only the running window knows.
       '--scroll-gutter',
+      // How tall the approval card is, written onto the page by
+      // ../renderer/src/room-for-the-card.ts so the list ends above it.
+      // Geometry only the running window knows.
+      '--approval-room',
       '--did-mark', '--did-gap', '--did-hang']);
     expect([...used].filter((t) => !light.has(t) && !local.has(t))).toEqual([]);
   });
