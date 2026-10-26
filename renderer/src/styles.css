@@ -6719,6 +6719,9 @@ button.cs-row:hover .cs-row-go { color: var(--text); }
   animation: cs-spin .8s linear infinite;
 }
 @keyframes cs-spin { to { transform: rotate(360deg); } }
+/* The one line this step has sits in the middle, with nothing under it to
+   leave room for. */
+.cs-loading .fr-lede { margin: 0; }
 .ps-acts .cs-go { display: inline-flex; align-items: center; gap: 10px; border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .ps-acts .cs-go:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
 

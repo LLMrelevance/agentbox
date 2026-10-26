@@ -23,6 +23,10 @@
 :root[data-theme="light"] .si-form input { background: var(--bg); }
 .si-form input:hover { border-color: var(--text-faint); }
 .si-form input:focus { border-color: var(--accent); }
+/* The field the button is waiting on, in the colour the message under it
+   is written in; focus takes it back to the accent as soon as it is typed in. */
+.si-form label.si-missing > span:first-child { color: #e8836b; }
+.si-form label.si-missing input { border-color: #e8836b; }
 /* Show sits inside the password field, right where the dots end (F-63). */
 .si-pw { position: relative; display: block; }
 .si-pw input { width: 100%; box-sizing: border-box; padding-right: 56px; }
