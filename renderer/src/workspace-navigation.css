@@ -1019,28 +1019,16 @@ body {
     linear-gradient(var(--skin-tick), var(--skin-tick)) right bottom / 1px 10px no-repeat;
 }
 :root[data-skin="ember-grid"] .modal { background: var(--bg-raised); border-color: var(--line-strong); }
-:root[data-skin="ember-grid"] .modal.palette { background: rgba(38, 36, 34, .97); border-color: rgba(255, 255, 255, .08); }
+/* Solid: at .97 a thread's text read through the box behind its rows. */
+:root[data-skin="ember-grid"] .modal.palette { background: rgb(38, 36, 34); border-color: rgba(255, 255, 255, .08); }
 :root[data-skin="ember-grid"] .set-title { font-weight: 400; letter-spacing: -0.035em; }
 
-/* INBOX ZERO, the film's "0 terminals opened" card, made more visually
-   pleasing in round 3. The figure is the
-   film's 400 weight instead of the app's 200, the line under it is the film's
-   spaced mono capitals, and the brand's 24 rays sit behind the figure in the
-   one orange (--skin-rays). The four margins crop the box to the printed zero
-   and are READINGS for Geist 400 at 200px, not choices: ink ascent 145.2,
-   descent 3.2, side bearings 10 each, off canvas measureText in the built app.
-   The rays centre on the figure, which is the first 148.4px of the column. */
-:root[data-skin="ember-grid"] .idle-zero-col { position: relative; isolation: isolate; }
-:root[data-skin="ember-grid"] .idle-zero-col::before {
-  content: ''; position: absolute; z-index: -1; pointer-events: none;
-  /* SMALLER AND FAINTER (w-ec62ab6b38, 2026-09-28), because the rays were too
-     much for the inbox zero screen. 980px and full strength
-     reached the window's edges; 620px at 45% keeps the mark round the figure
-     and leaves the rest of the page quiet. */
-  left: 50%; top: 74.2px; width: 620px; height: 620px; transform: translate(-50%, -50%);
-  background: var(--skin-rays) center / contain no-repeat;
-  opacity: 0.45;
-}
+/* INBOX ZERO, the film's "0 terminals opened" card. The figure is the film's
+   400 weight instead of the app's 200 and the line under it is the film's
+   spaced mono capitals. Nothing is drawn behind the figure. The four margins
+   crop the box to the printed zero and are READINGS for Geist 400 at 200px,
+   not choices: ink ascent 145.2, descent 3.2, side bearings 10 each, off
+   canvas measureText in the built app. */
 :root[data-skin="ember-grid"] .idle-zero { font-weight: 400; margin: -25.8px -10px -25.8px -10px; }
 :root[data-skin="ember-grid"] .idle-zero-say { color: var(--text-dim); }
 :root[data-skin="ember-grid"] .idle-zero-col .idle-field { margin-top: 36px; }

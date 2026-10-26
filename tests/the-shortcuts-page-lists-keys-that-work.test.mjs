@@ -112,7 +112,7 @@ const HANDLED = {
   // The arrows walk the options, and Enter sends the one showing.
   '⌘Y': [
     [mainProc, "if (key !== 'y' && key !== 'n') return;"],
-    [mainProc, "ipc.answerApproval(oldest.id, key === 'y');"],
+    [mainProc, "ipc.answerApproval(front.id, key === 'y');"],
   ],
   '⌘N': [[mainProc, "if (key !== 'y' && key !== 'n') return;"]],
   // ⌘J shows and hides the open task's terminal (w-ef92663cb1). It sits ABOVE

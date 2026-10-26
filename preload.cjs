@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('zero', {
   terminal: (payload) => ipcRenderer.invoke('zero:terminal', payload),
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
+  // Which thread is on screen, so the approval card in front is its own and
+  // ⌘Y answers the card being read (shared/which-card-is-in-front.mjs).
+  looking: (payload) => ipcRenderer.invoke('zero:looking', payload),
   refreshUsage: (p) => ipcRenderer.invoke('zero:refresh-usage', p),
   accountUsage: (payload) => ipcRenderer.invoke('zero:account-usage', payload),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
