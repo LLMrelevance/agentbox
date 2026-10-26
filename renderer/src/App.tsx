@@ -3623,6 +3623,8 @@ export default function App() {
       setFocused(item);
       markSeen(item);
     },
+    tabOf: (item) => tabOfState(stateOfMine(item)),
+    onOpenList: (v) => openView(v),
     onChanged: () => { void refresh(); },
   });
   // A group opened from anywhere takes the page from a teammate.

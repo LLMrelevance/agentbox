@@ -30,14 +30,15 @@ describe('a thread a teammate sent you, in its chat', () => {
   it('is drawn from the thread itself, which the app hands the page', () => {
     expect(read('renderer/src/App.tsx')).toMatch(/const teammatesUi = useTeammates\(\{\s*items,/);
     expect(read('renderer/src/teammates/useTeammates.tsx')).toMatch(/<TeammatesPage [^>]*items=\{items\}/);
-    expect(card).toMatch(/const item = items\.find\(\(i\) => i\.id === r\.item && i\.product === r\.product\) \?\? null;/);
+    expect(card).toMatch(/item: items\.find\(\(i\) => i\.id === r\.item && i\.product === r\.product\) \?\? null/);
   });
 
   // Two threads sent one after another drew as two lists with a gap between.
-  it('joins threads sent one after another into one list, and leaves out whose they are in its own chat', () => {
+  // Since round 12 they show whose they are, as the inbox does
+  // (a-thread-a-teammate-sent-you-sits-under-the-inbox-tab-it-is-in).
+  it('joins threads sent one after another into one list', () => {
     expect(page).toMatch(/if \(e\.kind === 'run' && e\.verb === 'sent' && sent\) \{ sent\.push\(e as TeamRunLine\); continue; \}/);
-    expect(card).toMatch(/\{runs\.map\(\(r\) => \{/);
-    expect(read('renderer/src/teammates/teammates.css')).toMatch(/\.tq-inrows \.tq-from \{ display: none; \}/);
+    expect(card).toMatch(/\{found\.map\(\(\{ r, item \}\) => \{/);
   });
 
   it('still reads as a row when the thread is not loaded, with its title and when', () => {

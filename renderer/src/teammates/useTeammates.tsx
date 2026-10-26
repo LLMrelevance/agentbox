@@ -7,11 +7,12 @@ import { TeammateMenu, TeammatesPage, TeammatesTitle, shownOf, type TeammateMode
 import { SidebarGroups } from '../team/rooms/GroupsSidebar';
 import { api } from '../api';
 import { asksYou, heldFor } from './chat-lines';
+import type { TabView } from '../threads/Pages';
 
 /** `new`, a teammate's id, or `log:`, `about:` or `book:` one of its pages; 'team' opens the first chat. */
 export type TeammatesOpen = string | null;
 
-export function useTeammates({ items = [], view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, onChanged }: {
+export function useTeammates({ items = [], view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, tabOf, onOpenList, onChanged }: {
   /** Every thread the app holds, so what a teammate sent you is drawn as its inbox row. */
   items?: WorkItem[];
   models?: TeammateModels;
@@ -27,6 +28,9 @@ export function useTeammates({ items = [], view: stored, asking = [], running = 
   /** Leave whatever page is up, so this one can be. */
   onEnter: () => void;
   onOpenThread: (product: string, id: string) => void;
+  /** The inbox tab a thread sits in, and a way to open the inbox at one. */
+  tabOf?: (item: WorkItem) => TabView | null;
+  onOpenList?: (view: TabView) => void;
   onChanged: () => void;
 }) {
   const [open, setOpen] = useState<TeammatesOpen>(null);
@@ -55,7 +59,7 @@ export function useTeammates({ items = [], view: stored, asking = [], running = 
   const mate = shown && shown.kind !== 'new' ? team.find((t) => t.id === shown.id) ?? null : null;
   const page: ReactNode = shownOpen && view
     ? <TeammatesPage view={view} items={items} open={shownOpen} products={products} engines={engines} me={me}
-        onOpen={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} models={models} mePic={mePic} />
+        onOpen={go} onOpenThread={onOpenThread} tabOf={tabOf} onOpenList={onOpenList} onChanged={onChanged} sessions={sessions} models={models} mePic={mePic} />
     : null;
   const call = async (op: string, args: Record<string, unknown>) => { const r = await api.teammates(op, args); if (r.ok) onChanged(); return r.ok; };
   return {

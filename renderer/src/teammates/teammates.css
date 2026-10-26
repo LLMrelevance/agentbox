@@ -233,13 +233,14 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-chats .tq-chat .rm-cm.tq-m .h .tq-pic { width: 36px; height: 36px; border-radius: 6px; }
 .tq-chats .tq-chip { border-radius: 6px; }
 .tq-chats .tq-doc-id .tq, .tq-chats .tq-title .tq { border-radius: 6px; }
-/* A thread it sent you, as its row in your inbox: hairlines above and below, as in the list. */
-.tq-inrows { --text-x: 0px; --row-r: 8px; --gutter: 0px; margin-top: 6px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: normal; }
-/* The chat is narrower than the inbox: status and time keep only the width their words need, the same on every row. */
-.tq-inrows .th-grid { grid-template-columns: minmax(0, 1fr) 88px 76px; column-gap: 20px; }
-/* Its own chat already says whose they are. */
-.tq-inrows .tq-from { display: none; }
-.tq-inrows .row { padding: 12px 8px 12px 0; }
+/* A thread it sent you, as a window onto your inbox: the tab it is in over its row. */
+.tq-sent { margin: 14px 0 10px; border: 1px solid var(--line); background: rgba(255,255,255,.015); }
+.tq-sent-bar { display: flex; align-items: center; padding: 6px 20px 0; border-bottom: 1px solid var(--line); }
+/* Its underline sits on the bar's line, as a tab's does over the inbox. */
+.tq-sent-bar .tm-tab { margin-bottom: -1px; }
+.tq-inrows { --text-x: 20px; --row-r: 20px; --gutter: 20px; white-space: normal; }
+/* The chat is narrower than the inbox: status and time keep only the width their words need. */
+.tq-inrows .th-grid { grid-template-columns: minmax(0, 1fr) 104px 84px; column-gap: 16px; }
 .tq-inrows .row:focus-visible { outline: 1px solid var(--line-strong); outline-offset: -1px; }
 .tq-dot-need { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 .tq-pick { position: relative; }
