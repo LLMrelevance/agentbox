@@ -135,6 +135,8 @@ import { needsStaging, walkStageKey } from './walk-staging';
 import { TutorialOffer } from './components/TutorialOffer';
 import { holdForStoppedAgent, neverWarned, rememberWarned } from './stopped-agent';
 import { comeBackTo, neverOffered, offerOnNewProject, rememberOffered } from './tutorial';
+import { FirstRunFlow, OpenLesson } from './components/FirstRun';
+import { landing as firstRunLanding, lessonsLeft, setLessons, type Lesson } from './first-run';
 import {
   ANSWER_AFTER_MS, COACHED, COPY as WALK_COPY, FIRST_RUN_LABEL, advance as advanceRun, afterCommand, beatRows, coach, closingRefused, firstRunDone,
   finishedCleared, firstRunNeeded, projectsOfTheirOwn, inboxCleared, laterCleared, laterId, laterIndex,
@@ -987,6 +989,17 @@ export default function App() {
   // one of those failures produced.
   const [claude, setClaude] = useState({ missing: false, url: 'https://code.claude.com/docs/en/setup' });
   const [home, setHome] = useState('');
+  // The first run that starts on real work, while it is up.
+  const [fresh, setFresh] = useState(false);
+  // What it leaves to teach in the inbox itself, once each: the key beside the
+  // first thread, and the lit 1 on the first options an agent offers.
+  const [lessons, setLessonList] = useState<Lesson[]>(() => lessonsLeft(localStorage));
+  const dropLesson = useCallback((l: Lesson) => setLessonList((had) => {
+    if (!had.includes(l)) return had;
+    const next = had.filter((x) => x !== l);
+    setLessons(localStorage, next);
+    return next;
+  }), []);
   const runRef = useRef<FirstRun | null>(null);
   runRef.current = run;
   // The same, for the Claude Code answer, so `finishRun` can refuse a press
@@ -1001,12 +1014,13 @@ export default function App() {
   // that is the only honest test. It waits for the first snapshot, so a slow
   // read never flashes the welcome at someone who has twenty projects.
   useEffect(() => {
-    if (run || !snap) return;
+    if (run || fresh || !snap) return;
     if (walkWaitsForSignIn) return;
     if (!firstRunNeeded({ products: projectsOfTheirOwn(snap.products), done: firstRunDone(localStorage), forced: !!forcedRun.current })) return;
-    // A half-finished walk resumes where it stopped: the folder and name are
-    // saved as answered, so reopening resumes.
-    setRun(forcedRun.current ? { ...RUN_START, step: forcedRun.current } : readFirstRun(localStorage));
+    // A new install gets the first run that starts on real work
+    // (components/FirstRun.tsx); `?firstrun=` still walks the old one.
+    if (forcedRun.current) setRun({ ...RUN_START, step: forcedRun.current });
+    else setFresh(true);
     // AND THE LOOK IS WRITTEN DOWN HERE, on the one line that knows this Mac
     // has never been used. Before this, only the three setup screens and inbox
     // zero painted the lake and nothing was stored, so every other screen fell
@@ -1025,7 +1039,7 @@ export default function App() {
     // effect on the next launch.
     const seeded = seedFirstRunLook(localStorage, THEME_KEY);
     if (seeded) { setTheme(seeded.theme); setSkin(seeded.skin); }
-  }, [snap, run, walkWaitsForSignIn]);
+  }, [snap, run, fresh, walkWaitsForSignIn]);
 
   useEffect(() => { if (run) saveFirstRun(localStorage, run); }, [run]);
 
@@ -5805,6 +5819,52 @@ export default function App() {
     // on whichever it was at launch.
   }, [firstRunPinned, theme, skin, machine]);
 
+  // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
+  // with two lessons left to give there.
+  const [landOn, setLandOn] = useState<string | null>(null);
+  const finishFresh = useCallback((sent: string | null) => {
+    const to = firstRunLanding(sent);
+    finishFirstRun(localStorage);
+    setLessons(localStorage, ['open', 'pick']);
+    setLessonList(['open', 'pick']);
+    setFresh(false);
+    setView(to.view);
+    setFocused(null);
+    setSelected(0);
+    setLandOn(to.select);
+  }, []);
+  // Its row arrives with a snapshot or two after the send.
+  const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
+  useEffect(() => { if (landAt >= 0) { setSelected(landAt); setLandOn(null); } }, [landAt]);
+  // A row that never comes must not take the cursor later, while you are elsewhere.
+  useEffect(() => {
+    if (!landOn) return undefined;
+    const t = setTimeout(() => setLandOn(null), 15_000);
+    return () => clearTimeout(t);
+  }, [landOn]);
+
+  // ↵ beside the row you are on, until a thread is opened.
+  const [lessonAt, setLessonAt] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!lessons.includes('open') || focused || fresh || (view !== 'inbox' && view !== 'progress')) { setLessonAt(null); return; }
+    const title = document.querySelector('.list-pane .row.selected .th-cell-title') ?? document.querySelector('.list-pane .th-cell-title');
+    if (!title) { setLessonAt(null); return; }
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    const r = range.getBoundingClientRect();
+    setLessonAt({ left: r.right + 20, top: r.top + r.height / 2 - 17 });
+  }, [lessons, focused, fresh, view, list, selected]);
+  useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
+
+  // The first option's key lit, until a thread that offered options is left.
+  const pickSeen = useRef(false);
+  useEffect(() => {
+    const on = !!focused && lessons.includes('pick');
+    document.body.classList.toggle('teach-pick', on);
+    if (on && document.querySelector('.opt-row')) pickSeen.current = true;
+    if (!focused && pickSeen.current) dropLesson('pick');
+  });
+
   // THE SAME SCREEN, held for the beat it takes ⌘R to put her back where she
   // was, so the reload never shows her the inbox on its way to the task. Its
   // own line above the boot check rather than another clause inside it: on a
@@ -7242,6 +7302,8 @@ export default function App() {
           its tether draws over whatever the app has open. w-82bb9e2c69.
           A ?modes= drawing stands INSTEAD of it, never over it: two full
           surfaces at once would photograph the welcome screen. */}
+      {fresh && !modeDraft && <FirstRunFlow snap={snap} home={home} onDone={finishFresh} />}
+      <OpenLesson at={lessonAt} />
       {run && !modeDraft && !walkWaitsForSignIn && (
         <Onboarding
           run={run}

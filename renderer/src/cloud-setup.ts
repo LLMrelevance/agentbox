@@ -47,6 +47,11 @@ export const SETUP = {
   inviteLine: 'They keep working with your laptop closed, and as many run at once as you need.',
   inviteGo: 'Set up the cloud',
   inviteNote: 'About a minute to set up',
+  // THE WAIT BEFORE THE PLAN IS KNOWN SAYS SO (F-96, w-aaedc8f711). Reading
+  // it from the cloud server took 5 to 9 seconds after a sign-in, and the
+  // screen stood empty for all of it. No heading, so none flashes before
+  // "Choose a plan" replaces it.
+  loadingLede: 'Checking your account…',
   payHead: 'Choose a plan',
   payLede: 'Pay on Stripe, then add the Claude or Codex account it runs on.',
   payWaitLede: 'Finish paying in your browser. This moves on by itself once you’ve paid.',
