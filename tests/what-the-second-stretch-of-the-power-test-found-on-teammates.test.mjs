@@ -41,9 +41,11 @@ describe('what a teammate sent you, in its chat', () => {
     expect(sent.said).toBe('Should I bring you everything, or only what needs a decision?');
   });
 
-  it('is shown on its card, and its title only when it said nothing', () => {
+  // Since 2026-10-26 it is the thread's inbox row, which leads with the same
+  // first line (rowTitle); without the thread loaded the row uses `said`.
+  it('is shown on its row, and its title only when it said nothing', () => {
     const page = fs.readFileSync(new URL('../renderer/src/teammates/TeammatesPage.tsx', import.meta.url), 'utf8');
-    expect(page).toMatch(/<div className="q">\{r\.said \|\| r\.title\}<\/div>/);
+    expect(page).toMatch(/<RowCells title=\{r\.said \|\| r\.title\}/);
   });
 });
 

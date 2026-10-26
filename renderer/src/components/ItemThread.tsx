@@ -400,7 +400,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
     return (
       <>
         {queueHead}
-        <QueueAnswer text={clean(newest.text)} md={md} />
+        <QueueAnswer text={clean(newest.text)} md={md} name={rowTitle(item)} />
         {byApp && outcome && <p className="one-app-note">{clean(outcome.text)}</p>}
         {afterList}
         {madeList(made.atFoot)}
