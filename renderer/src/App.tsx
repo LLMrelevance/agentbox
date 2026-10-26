@@ -113,6 +113,7 @@ import { useTeammates } from './teammates/useTeammates';
 import { TeammatesContext } from './teammates/row-lead';
 import { ChatsContext, LAST_CHAT_KEY, type ChatsValue } from './teammates/ChatsColumn';
 import { queuedTeammateRun } from './teammates/chat-lines';
+import { teammateIdOf } from '../../shared/teammates.mjs';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
@@ -5207,7 +5208,7 @@ export default function App() {
       if (teammatesShown && e.key !== 'n' && e.key !== 'N' && e.key !== '\\') {
         // Escape in an open dropdown closes the dropdown, not the page.
         if (modal || inInput || target?.tagName === 'SELECT' || e.metaKey || e.ctrlKey || e.altKey) return;
-        if (e.key === 'Escape') { e.preventDefault(); teammatesUi.leave(); }
+        if (e.key === 'Escape') { e.preventDefault(); teammatesUi.back(); }
         return;
       }
       // G FINDS A GROUP from any page, as ⌘K finds a command.
@@ -5827,6 +5828,7 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
+    if (teammateIdOf(item)) { showToast('A teammate keeps its own times. Tell it when in its chat.'); return; }
     const ruleId = ruleIdOf(item);
     try {
       if (ruleId) {
@@ -6805,7 +6807,7 @@ export default function App() {
                     // words. Applying the rule instead of delivering them would
                     // be the system swallowing something the user wrote, which is the
                     // failure this app cares about most.
-                    if (repeat) applyRepeat(focused, repeat);
+                    if (repeat && !teammateIdOf(focused)) applyRepeat(focused, repeat);
                     answerWith(focused, text, priority, sent, mode, runningEngine, pick);
                   }}
                   onReplyClose={() => setModal(null)}
@@ -7031,10 +7033,11 @@ export default function App() {
         <ThreadComposer
           agentMates={teammatesUi.live ? snap.teammates?.list.filter((t) => t.status === 'active') : undefined}
           onToTeammate={async (to, text, product) => {
-            const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to] });
+            const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to], fresh: true });
             if (!r.ok) return r.error;
             void refresh();
-            teammatesUi.go(to === 'new' ? r.value?.teammate?.id ?? 'team' : to);
+            if (to === 'new') teammatesUi.go(r.value?.teammate?.id ?? 'team');
+            else showToast(`Sent to ${snap.teammates?.list.find((t) => t.id === to)?.name ?? 'your teammate'}`);
             return null;
           }}
           products={rankedProducts}

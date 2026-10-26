@@ -61,6 +61,8 @@ export function useTeammates({ view: stored, asking = [], running = [], products
     open: shownOpen,
     go,
     leave,
+    /** Escape: from About, its Log or a playbook back to its chat; from a chat, out of Chats. */
+    back: () => (shown && (shown.kind === 'about' || shown.kind === 'log' || shown.kind === 'book') ? go(shown.id) : leave()),
     list: team,
     onNew: () => go('new'),
     /** The wide sidebar's one Chats row; with Groups on, the Groups row is it. */

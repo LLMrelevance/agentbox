@@ -290,7 +290,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
     {
       name: 'team_setup',
-      description: 'Set or change who you are as a teammate: your name (your role, like Marketing lead), role, job (as long as it needs, in plain words to yourself), goal, how the goal is counted, what you ask the person first, what you do on your own (duties: a list, each { what, every: day|weekday|week, at: ["09:00", "15:00"], on: 0-6 for weekly } or { what, after: "ship", most: runs a week }, with tell: when to bring the person in; the list you send replaces the old one), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
+      description: 'Set or change who you are as a teammate: your name (your role, like Marketing lead), role, job (as long as it needs, in plain words to yourself), goal, how the goal is counted, what needs the person\'s yes first (a statement, never a question), what you do on your own (duties: a list, each { what, every: day|weekday|week, at: ["09:00", "15:00"], on: 0-6 for weekly } or { what, after: "ship", most: runs a week }, with tell: when to bring the person in; the list you send replaces the old one), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
       schema: {
         name: z.string().optional(),
         role: z.string().optional(),
@@ -307,9 +307,6 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
           most: z.number().int().optional(),
           tell: z.string().optional(),
         })).optional(),
-        every: z.enum(['day', 'weekday', 'week', 'never']).optional(),
-        at: z.string().optional(),
-        on: z.number().int().optional(),
         runsOn: z.enum(['claude', 'codex']).optional(),
         ready: z.boolean().optional(),
       },

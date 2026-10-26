@@ -46,15 +46,15 @@ describe('a teammate\'s chat', () => {
   });
 });
 
-describe('the Chats list and About', () => {
+describe('the Chats list and a teammate\'s details', () => {
   it('sits on the page\'s own background, with round faces for people', () => {
     expect(rule('.cx-list')).toMatch(/background: var\(--bg\)/);
     expect(css).toMatch(/\.cx-row img[^{]*\{[^}]*border-radius: 50%/);
   });
 
   it('picks where it works from a short menu, not a row of buttons', () => {
-    const about = page.slice(page.indexOf('function About('), page.indexOf('\nfunction ', page.indexOf('function About(') + 10));
-    expect(about).toMatch(/<dt>Works in<\/dt>\s*<dd>\{real\.length > 1\s*\? <PickOne /);
+    const details = page.slice(page.indexOf('function Details('), page.indexOf('\nfunction ', page.indexOf('function Details(') + 10));
+    expect(details).toMatch(/<dt>Works in<\/dt>\s*<dd>\{real\.length > 1\s*\? <PickOne /);
     expect(page).toMatch(/function PickOne\(/);
   });
 
