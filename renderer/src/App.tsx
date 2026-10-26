@@ -83,7 +83,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, inProgressTab, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { focusTheReplyBox } from './focus-at-end';
 import { keyWhileABoxIsOpen, opensATextField, takesTheListBack } from './keys';
@@ -2250,6 +2250,11 @@ export default function App() {
   ].sort(byRunningOrder(score)),
   [items, agentList, agentMode, scope, pendingIds, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds, stalledIds]);
 
+  // AND THE TAB COUNTS EACH THREAD ONCE: the list, less what Needs you holds,
+  // the way `tabState` below has it for the board and `done` for the archive.
+  // The rule above is untouched; only what the tab draws and counts is this.
+  const progressTab = useMemo(() => inProgressTab(progress, inbox), [progress, inbox]);
+
   const queuedIds = useMemo(() => new Set(snap?.supervisor.queued ?? []), [snap?.supervisor.queued]);
   // AGENTBOX CLOUD OFFERS ITSELF WHERE THE FOUNDER PUT IT (2026-10-13,
   // cloud-upgrade.ts): threads queued while this Mac runs all it can say so,
@@ -2485,7 +2490,7 @@ export default function App() {
   // person's; that is now where the board already had it, in search.
   const wholeBox = view === 'inbox' ? inbox
     : view === 'snoozed' ? snoozed
-      : view === 'progress' ? progress
+      : view === 'progress' ? progressTab
         : done;
   const shownBox = useMemo(() => filterBox(wholeBox, boxFilter, directSlugs), [wholeBox, boxFilter, directSlugs]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
@@ -6912,7 +6917,7 @@ export default function App() {
                     // Yours while you are on the page, and the picked teammates' added in.
                     counts={{
                       inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length,
-                      progress: (mineShown ? shownCount(progress) : 0) + theirCount('progress'),
+                      progress: (mineShown ? shownCount(progressTab) : 0) + theirCount('progress'),
                       snoozed: (mineShown ? shownCount(snoozed) : 0) + theirCount('snoozed'),
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
