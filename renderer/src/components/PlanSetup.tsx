@@ -7,8 +7,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import {
-  COPY, afterCheck, afterFound, enginesFor, foundHead, foundLede, foundRows, litRow, planName, planNote,
-  planRows, readLog, readyEngines, setupLede, setupRows,
+  COPY, LOOK_AGAIN_FOR_MS, LOOK_AGAIN_MS, afterCheck, afterFound, enginesFor, foundHead, foundLede,
+  foundRows, litRow, planName, planNote, planRows, readLog, readyEngines, setupLede, setupRows,
+  worthLookingAgain,
   type AskRow, type Engine, type EngineSetupState, type Plan, type StepRow,
 } from '../plan-setup';
 import { Cap } from './Onboarding';
@@ -238,6 +239,48 @@ export function PlanQuestion({ onPick, onReady, onSkip, look, found = null }: {
     asked.current = true;
     void check();
   }, [check]);
+
+  /*
+   * AND IT LOOKS AGAIN WHILE IT IS UP (F-71). The computer changes under this
+   * screen — somebody signs in to Codex in a terminal next door — and the
+   * arrival look was the only one, so the answer was a page reload.
+   *
+   * QUIET, so nothing flickers: it leaves `looking` and `looked` to the
+   * arrival look and only replaces the reading when one turns up. In a ref for
+   * the same reason `asked` is one: the walk writes `look` inline, so a
+   * dependency on it would restart this clock on every render.
+   */
+  const readingsNow = useRef(readings);
+  readingsNow.current = readings;
+  const busyLooking = useRef(false);
+  const open = worthLookingAgain(ready);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    const again = async () => {
+      if (busyLooking.current) return;
+      busyLooking.current = true;
+      try {
+        const rs = await readingsNow.current(true);
+        if (!live) return;
+        const next = afterCheck(rs);
+        if (next.t === 'ready' || next.t === 'found') setReady(rs);
+      } catch { /* a probe that could not run leaves the screen as it is */ }
+      finally { busyLooking.current = false; }
+    };
+    const clock = setInterval(() => void again(), LOOK_AGAIN_MS);
+    const stop = setTimeout(() => clearInterval(clock), LOOK_AGAIN_FOR_MS);
+    const back = () => { if (document.visibilityState !== 'hidden') void again(); };
+    window.addEventListener('focus', back);
+    document.addEventListener('visibilitychange', back);
+    return () => {
+      live = false;
+      clearInterval(clock);
+      clearTimeout(stop);
+      window.removeEventListener('focus', back);
+      document.removeEventListener('visibilitychange', back);
+    };
+  }, [open]);
 
   /*
    * SHOW IT WHERE ONE IS. The panel opens in the main process and the choice is

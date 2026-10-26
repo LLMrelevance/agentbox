@@ -12,7 +12,7 @@ import {
   anyAgents, clearOf, finishCard, forgetAgentsWhileLookingAgain, gateRows,
   forgetFoldersWhileLookingAgain, keepSecondRead, keyName, keyToken, padFor,
   practising, pressAtWrongRow, pressCounts, readAgentsAgain, roomFor, strayClick,
-  swallowPress, walkProjects, wrongPress,
+  swallowPress, typedAtTheBox, walkProjects, wrongPress,
   coach, nextStep, nextTab, recentFolders, ring, runOf, shortPath, stepBack,
   type AgentFile, type Coach, type FirstRun, type Rect, type RecentFolder, type Step,
 } from '../onboarding';
@@ -198,11 +198,14 @@ export function Cap({ cap, className }: { cap: string; className?: string }) {
 /**
  * The coaching card. The quiet line says where you are and the loud line says
  * the one key to press. */
-function Card({ say, beat, pointed, knock = 0, onNext, onSkip }: {
+function Card({ say, beat, pointed, knock = 0, onNext, onSkip, onType }: {
   say: Coach;
   /** Next on the look-around cards. ↵ does the same and never reaches the app,
    * where it would open the selected row. */
   onNext?: () => void;
+  /** Somebody typed at the box the ring is round, so open it on that letter
+   * (`typedAtTheBox`). */
+  onType?: (letter: string) => void;
   /** The quiet way past this one card, drawn on every coaching card. */
   onSkip?: () => void;
   /** Stray clicks answered on this beat, from `Ringed`. Added to the same
@@ -225,6 +228,10 @@ function Card({ say, beat, pointed, knock = 0, onNext, onSkip }: {
   aim.current = { beat: beat ?? [], pointed: pointed ?? null };
   const next = useRef(onNext);
   next.current = onNext;
+  // A ref for the same reason `next` is one: the app writes it inline, so it is
+  // a new function on every render.
+  const intoTheBox = useRef(onType);
+  intoTheBox.current = onType;
   // On an any-key card, any key or a click in the palette moves on, and the
   // event is stopped so no command runs by accident. This is registered before
   // the field rule below because on the ⌘K beat the cursor is in the palette's
@@ -290,6 +297,16 @@ function Card({ say, beat, pointed, knock = 0, onNext, onSkip }: {
         return;
       }
       if (!wrongPress(say.key, e)) return;
+      // A letter at a box the ring is round is a reply being typed, not a
+      // wrong key: it opens the box, and the cap does not pulse at somebody
+      // doing what the glow asks for.
+      if (typedAtTheBox(say, e, e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        intoTheBox.current?.(e.key);
+        return;
+      }
       // A beat's second key, like E beside R, is not a wrong press.
       if (say.alt && keyToken(e) === say.alt) return;
       setWrong((n) => n + 1);
@@ -481,11 +498,13 @@ function adriftAt(): { x: number; y: number; w: number } {
 
 function Ringed({
   selector, boundsSel, underSel, makesRoom, say, beside, besideRing, besideOf, beat, pointed,
-  hold, also, onNext, onSkip,
+  hold, also, onNext, onSkip, onType,
 }: {
   selector: string[]; boundsSel?: string; underSel?: string; say: Coach;
   /** The look around's Next. See `Card`. */
   onNext?: () => void;
+  /** Typing at the box the ring is round. See `Card`. */
+  onType?: (letter: string) => void;
   /** The quiet "Skip this step". See `Card`. */
   onSkip?: () => void;
   /** Set on beats that ring one row out of a stack. It overrides `underSel`,
@@ -631,7 +650,7 @@ function Ringed({
           className="fr-tether fr-adrift"
           style={{ left: adrift.x, top: adrift.y, maxWidth: adrift.w }}
           role="status"
-        ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} /></p>
+        ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} onType={onType} /></p>
       </>
     );
   }
@@ -672,7 +691,7 @@ function Ringed({
               : Math.max(240, Math.min(TEXT_MAX + 60, window.innerWidth - besideLeft(geo, besideOf) - 200)),
           }}
           role="status"
-        ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} /></p>
+        ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} onType={onType} /></p>
       ) : (
         <p
           ref={cardRef}
@@ -681,7 +700,7 @@ function Ringed({
             ? { left: geo.text.x, top: geo.text.y, maxWidth: geo.text.w }
             : { right: geo.text.right, top: geo.text.y, maxWidth: geo.text.w }}
           role="status"
-        ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} /></p>
+        ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} onType={onType} /></p>
       )}
     </>
   );
@@ -838,11 +857,17 @@ export function Landed({ agents, onGone }: {
     })),
   );
   const team = useContext(TeamContext);
+  // THE WAY OUT IS A REF. The app writes `onGone` inline, so it is a new
+  // function on every render; as a dependency it dropped the listeners and
+  // started the fourteen seconds again each time, and an app that redraws at
+  // all never reached the end of them.
+  const gone = useRef(onGone);
+  gone.current = onGone;
   useEffect(() => {
-    const t = setTimeout(onGone, LANDED_MS);
+    const t = setTimeout(() => gone.current(), LANDED_MS);
     // Any key or press takes it down and still reaches the app, so the event is
     // neither stopped nor prevented.
-    const on = () => onGone();
+    const on = () => gone.current();
     const armed = setTimeout(() => window.addEventListener('keydown', on), 0);
     const armedClick = setTimeout(() => window.addEventListener('pointerdown', on), 0);
     return () => {
@@ -850,7 +875,7 @@ export function Landed({ agents, onGone }: {
       window.removeEventListener('keydown', on);
       window.removeEventListener('pointerdown', on);
     };
-  }, [onGone]);
+  }, []);
   return (
     <div className="fr-landed" aria-live="polite">
       <div className="fr-burst" aria-hidden="true">
@@ -1101,7 +1126,11 @@ export function Onboarding({
   run, claude, home, opened, waiting, later, picking, palette, board, replying, view, tabs, products = [],
   beat, pointed, runsOn = null,
   onEvent, onStep, onSkipToApp, onPractice, onDone, onFiled, onProjectMade, onRecheck, onLeave, onShut, onSkipStep,
+  onType,
 }: {
+  /** Open the reply box on a letter typed at it, which is where that letter
+   * goes (`typedAtTheBox`). */
+  onType?: (letter: string) => void;
   /** Skip the tutorial from its hand-off page, into her own project. */
   onLeave?: () => void;
   /** Shut whatever is open over the app; the ⌘K beat's any-key press. */
@@ -1232,6 +1261,10 @@ export function Onboarding({
   // Whether focus is in the reply box. The app's `replying` can move on while
   // the box stays focused, and then a "Press R" card would type an r into it.
   const [inReply, setInReply] = useState(false);
+  // Whether the box was opened by typing at it, so the words in it are theirs
+  // and the card does not call them ours.
+  const [wrote, setWrote] = useState(false);
+  useEffect(() => { setWrote(false); }, [run.step]);
   useEffect(() => {
     const read = () => {
       const el = document.activeElement as Element | null;
@@ -1409,7 +1442,7 @@ export function Onboarding({
       && !!document.querySelector('.th-bar .tm-tabs');
     const say = coach(run.step, run.sentAt ? now - run.sentAt : 0, {
       opened, view, picking, palette, board, replying: !!replying || inReply, left: beat?.length, tabs, replies: run.replies,
-      tabNames: teamStrip ? TEAM_TAB_NAMES : undefined, team: !!team,
+      tabNames: teamStrip ? TEAM_TAB_NAMES : undefined, team: !!team, wrote,
     });
     if (!say) return null;
     // Ring the walk's own rows by id where it knows them, falling back to
@@ -1468,6 +1501,7 @@ export function Onboarding({
         // On the ⌘K beat any press shuts the palette, which ends the beat.
         onNext={say.next ? () => go(run.step) : say.anyKey ? onShut : undefined}
         onSkip={onSkipStep}
+        onType={(letter) => { setWrote(true); onType?.(letter); }}
       />
     );
   }

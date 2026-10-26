@@ -1014,6 +1014,11 @@ export default function App() {
   // the walk ends; see `Landed` in components/Onboarding.tsx for why the
   // confetti is here rather than on the card before it.
   const [landing, setLanding] = useState<{ agents: boolean } | null>(null);
+  // AND ANYTHING OPENED OVER THE APP TAKES IT DOWN (F-72). Those words are a
+  // fact about the inbox behind them and they draw above every card, so QA read
+  // "You finished the tutorial." through the open composer — which is the very
+  // thing the last line of it tells you to open.
+  useEffect(() => { if (modal) setLanding(null); }, [modal]);
   // THE TUTORIAL, OFFERING ITSELF ON A NEW PROJECT. Null except for the moment
   // between a project being made and the question being answered. It holds the
   // slug because that is where the person comes back to when the tutorial is
@@ -7694,6 +7699,16 @@ export default function App() {
           // And whether the reply box is open, so the answer beat stops saying
           // R over a box that R would type into (2026-10-06).
           replying={modal === 'reply'}
+          // And a letter typed at that box opens it, the same box R opens
+          // (`typedAtTheBox`, F-70). The letter is the start of their reply, so
+          // it goes in as the draft first: `restoreDraft` above leaves a draft
+          // alone, and without this the box would open with the written-for-you
+          // reply and their sentence typed onto the end of it.
+          onType={(letter) => {
+            const product = run.practice ?? run.product;
+            if (product && run.item) saveDraft({ product, id: run.item }, letter);
+            setModal('reply');
+          }}
           view={view}
           /* THE TABS THE WALK NAMES ARE THE TABS TAB MOVES ALONG. Its tour
              tells somebody to press Tab and then says where that press lands,
