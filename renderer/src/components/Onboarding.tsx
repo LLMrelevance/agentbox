@@ -9,8 +9,8 @@ import { TeamContext } from '../team/people';
 import {
   ALSO, ANCHOR, BOUNDS, BREATHE_AFTER_MS, COACHED, COPY, FLOOR, FLOOR_OF, TEAM_TAB_NAMES, TEXT_MAX, TEXT_MIN, teamTab,
   HELD_EVENTS, LINE_H, NOT_THE_APP, SLAB_OF, TEXT_GAP, UNDER,
-  anyAgents, clearOf, finishCard, forgetAgentsWhileLookingAgain, gateRows,
-  forgetFoldersWhileLookingAgain, keepSecondRead, keyName, keyToken, padFor,
+  anyAgents, clearOf, finishCard, fitsBeside, forgetAgentsWhileLookingAgain, gateRows,
+  forgetFoldersWhileLookingAgain, hoverLit, keepSecondRead, keyName, keyToken, padFor,
   practising, pressAtWrongRow, pressCounts, readAgentsAgain, roomFor, strayClick,
   swallowPress, walkProjects, wrongPress,
   coach, nextStep, nextTab, recentFolders, ring, runOf, shortPath, stepBack,
@@ -639,6 +639,11 @@ function Ringed({
   // A stray click deepens the veil, swells the ring once and pulses the cap,
   // with no words. `knock` keys the veil and the halo so each click replays it.
   const knocked = knock ? ' fr-knock' : '';
+  // Where a card beside its ring would start, and whether there is enough
+  // window left of it to read one. With none, the card takes its ordinary
+  // place above or below the ring instead (`fitsBeside`).
+  const asideAt = besideRing ? Math.round(geo.ring.x + geo.ring.w + 26) : besideLeft(geo, besideOf);
+  const aside = !!beside && fitsBeside(asideAt, { w: window.innerWidth });
   return (
     <>
       <Veil key={knock} box={geo.ring} knocked={knocked} />
@@ -653,7 +658,7 @@ function Ringed({
           x={pad} y={pad} width={geo.ring.w} height={geo.ring.h} rx={geo.ring.r}
         />
       </svg>
-      {beside ? (
+      {aside ? (
         // Vertically centred on the ring. The half-height shift is in the
         // class's transform, because the drop and the lift use that transform
         // too.
@@ -664,12 +669,12 @@ function Ringed({
             // Clear of the whole tab strip, so the card covers no tab and stays
             // put while the ring moves. With `besideRing` (the palette) it
             // stands off the ring instead, because there is no strip to clear.
-            left: besideRing ? Math.round(geo.ring.x + geo.ring.w + 26) : besideLeft(geo, besideOf),
+            left: asideAt,
             top: geo.ring.y + geo.ring.h / 2,
             maxWidth: besideRing
-              ? Math.max(240, window.innerWidth - (geo.ring.x + geo.ring.w + 26) - 40)
+              ? Math.max(240, window.innerWidth - asideAt - 40)
               // No wider than an ordinary card, so it stays off the header.
-              : Math.max(240, Math.min(TEXT_MAX + 60, window.innerWidth - besideLeft(geo, besideOf) - 200)),
+              : Math.max(240, Math.min(TEXT_MAX + 60, window.innerWidth - asideAt - 200)),
           }}
           role="status"
         ><Card say={say} beat={beat} pointed={pointed} knock={knock} onNext={onNext} onSkip={onSkip} /></p>
@@ -1184,6 +1189,18 @@ export function Onboarding({
   // Nothing is lit until the person picks, so the Return that left the welcome
   // cannot choose a folder. Arrow down lights the first.
   const [lit, setLit] = useState(-1);
+  // Whether the mouse has moved since this screen was drawn. See `hoverLit`:
+  // a row under a mouse standing still is not a row anybody chose.
+  const stirred = useRef(false);
+  // And whether it is the mouse that lit the row, which decides what Return
+  // may do with the row that skips the folder.
+  const [byMouse, setByMouse] = useState(false);
+  /** Light a row: `how` is the mouse, or the keyboard, which owns Return. */
+  const light = (row: number, how: 'mouse' | 'key') => {
+    if (how === 'mouse' && !stirred.current) return;
+    setLit((l) => (how === 'mouse' ? hoverLit(l, row, stirred.current) : row));
+    setByMouse(how === 'mouse');
+  };
   const wantsRecent = run.step === 'welcome' || run.step === 'folder';
   useEffect(() => {
     if (!wantsRecent || recent) return;
@@ -1314,6 +1331,19 @@ export function Onboarding({
     return () => window.removeEventListener('keydown', on);
   }, [run.step, onEvent]);
 
+  // Every screen starts still, and the first real movement of the mouse ends
+  // that. `mousemove` fires only when the pointer moves, where `mouseenter`
+  // fires on a card drawn under one that has not.
+  useEffect(() => {
+    stirred.current = false;
+    setByMouse(false);
+    const on = () => { stirred.current = true; };
+    // In the capture phase, so the first movement has already counted by the
+    // time the row under the pointer asks to be lit.
+    window.addEventListener('mousemove', on, { capture: true });
+    return () => window.removeEventListener('mousemove', on, { capture: true });
+  }, [run.step]);
+
   // The folder list's keys: arrows move the highlight through the recent
   // folders, "Choose another folder" and the no-folder row, and Return takes
   // it. Armed on the next tick so the Return that arrived here does not leave.
@@ -1321,9 +1351,13 @@ export function Onboarding({
   useEffect(() => {
     if (run.step !== 'folder' || recent === null) return;
     const on = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setLit((i) => Math.min(rows + 1, i + 1)); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setLit((i) => Math.max(0, i - 1)); }
-      if (e.key === 'Enter' && lit > rows) { e.preventDefault(); skipFolder(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setByMouse(false); setLit((i) => Math.min(rows + 1, i + 1)); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setByMouse(false); setLit((i) => Math.max(0, i - 1)); }
+      // SKIPPING IS THE KEYBOARD'S ALONE. A hand left on the mouse over this
+      // row is not somebody saying they have no folder, and the rest of the
+      // product wants one. The cap is not drawn on a row the mouse lit either,
+      // so Return promises nothing here that it will not do.
+      if (e.key === 'Enter' && lit > rows) { e.preventDefault(); if (!byMouse) skipFolder(); return; }
       if (e.key === 'Enter' && lit < 0) { e.preventDefault(); return; }
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -1578,10 +1612,11 @@ export function Onboarding({
                 role="option"
                 aria-selected={lit === i}
                 className={`fr-folder${lit === i ? ' lit' : ''}${run.folder === f.folder ? ' on' : ''}`}
-                onMouseEnter={() => setLit(i)}
+                onMouseEnter={() => light(i, 'mouse')}
+                onMouseMove={() => light(i, 'mouse')}
                 // Tab lights the row it lands on, so the arrows and the
                 // keyboard never disagree about which row Return takes.
-                onFocus={() => setLit(i)}
+                onFocus={() => light(i, 'key')}
                 onClick={() => takeFolder(f.folder)}
               >
                 <span className="fr-fold"><FolderGlyph /></span>
@@ -1597,8 +1632,9 @@ export function Onboarding({
               role="option"
               aria-selected={lit === (recent?.length ?? 0)}
               className={`fr-folder fr-folder-other${lit === (recent?.length ?? 0) ? ' lit' : ''}`}
-              onMouseEnter={() => setLit(recent?.length ?? 0)}
-              onFocus={() => setLit(recent?.length ?? 0)}
+              onMouseEnter={() => light(recent?.length ?? 0, 'mouse')}
+              onMouseMove={() => light(recent?.length ?? 0, 'mouse')}
+              onFocus={() => light(recent?.length ?? 0, 'key')}
               onClick={pickFolder}
             >
               <span className="fr-fold"><PlusGlyph /></span>
@@ -1610,13 +1646,14 @@ export function Onboarding({
               role="option"
               aria-selected={lit === (recent?.length ?? 0) + 1}
               className={`fr-folder fr-folder-other fr-folder-none${lit === (recent?.length ?? 0) + 1 ? ' lit' : ''}`}
-              onMouseEnter={() => setLit((recent?.length ?? 0) + 1)}
-              onFocus={() => setLit((recent?.length ?? 0) + 1)}
+              onMouseEnter={() => light((recent?.length ?? 0) + 1, 'mouse')}
+              onMouseMove={() => light((recent?.length ?? 0) + 1, 'mouse')}
+              onFocus={() => light((recent?.length ?? 0) + 1, 'key')}
               onClick={skipFolder}
             >
               <span className="fr-fold"><SkipGlyph /></span>
               <span className="fr-folder-name">{COPY.folderNone}</span>
-              <span className="fr-folder-key">{lit === (recent?.length ?? 0) + 1 && <Cap cap="↵" />}</span>
+              <span className="fr-folder-key">{lit === (recent?.length ?? 0) + 1 && !byMouse && <Cap cap="↵" />}</span>
             </button>
           </div>
           {/* One note under the card: a refusal, else what this Mac is

@@ -162,7 +162,11 @@ describe('the ⌘K beat', () => {
     // `besideLeft` takes the bar to clear as an argument since 2026-08-28, so
     // the beat that teaches how a task ends can stand off its own buttons. The
     // palette branch is unchanged and this still fails if it is taken away.
-    expect(src).toContain('left: besideRing ? Math.round(geo.ring.x + geo.ring.w + 26) : besideLeft(geo, besideOf),');
+    // Since 2026-10-26 the same expression is read once, as `asideAt`, because
+    // whether there is room for the card is asked of it as well
+    // (tests/a-coaching-card-is-never-a-strip-at-the-window-edge).
+    expect(src).toContain('const asideAt = besideRing ? Math.round(geo.ring.x + geo.ring.w + 26) : besideLeft(geo, besideOf);');
+    expect(src).toContain('left: asideAt,');
   });
 
   // AND SINCE 2026-10-06 THE BEAT THAT ENDS A THREAD STANDS TO THE RIGHT OF
