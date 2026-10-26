@@ -175,7 +175,7 @@ import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
-import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
+import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, crumbTab, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { SAYS_UNDO, opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
@@ -2648,6 +2648,9 @@ export default function App() {
   // halfway down a full board, because a card from another column was not in
   // it (2026-10-02, tests/the-board-walks-in-the-order-it-is-drawn.test.mjs).
   const onBoard = search === null && inboxDisplay.view === 'board';
+  // WHICH TAB THE OPEN THREAD'S BAR NAMES: the one holding it now, not the one
+  // you were standing on when you opened it (`crumbTab`, w-474ac45a33).
+  const crumbTabNow = focused ? crumbTab(stateOfMine(focused), view) : view;
   // The columns themselves are kept too, for the left and right arrows
   // (`boardSideways`), and they come in the order you dragged them to.
   const boardArgs = useMemo(
@@ -6030,6 +6033,17 @@ export default function App() {
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
   const inChats = !!focused && directOpen && !!chatsValue && focused.id === chatsDirect;
   const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); };
+  // BACK LANDS ON THE TAB THE BAR NAMED (w-474ac45a33). The thread may have
+  // moved tabs while it was open, and closing it onto the tab it has left is
+  // how Esc landed on "Nothing is running." The cursor follows by id, the same
+  // way a reload puts it back, because the list it belongs to is one tab away.
+  const closeThreadOntoItsTab = () => {
+    if (focused && crumbTabNow !== view && search === null && !onBoard && !teamOpen && !roomsUi.openId) {
+      wantRow.current = focused.id;
+      setView(crumbTabNow);
+    }
+    setFocused(null);
+  };
   // `asking` is on the class list for the same reason the composer is: the
   // approval card stands in the corner the toast stands in and under it, so the
   // toast covered Allow and Deny. Read off the same stage the card is drawn
@@ -6391,7 +6405,7 @@ export default function App() {
                   onePage={onePage}
                   headerTarget={taskHeader}
                   cornerHeaderTarget={cornerHeaderTarget}
-                  // WHERE IT WAS OPENED FROM, in the tab strip's own words (so
+                  // WHICH TAB HOLDS IT, in the tab strip's own words (so
                   // "Waiting" when teammates are on the page), for the thin
                   // bar the thread wears while its summary is open (w-922f66bb06).
                   // On the board there is no tab: the page Esc goes back to
@@ -6399,8 +6413,8 @@ export default function App() {
                   crumbFrom={teamOpen ? 'Team' : search !== null ? 'Search'
                     : onBoard ? 'Threads'
                     : directOpen && roomsUi.openId ? 'Groups'
-                    : view === 'inbox' && team ? needsWord(picked, team.me)
-                      : INBOX_TABS.find((t) => t.view === view)?.label}
+                    : crumbTabNow === 'inbox' && team ? needsWord(picked, team.me)
+                      : INBOX_TABS.find((t) => t.view === crumbTabNow)?.label}
                   inlineArtifacts
                   previewSample={api.isFixtures && (reviewLab || new URLSearchParams(location.search).has('artifactTweaks')) ? artifactPreviewSample : undefined}
                   artifactView={openDoc ? artifactView : undefined}
@@ -6488,7 +6502,7 @@ export default function App() {
                   sending={sendingOn(focused)}
                   stalled={snap.supervisor.stalled?.includes(focused.id) ?? false}
                   onRedeliver={() => redeliver(focused)}
-                  onClose={() => setFocused(null)}
+                  onClose={closeThreadOntoItsTab}
                   onResolve={() => markDone(focused)}
                   onPick={(n) => pickAimedHere(focused, n)}
                   onReply={() => setModal('reply')}
@@ -6784,7 +6798,7 @@ export default function App() {
             const to = how.kind === 'message'
               ? firstNames(how.toMany ?? [how.to ?? ''])
               : snap.products.find((x) => x.slug === how.product)?.name ?? how.product ?? '';
-            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt, threads: how.threads }));
+            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt }));
             // AND IF THE APP NEVER TAKES IT, SAY THAT TOO. The line above is a
             // sentence about the next half second, and it expires; a send the
             // app has not taken by then is read as a send that never happened,
@@ -6856,20 +6870,16 @@ export default function App() {
               return;
             }
             if (made?.id) {
-              // A SPLIT LIST IS ONE SEND AND SO ONE UNDO. Z takes back every
-              // thread it made: three rows left behind by a Z that reached one
-              // of them is worse than no Z at all. A thread an agent has
-              // already answered is left alone, and if that is all of them the
-              // Z is refused rather than claiming a withdrawal it did not make.
-              const all = [{ product: made.product, id: made.id }, ...(how?.alsoMade ?? [])];
-              const label = all.length > 1 ? `Withdrawn: ${all.length} threads` : `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`;
-              noteNewTask(label, all.length > 1 ? `take back those ${all.length} threads` : 'take back the task you just made', sent, async () => {
+              // A thread an agent has already answered is left alone, and then
+              // the Z is refused rather than claiming a withdrawal it did not
+              // make (tests/taking-back-a-task-the-agent-already-answered).
+              const one = { product: made.product, id: made.id };
+              noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
                 const rows = (await api.snapshot())?.items ?? [];
-                const rowOf = (one: { product: string; id: string }) => rows.find((i) => i.id === one.id && i.product === one.product);
-                const open = all.filter((one) => !answeredAlready(rowOf(one)));
-                if (!open.length) return { refused: TOO_LATE_TO_WITHDRAW, open: rowOf(all[0]) };
-                for (const one of open) await api.answer({ product: one.product, id: one.id, status: 'done' });
-              }, all.map((one) => ({ ...one, words: 'Undid sending it' })));
+                const row = rows.find((i) => i.id === one.id && i.product === one.product);
+                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+                await api.answer({ product: one.product, id: one.id, status: 'done' });
+              }, [{ ...one, words: 'Undid sending it' }]);
             }
             // Read before the line is said: a tool with no login left in
             // usage means nothing started, and the line has to say so.
@@ -6878,7 +6888,6 @@ export default function App() {
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
-              threads: how?.threads,
               limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
           }}

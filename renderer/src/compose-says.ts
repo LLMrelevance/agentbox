@@ -127,14 +127,9 @@ export function noProjectYet(
  */
 export function sentLine(p: {
   to: string; when?: string | null; held?: boolean;
-  /** How many threads a pasted list went out as, when it was split. */
-  threads?: number;
   /** The new row's entry in `supervisor.atLimit`: every login of its tool is out of usage. */
   limit?: { tool: string; until: number } | null; now?: number;
 }): string {
-  // A split says how many went: it is a thing you did on purpose, and the fact
-  // you want back is that three rows exist. One thread counts nothing.
-  if ((p.threads ?? 1) > 1 && !p.held && !p.when) return `Started ${p.threads} threads in ${p.to} · Z to undo`;
   // "Started in", because "Sent to Office admin" read as a message to a person.
   // And "Added to Later" for the one answer on the Send later menu with no
   // moment in it (w-afb66e6661): it did not start, so saying it did is a lie,
@@ -162,10 +157,9 @@ export function sentLine(p: {
  * toast that replaces it reads as the same sentence finishing. No Z yet:
  * nothing has been written for Z to take back.
  */
-export function sendingLine(p: { kind: 'task' | 'repeat' | 'message'; to: string; held?: boolean; scheduled?: boolean; threads?: number }): string {
+export function sendingLine(p: { kind: 'task' | 'repeat' | 'message'; to: string; held?: boolean; scheduled?: boolean }): string {
   if (p.kind === 'message') return p.to ? `Sending to ${p.to}…` : 'Sending…';
   if (p.held) return `Adding to Later in ${p.to}…`;
   if (p.scheduled || p.kind === 'repeat') return `Scheduling in ${p.to}…`;
-  if ((p.threads ?? 1) > 1) return `Starting ${p.threads} threads in ${p.to}…`;
   return `Starting in ${p.to}…`;
 }

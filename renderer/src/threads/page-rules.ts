@@ -858,3 +858,17 @@ export function tabOfState(state: ThreadStateWord | null): View | null {
   if (state === 'done') return 'done';
   return null;
 }
+
+/**
+ * THE TAB THE THREAD'S BAR NAMES, AND THE ONE BACK GOES TO (w-474ac45a33).
+ *
+ * The bar named the tab you were standing on, which is where the thread was
+ * when you opened it and not where it is now. A thread filed from the composer
+ * opens under In progress, finishes while you read it, and the bar went on
+ * saying IN PROGRESS over a tab reading "Nothing is running." The thread's own
+ * state is the answer wherever it has one; a thread in no tab keeps the page
+ * you are standing on.
+ */
+export function crumbTab(state: ThreadStateWord | null, standingOn: View): View {
+  return tabOfState(state) ?? standingOn;
+}
