@@ -6689,7 +6689,7 @@ export default function App() {
             const to = how.kind === 'message'
               ? firstNames(how.toMany ?? [how.to ?? ''])
               : snap.products.find((x) => x.slug === how.product)?.name ?? how.product ?? '';
-            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt, threads: how.threads }));
+            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt }));
             // AND IF THE APP NEVER TAKES IT, SAY THAT TOO. The line above is a
             // sentence about the next half second, and it expires; a send the
             // app has not taken by then is read as a send that never happened,
@@ -6761,20 +6761,16 @@ export default function App() {
               return;
             }
             if (made?.id) {
-              // A SPLIT LIST IS ONE SEND AND SO ONE UNDO. Z takes back every
-              // thread it made: three rows left behind by a Z that reached one
-              // of them is worse than no Z at all. A thread an agent has
-              // already answered is left alone, and if that is all of them the
-              // Z is refused rather than claiming a withdrawal it did not make.
-              const all = [{ product: made.product, id: made.id }, ...(how?.alsoMade ?? [])];
-              const label = all.length > 1 ? `Withdrawn: ${all.length} threads` : `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`;
-              noteNewTask(label, all.length > 1 ? `take back those ${all.length} threads` : 'take back the task you just made', sent, async () => {
+              // A thread an agent has already answered is left alone, and then
+              // the Z is refused rather than claiming a withdrawal it did not
+              // make (tests/taking-back-a-task-the-agent-already-answered).
+              const one = { product: made.product, id: made.id };
+              noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
                 const rows = (await api.snapshot())?.items ?? [];
-                const rowOf = (one: { product: string; id: string }) => rows.find((i) => i.id === one.id && i.product === one.product);
-                const open = all.filter((one) => !answeredAlready(rowOf(one)));
-                if (!open.length) return { refused: TOO_LATE_TO_WITHDRAW, open: rowOf(all[0]) };
-                for (const one of open) await api.answer({ product: one.product, id: one.id, status: 'done' });
-              }, all.map((one) => ({ ...one, words: 'Undid sending it' })));
+                const row = rows.find((i) => i.id === one.id && i.product === one.product);
+                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+                await api.answer({ product: one.product, id: one.id, status: 'done' });
+              }, [{ ...one, words: 'Undid sending it' }]);
             }
             // Read before the line is said: a tool with no login left in
             // usage means nothing started, and the line has to say so.
@@ -6783,7 +6779,6 @@ export default function App() {
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
-              threads: how?.threads,
               limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
           }}
