@@ -153,6 +153,8 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .cx-plus { width: 26px; height: 26px; display: grid; place-items: center; border: 0; border-radius: 6px; background: none; color: var(--text-faint); cursor: default; }
 .cx-plus:hover { background: var(--wash-strong); color: var(--text); }
 .cx-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 10px; border: 0; border-radius: 6px; background: none; font: inherit; font-size: 14px; color: var(--text); text-align: left; cursor: default; }
+/* Under a folding header, a row starts where the header's words do. */
+.cx-sec > .cx-row { padding-left: 26px; }
 .cx-row:hover { background: var(--wash); }
 .cx-row.on { background: var(--bg-selected); }
 .cx-row .tq, .cx-row .gr-tile, .cx-row img, .cx-row .gr-two { flex: none; }
