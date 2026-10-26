@@ -128,10 +128,17 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
       keywords: 'priority order rank reorder sort first top priorities rename project settings',
       run: onOpenProjects,
     }] : []),
+    // MY WORKSPACE SAYS WHAT IT IS (w-04e8d6d6e6). The app makes it at launch
+    // so that a thread always has somewhere to go (main/main.mjs), and a new
+    // user meets it here as a project they never made, with nothing on the row
+    // to say so. Its hint says what it is until it is ranked, after which
+    // where it stands is the more useful thing to say.
     ...products.map((p, i) => ({
       id: `rank-${p.slug}`,
       label: `Rank ${p.name} first`,
-      hint: order.includes(p.slug) ? `now #${i + 1} of ${products.length}` : 'not ranked yet',
+      hint: order.includes(p.slug) ? `now #${i + 1} of ${products.length}`
+        : p.personal ? 'made for you, so a thread always has somewhere to go'
+        : 'not ranked yet',
       run: () => onRankFirst(p.slug),
     })),
     // Prints its key, so someone who uses the corner magnifier learns `/`.

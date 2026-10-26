@@ -1754,12 +1754,28 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     }
     return cloudAccount;
   };
+  // A new account's link comes back to this Mac's own listener while the page
+  // says to check the inbox, and the sign-in finishes here, so the page moves
+  // on by itself. Behind the handler, which it would hold for a quarter hour.
+  let confirming = null;
+  const waitForTheLink = async (acct) => {
+    if (confirming) return;
+    const { waitForEmailConfirmation } = await import('./cloud/account.mjs');
+    confirming = waitForEmailConfirmation({ config: acct.value, session: acct.session, home: supervisor.config.home || os.homedir() })
+      .then((out) => {
+        if (!out.ok) { console.log(`cloud account: the confirmation link did not finish: ${out.error}`); return; }
+        try { if (window?.isMinimized?.()) window.restore(); window?.show?.(); } catch { /* no window to raise */ }
+        push();
+      })
+      .finally(() => { confirming = null; });
+  };
   ipcMain.handle('zero:cloud-account-sign-in', async (_e, { method, email, password, name, acceptTerms } = {}) => {
     const acct = await cloudAccountSessionNow();
     if (!acct) return { ok: false, error: 'This copy of the app has no cloud to sign in to.' };
     const { cloudSignIn } = await import('./cloud/account.mjs');
     const out = await cloudSignIn({ config: acct.value, session: acct.session, method, email, password, name, acceptTerms: acceptTerms === true, home: supervisor.config.home || os.homedir() });
     if (method === 'google') { try { if (window?.isMinimized?.()) window.restore(); window?.show?.(); } catch { /* no window to raise */ } }
+    if (out.ok && out.confirm) void waitForTheLink(acct);
     push();
     return out;
   });

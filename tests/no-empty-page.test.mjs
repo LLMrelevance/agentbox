@@ -75,7 +75,7 @@ describe('an empty inbox keeps its page', () => {
   });
 
   it('draws its zero under the tabs, in the list\'s place', () => {
-    expect(app).toMatch(/\{emptyView && !theirRows\.length[\s\S]{0,1400}<InboxClear/);
+    expect(app).toMatch(/\(emptyView && !theirRows\.length[\s\S]{0,1400}<InboxClear/);
   });
 
   it('leaves nothing gated on the modal', () => {

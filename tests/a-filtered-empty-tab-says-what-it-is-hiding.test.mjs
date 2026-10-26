@@ -91,7 +91,7 @@ describe('the component that draws it', () => {
   it('is what an emptied tab draws, above the unfiltered empty states', () => {
     // The order matters: the filtered test is read FIRST, so a filter can
     // never fall through to "Nothing needs you".
-    const branch = app.slice(app.indexOf('{emptyView && !theirRows.length'), app.indexOf('{emptyView && !theirRows.length') + 1400);
+    const branch = app.slice(app.indexOf('(emptyView && !theirRows.length'), app.indexOf('(emptyView && !theirRows.length') + 1400);
     expect(branch).toContain('<FilteredEmpty');
     expect(branch.indexOf('<FilteredEmpty')).toBeLessThan(branch.indexOf('<InboxClear'));
     expect(branch).toContain('hiddenNow');
@@ -105,8 +105,9 @@ describe('the component that draws it', () => {
 describe('the tab numbers', () => {
   it('count what the filters show, so the number matches the list under it', () => {
     const counts = app.slice(app.indexOf('counts={{'), app.indexOf('counts={{') + 600);
-    for (const tab of ['inbox', 'progress', 'snoozed', 'done']) {
-      expect(counts).toContain(`shownCount(${tab})`);
+    // In progress counts `progressTab`, which holds each thread once (5672fc4a).
+    for (const rows of ['inbox', 'progressTab', 'snoozed', 'done']) {
+      expect(counts).toContain(`shownCount(${rows})`);
     }
   });
 
