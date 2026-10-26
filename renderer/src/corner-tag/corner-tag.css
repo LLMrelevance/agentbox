@@ -136,8 +136,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'DejaVu Sa
 /* ---- the tag ----
    The mark and how many are new, nothing else (w-93b3a1a796, her pick of
    "just the dots"): the words moved into the list. The small corners are the
-   ones she approved (2026-10-08), not the Mac's capsule. */
+   ones she approved (2026-10-08), not the Mac's capsule.
+
+   THE HAND IS THE ONLY THING THAT SAYS IT MOVES. Nothing is drawn on the tag
+   to say so, by choice, so the pointer carries it the way the resize arrow
+   carries the corners. It stays on the glass: the window is wider, and a hand
+   over the clear band would promise a drag to another app's window. */
 .ct-tag {
+  cursor: grab;
   height: calc(28px * var(--ct-s)); padding: 0 calc(10px * var(--ct-s));
   border-radius: calc(6px * var(--ct-s)); box-sizing: border-box;
   display: flex; align-items: center; gap: calc(7px * var(--ct-s));

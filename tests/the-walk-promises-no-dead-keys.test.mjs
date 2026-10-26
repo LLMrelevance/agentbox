@@ -13,7 +13,7 @@
 // screens DRAW is a key the walk HANDLES.
 
 import { describe, expect, it } from 'vitest';
-import { COACHED, coach } from '../renderer/src/onboarding.ts';
+import { COACHED, coach, teamTab } from '../renderer/src/onboarding.ts';
 import { rowKeys, walkRowKeys } from '../renderer/src/list-rules.ts';
 import { workspaceDestinations } from '../renderer/src/workspace-navigation.mjs';
 import fs from 'node:fs';
@@ -289,10 +289,13 @@ describe('the coaching card promises no dead key either', () => {
     // for it went on 2026-10-02, w-914b16eab6).
     expect(app).toContain('setView(nextTab(stateTabOrder, view, e.shiftKey) as View);');
     expect(app).not.toContain('const want = order[slot - 1];');
-    // And each tab carries the mark the ring sits on, or the beat points at
-    // nothing. Measured the hard way once already, one beat up: a card that
-    // describes something invisible is this whole round's fault.
-    for (const tab of ['inbox', 'progress', 'done']) expect(app).toContain(`data-tab="${tab}"`);
+    // And each tab can be found by the ring, or the beat points at nothing.
+    // Measured the hard way once already, one beat up: a card that describes
+    // something invisible is this whole round's fault. The Inbox's tabs are
+    // found by their place in its strip (`teamTab`); the named tabs of the old
+    // strip went with the layout without the sidebar (w-a1ed0e8b25).
+    for (const tab of ['inbox', 'progress', 'done']) expect(teamTab(tab)).toMatch(/^\.th-bar \.tm-tab:nth-child\(\d\)$/);
+    expect(read('renderer/src/threads/Pages.tsx')).toContain('<div className="th-bar"><div className="tm-tabs">');
   });
 
   it('says a different thing on each of the three tabs', () => {
