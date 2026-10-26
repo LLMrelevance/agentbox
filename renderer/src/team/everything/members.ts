@@ -83,6 +83,8 @@ export function buildMembers({ me, people = [], wall = null, cards = [], teammat
     out.push({ key: `mate:${t.id}`, kind: 'mate', name: t.name, letter: t.letter || t.name.slice(0, 1), role: t.role, agents: mateAgents.get(t.id) ?? 0,
       now: t.paused ? 'Paused' : t.status === 'draft' ? 'Setting up' : t.now });
   }
+  const teamCard = out.find((m) => m.team);
+  if (teamCard) teamCard.agents = out.reduce((n, m) => n + (m.kind === 'person' || m.kind === 'mate' ? m.agents ?? 0 : 0), 0);
   // A chat with one person is that person's card; a chat with several, or a group, is a chat of its own.
   const theirs = new Set(personChats.values());
   const others = chats.filter((c) => c !== team && !theirs.has(c.key) && !(c.key.startsWith('direct:') && c.faces.length <= 1)).slice().sort((a, b) => b.at - a.at);
@@ -103,6 +105,19 @@ export function mateRunsOf<T extends { id: string; labels?: string[]; status: st
 export function personCardsOf<T extends ThreadIn & { visible: boolean }>(cards: readonly T[], personId: string, dayStart: number): T[] {
   return cards.filter((c) => c.personId === personId && c.visible && (c.state !== 'done' || c.updatedAt >= dayStart))
     .sort((a, b) => (OPEN_FIRST[a.state] ?? 1) - (OPEN_FIRST[b.state] ?? 1) || b.updatedAt - a.updatedAt);
+}
+
+export type TeamRun<C, I> = { card: C; item?: undefined } | { item: I; card?: undefined };
+
+/** The team chat's Agents tab: the people's shared threads and the AI teammates' threads together, working first. */
+export function teamRunsOf<C extends ThreadIn & { visible: boolean }, I extends { id: string; labels?: string[]; status: string; updatedAt?: number }>(
+  cards: readonly C[], items: readonly I[], people: readonly string[], mates: readonly string[], dayStart: number,
+): TeamRun<C, I>[] {
+  const all = [
+    ...people.flatMap((p) => personCardsOf(cards, p, dayStart)).map((card) => ({ run: { card } as TeamRun<C, I>, state: card.state, at: card.updatedAt })),
+    ...mates.flatMap((t) => mateRunsOf(items, t, dayStart)).map((item) => ({ run: { item } as TeamRun<C, I>, state: item.status, at: item.updatedAt ?? 0 })),
+  ];
+  return all.sort((a, b) => (OPEN_FIRST[a.state] ?? 1) - (OPEN_FIRST[b.state] ?? 1) || b.at - a.at).map((r) => r.run);
 }
 
 /** The saved order, with anyone new where they would be by default and anyone gone left out. */

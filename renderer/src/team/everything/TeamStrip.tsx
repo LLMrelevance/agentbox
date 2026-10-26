@@ -7,7 +7,7 @@ import { RoomFace } from '../rooms/RoomFace';
 import { RowCells, ThreadCells } from '../../threads/Pages';
 import { STATE_WORD } from '../../threads/summary-rules';
 import type { StatusCell } from '../../status-word';
-import { moveMember, type Member } from './members';
+import { moveMember, type Member, type TeamRun } from './members';
 import './everything.css';
 
 const agentsWords = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'} working`;
@@ -16,11 +16,13 @@ const agentsWords = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'} working
 export function MemberFace({ m, size }: { m: Member; size: number }) {
   if (m.kind === 'mate') return <span className="ev-ai" style={{ width: size, height: size, fontSize: Math.round(size * 0.27) }} aria-hidden="true">{m.letter}</span>;
   if (m.kind === 'chat') {
-    const faces = (m.faces ?? []).slice(0, 4);
+    const faces = m.faces ?? [];
     if (!faces.length) return <span className="ev-hash" style={{ width: size, height: size, fontSize: Math.round(size * 0.3) }} aria-hidden="true">#</span>;
-    const cell = faces.length === 1 ? size : Math.floor((size - 2) / 2);
-    return <span className={`ev-mosaic n${faces.length}`} style={{ width: size, height: size }} aria-hidden="true">
-      {faces.map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={cell} />)}
+    if (faces.length === 1) return <RoomFace name={faces[0].name} url={faces[0].url} size={size} />;
+    // Small enough that the second leaves the first one's initials showing.
+    const side = Math.round(size * 0.6);
+    return <span className="ev-two" style={{ width: size, height: size }} aria-hidden="true">
+      {faces.slice(0, 2).map((f, i) => <RoomFace key={i} name={f.name} url={f.url} size={side} />)}
     </span>;
   }
   return <RoomFace name={m.faceName || m.name} url={m.avatarUrl ?? null} size={size} />;
@@ -123,17 +125,35 @@ export function MateThreads({ items, products, now, onOpen }: { items: WorkItem[
 
 const CARD_MARK: Record<ThreadCard['state'], StatusCell['mark']> = { waiting: 'need', running: 'working', scheduled: 'sched', done: 'done' };
 
+function CardRow({ c, who, now, onOpen }: { c: ThreadCard; who?: { name: string; url: string | null }; now: number; onOpen: (card: ThreadCard) => void }) {
+  // The Status column's word for a running thread, as on the inbox's own rows beside it.
+  const status: StatusCell = { word: c.state === 'running' ? 'Working' : STATE_WORD[c.state], mark: CARD_MARK[c.state], agent: c.state === 'running', live: c.state === 'running', cloud: false };
+  const title = who ? <><span className="tq-from"><RoomFace name={who.name} url={who.url} size={18} /><b>{who.name}</b></span>{c.title ?? 'A thread'}</> : c.title ?? 'A thread';
+  return <div className="row" role="button" tabIndex={0} onClick={() => onOpen(c)}
+    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onOpen(c); } }}>
+    <span className="mark" aria-hidden="true" />
+    <RowCells status={status} title={title} where={c.project ?? ''} priority={c.priority} updatedAt={c.updatedAt} now={now} />
+  </div>;
+}
+
 /** A person's shared threads, newest first, as rows. */
 export function PersonThreads({ cards, name, now, onOpen }: { cards: ThreadCard[]; name: string; now: number; onOpen: (card: ThreadCard) => void }) {
   if (!cards.length) return <p className="ev-empty">{name} has no threads shared with the team right now.</p>;
-  return <div className="list th-table ev-rows">{cards.map((c) => {
-    const status: StatusCell = { word: STATE_WORD[c.state], mark: CARD_MARK[c.state], agent: c.state === 'running', live: c.state === 'running', cloud: false };
-    return <div key={`${c.personId}/${c.threadId}`} className="row" role="button" tabIndex={0} onClick={() => onOpen(c)}
-      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onOpen(c); } }}>
-      <span className="mark" aria-hidden="true" />
-      <RowCells status={status} title={c.title ?? 'A thread'} where={c.project ?? ''} priority={c.priority} updatedAt={c.updatedAt} now={now} />
-    </div>;
-  })}</div>;
+  return <div className="list th-table ev-rows">{cards.map((c) => <CardRow key={`${c.personId}/${c.threadId}`} c={c} now={now} onOpen={onOpen} />)}</div>;
+}
+
+/** The team chat's Agents: everyone's threads in one list, each row saying whose it is. */
+export function TeamThreads({ runs, people, products, now, onOpenItem, onOpenCard }: {
+  runs: TeamRun<ThreadCard, WorkItem>[]; people: ReadonlyMap<string, { name: string; url: string | null }>; products: Product[]; now: number;
+  onOpenItem: (item: WorkItem) => void; onOpenCard: (card: ThreadCard) => void;
+}) {
+  if (!runs.length) return <p className="ev-empty">Nobody on the team is running anything they share right now.</p>;
+  return <div className="list th-table ev-rows team">{runs.map((r) => r.card
+    ? <CardRow key={`${r.card.personId}/${r.card.threadId}`} c={r.card} who={people.get(r.card.personId) ?? { name: 'Someone', url: null }} now={now} onOpen={onOpenCard} />
+    : <div key={`${r.item.product}/${r.item.id}`} className="row" role="button" tabIndex={0} onClick={() => onOpenItem(r.item)}
+      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); onOpenItem(r.item); } }}>
+      <span className="mark" aria-hidden="true" /><ThreadCells item={r.item} product={products.find((p) => p.slug === r.item.product)} now={now} />
+    </div>)}</div>;
 }
 
 /** Needs you's corner: the people on your team and your AI teammates, each with how many agents it runs. */

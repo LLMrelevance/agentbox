@@ -32,13 +32,14 @@
 
 .ev-ai { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px dashed var(--line-strong); color: var(--text-dim); font-family: var(--mono); }
 .ev-hash { box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; flex: none; border: 1px solid var(--line-strong); color: var(--text-dim); font-family: var(--mono); }
-.ev-mosaic { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; flex: none; }
-.ev-mosaic.n1 { grid-template-columns: 1fr; }
-.ev-mosaic .rm-pic { width: 100% !important; height: 100% !important; }
-.ev-mosaic .rm-ini { font-size: 8px !important; }
+/* A chat of two or more: two square faces, the second over the first's corner, as the Messages list draws a group. */
+.ev-two { position: relative; display: inline-block; flex: none; }
+.ev-two .rm-pic { position: absolute; }
+.ev-two .rm-pic:first-child { left: 0; top: 0; }
+.ev-two .rm-pic:last-child { right: 0; bottom: 0; outline: 2px solid var(--surface); }
 
 .ev-bar { display: flex; align-items: center; gap: 12px; margin: 18px var(--row-r, 24px) 0 var(--text-x, 32px); height: 44px; box-sizing: border-box; border-bottom: 1px solid var(--line); flex: none; }
-.ev-bar .rm-pic, .ev-bar .ev-ai, .ev-bar .ev-hash, .ev-bar .ev-mosaic { flex: none; }
+.ev-bar .rm-pic, .ev-bar .ev-ai, .ev-bar .ev-hash, .ev-bar .ev-two { flex: none; }
 .ev-bn { font-size: 15px; color: var(--text); white-space: nowrap; }
 .ev-bn em { font-style: normal; color: var(--text-faint); margin-left: 8px; }
 .ev-bar .tm-tabs { margin-left: 22px; align-self: stretch; }
@@ -60,6 +61,7 @@
 .ev-rows { padding-top: 4px; }
 /* Inside a teammate's own space every row is theirs; the name on each says nothing. */
 .ev-rows .tq-from { display: none; }
+.ev-rows.team .tq-from { display: inline-flex; }
 .ev-empty { margin: 22px var(--row-r, 24px) 0 var(--text-x, 32px); font-size: 14px; color: var(--text-faint); }
 .ev-empty .rm-btn { margin-left: 12px; }
 

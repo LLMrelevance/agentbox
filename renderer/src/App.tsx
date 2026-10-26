@@ -112,8 +112,8 @@ import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
-import { AgentsLine, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip } from './team/everything/TeamStrip';
-import { buildMembers, mateRunsOf, orderMembers, personCardsOf, readOrder, writeOrder } from './team/everything/members';
+import { AgentsLine, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
+import { buildMembers, mateRunsOf, orderMembers, personCardsOf, readOrder, teamRunsOf, writeOrder } from './team/everything/members';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.mjs';
 import { UsagePill } from './components/UsagePill';
@@ -3599,7 +3599,7 @@ export default function App() {
     if (view === 'inbox') setView('progress');
     if (key === 'me') { roomsUi.leave(); teammatesUi.leave(); setEvPick(null); setFocused(null); return; }
     if (key.startsWith('mate:') && tab === 'messages') { setEvPick(null); teammatesUi.go(key.slice('mate:'.length)); return; }
-    if (key.startsWith('room:')) { setEvPick(null); teammatesUi.leave(); roomsUi.open(key.slice('room:'.length)); return; }
+    if (key.startsWith('room:') && tab === 'messages') { setEvPick(null); teammatesUi.leave(); roomsUi.open(key.slice('room:'.length)); return; }
     roomsUi.leave(); teammatesUi.leave();
     if (key.startsWith('direct:')) {
       setEvPick(null);
@@ -6087,11 +6087,14 @@ export default function App() {
   const dayStart = new Date(now).setHours(0, 0, 0, 0);
   const evItems = evMember?.kind === 'mate' ? (mateRunsOf(items, evMember.key.slice('mate:'.length), dayStart)) : [];
   const evCards = evMember?.kind === 'person' ? personCardsOf(cards, evMember.key.slice('person:'.length), dayStart) : [];
+  const evPeople = new Map(members.filter((m) => m.kind === 'person').map((m) => [m.key.slice('person:'.length), { name: m.name, url: m.avatarUrl ?? null }]));
+  const evRuns = evMember?.team && evTab === 'agents'
+    ? teamRunsOf(cards, items, [...evPeople.keys()], members.filter((m) => m.kind === 'mate').map((m) => m.key.slice('mate:'.length)), dayStart) : [];
   const evBar = !evMember ? null
     : evMember.kind === 'me' ? <SpaceBar m={evMember} onTab={(v) => { setView(v as View); setSelected(0); setMultiSel(new Set()); }}
       tabs={INBOX_TABS.filter((t) => t.view !== 'inbox').map((t) => ({ id: t.view, label: t.label, on: view === t.view,
         count: t.view === 'progress' ? shownCount(progressTab) : t.view === 'snoozed' ? shownCount(snoozed) : undefined }))} />
-    : evMember.kind === 'chat' ? <SpaceBar m={evMember} tabs={[]} slot={inTeamChat ? setTaskHeader : undefined} />
+    : evMember.kind === 'chat' && !evMember.team ? <SpaceBar m={evMember} tabs={[]} slot={inTeamChat ? setTaskHeader : undefined} />
     : <SpaceBar m={evMember} onTab={(t) => pickMember(evMember.key, t as 'messages' | 'agents')} slot={inTeamChat ? setTaskHeader : undefined}
       tabs={[{ id: 'messages', label: 'Messages', on: evTab === 'messages' }, { id: 'agents', label: 'Agents', count: evMember.agents ?? undefined, on: evTab === 'agents' }]}
       right={<>{teammatesShown ? teammatesUi.right : null}<AgentsLine n={evMember.agents} /></>} />;
@@ -6105,11 +6108,13 @@ export default function App() {
     {evBar}
   </> : null;
   // A person or an AI teammate that has no page of its own to open: its threads, or the way to start talking.
-  const evSpace = !evMember || evFill || evMember.kind === 'me' || evMember.kind === 'chat' ? null
+  const evSpace = !evMember || evFill || evMember.kind === 'me' || (evMember.kind === 'chat' && !evMember.team) ? null
     : evTab === 'agents'
       ? (evMember.kind === 'mate'
         ? <MateThreads items={evItems} products={snap?.products ?? []} now={now} onOpen={(item) => { setFocused(item); markSeen(item); }} />
-        : <PersonThreads cards={evCards} name={evMember.name.split(' ')[0]} now={now} onOpen={openTeammateCard} />)
+        : evMember.kind === 'chat'
+          ? <TeamThreads runs={evRuns} people={evPeople} products={snap?.products ?? []} now={now} onOpenItem={(item) => { setFocused(item); markSeen(item); }} onOpenCard={openTeammateCard} />
+          : <PersonThreads cards={evCards} name={evMember.name.split(' ')[0]} now={now} onOpen={openTeammateCard} />)
       : <p className="ev-empty">No messages with {evMember.name.split(' ')[0]} yet.
         <button type="button" className="rm-btn" onClick={() => { setComposeInitial({ to: evMember.key.slice(evMember.key.indexOf(':') + 1) }); setModal('compose'); }}>Message {evMember.name.split(' ')[0]}</button></p>;
   const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };

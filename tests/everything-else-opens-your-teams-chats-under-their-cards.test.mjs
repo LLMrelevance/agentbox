@@ -60,7 +60,8 @@ describe('the cards', () => {
     const html = strip();
     const chat = html.slice(html.indexOf('ev-card chat'), html.indexOf('ev-card person'));
     expect(chat).toContain('ev-bubble');
-    expect(chat).toContain('ev-mosaic');
+    // One person's face, square (tests/two-people-in-a-chat-show-as-two-square-faces).
+    expect(chat).toContain('rm-pic');
     expect(chat).toContain('Theo: Lock screen works');
     expect(chat).not.toContain('AGENTS WORKING');
     const person = html.slice(html.indexOf('ev-card person'));
