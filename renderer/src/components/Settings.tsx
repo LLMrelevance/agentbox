@@ -35,7 +35,7 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
-import { cloudBilling, type PaidPlan } from '../cloud-upgrade';
+import { cloudBilling, planSummary, type PaidPlan } from '../cloud-upgrade';
 import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, meterPair } from '../account-words';
@@ -803,12 +803,12 @@ function PhonePage({ onFeedback, macShut, onSignIn }: { onFeedback?: () => void;
   );
 }
 
-/* ------------------------------- Agentbox Cloud ------------------------------- */
-// THE PLANS, AS CARDS (the founder's design of 2026-10-13, w-1dc7ee2408,
-// cloud-slots/20): sold as agent slots, the plan you are on outlined with how
-// much of it is in use, how the cloud counts under them, and billing on
-// Stripe's own page. Choosing opens Stripe in the browser; the page reads the
-// plan again until it changes (../cloud-upgrade.ts).
+/* ---------------------------- Plan and Billing ---------------------------- */
+// With no plan, the plans as cards (w-1dc7ee2408, cloud-slots/20) and how the
+// cloud counts. With one, the plan and Stripe's billing page, this month as
+// two meters, then the cards to change to (w-893c5fe268). Choosing opens
+// Stripe in the browser; the page reads the plan again until it changes
+// (../cloud-upgrade.ts).
 function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
   const [plan, setPlan] = useState<CloudPlan | null>(null);
   const [said, setSaid] = useState<string | null>(null);
@@ -855,12 +855,47 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     void read();
   };
   const bill = cloudBilling(plan);
-  return (
-    <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
-      <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />
+  const cards = <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />;
+  const lines = (
+    <>
       {said && <p className="cloud-plans-say">{said}</p>}
       {waitingFor && <p className="cloud-plans-say">{switching ? 'Confirm the change on Stripe’s page in your browser. Your plan shows here once it’s done.' : 'Finish paying in your browser. Your plan shows here once you’ve paid.'}</p>}
       {bill.says && !waitingFor && <p className="cloud-plans-say">{bill.says}</p>}
+    </>
+  );
+  // THE PLAN YOU PAY FOR, FOUND UNDER BILLING (the founder's pick of five, 2026-10-25).
+  const sum = planSummary(plan);
+  if (sum) {
+    const meter = (label: string, m: { line: string; percent: number }) => (
+      <div className="bill-meter">
+        <div className="bill-meter-label">{label}</div>
+        <div className="bill-meter-value">{m.line}</div>
+        <span className="bill-meter-bar"><i style={{ width: `${m.percent}%` }} /></span>
+      </div>
+    );
+    return (
+      <Page title="Plan and Billing">
+        <Group id="cloud-billing" label="Your plan" bare>
+          <div className="bill-summary">
+            <div>
+              <div className="bill-plan">{sum.name}</div>
+              <div className="bill-price">{sum.price} · {billSaid ?? sum.who}</div>
+            </div>
+            {sum.manage && <button type="button" className="set-ghost" onClick={() => void billing()}>Manage billing</button>}
+          </div>
+        </Group>
+        <Group id="cloud-use" label="This month" bare>
+          <div className="bill-meters">{meter('Agents in the cloud', sum.agents)}{meter('Hours used', sum.hours)}</div>
+        </Group>
+        <Group id="cloud-plans" label="Change plan" bare><div className="bill-cards">{cards}</div></Group>
+        {lines}
+      </Page>
+    );
+  }
+  return (
+    <Page title="Plan and Billing" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
+      {cards}
+      {lines}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
@@ -868,13 +903,6 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
           <li>Past a plan's hours, threads wait for your computer until the month turns.</li>
         </ul>
       </Group>
-      {bill.row && (
-        <Group id="cloud-billing" label="Billing">
-          <Row label="Payment and invoices" desc={billSaid ?? 'Handled by Stripe. Cancel any time.'}>
-            <button type="button" className="set-ghost" onClick={() => void billing()}>Open</button>
-          </Row>
-        </Group>
-      )}
     </Page>
   );
 }
@@ -1472,7 +1500,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
-    cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
+    cloud: <path d="M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9" />,
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
@@ -1956,7 +1984,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 <span className="set-hit-page">{h.pageLabel}</span>
               </button>
             )) : <div className="set-nav-empty">Nothing matches “{query.trim()}”.</div>
-          ) : (['Personal', 'Agents', 'Workspace'] as const).map((group) => (
+          ) : (['Personal', 'Agents', 'Workspace', 'Billing'] as const).map((group) => pages.some((p) => p.group === group) && (
             <Fragment key={group}>
               <div className="set-nav-group">{group}</div>
               {pages.filter((p) => p.group === group).map((p) => (

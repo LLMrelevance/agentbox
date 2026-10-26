@@ -1,9 +1,10 @@
 // WHERE AGENTBOX CLOUD OFFERS ITSELF, AND WHAT IT SAYS (the founder's design
 // of 2026-10-13, w-1dc7ee2408: never a pop-up). A last row in the list and a
 // card on the board when the Mac is full and threads wait; the plans as cards
-// on Settings › Cloud; the next plan up when this one has no room.
+// on Settings › Plan and Billing; the next plan up when this one has no room.
 // Drawn in components/List.tsx and components/CloudPlans.tsx.
 import { PLANS } from '../../cloud/gateway/plans.mjs';
+import { Name } from '../../shared/product-name.mjs';
 import type { CloudStatus } from './cloud-menu';
 import type { CloudPlan } from './types';
 
@@ -65,11 +66,37 @@ export function planCards(plan: CloudPlan | null): PlanCard[] {
   });
 }
 
-/** Whether Settings › Cloud shows Stripe's billing row, and what it says instead. */
+export interface PlanSummary {
+  name: string; price: string; who: string; manage: boolean;
+  agents: { line: string; percent: number };
+  hours: { line: string; percent: number };
+}
+
+/** The top of Settings › Plan and Billing: the plan paid for, and this month's agents and hours as meters. */
+export function planSummary(plan: CloudPlan | null): PlanSummary | null {
+  const mine = plan?.plan && plan.plan !== 'none' ? plan.plan : null;
+  if (!plan || !mine) return null;
+  const running = plan.running ?? 0;
+  const hoursAll = plan.hoursPerMonth ?? PLANS[mine].hoursPerMonth;
+  const manage = cloudBilling(plan).row;
+  return {
+    name: `${Name} Cloud ${NAME[mine]}`,
+    price: `$${PLANS[mine].dollarsPerMonth} a month`,
+    who: manage ? 'Billed monthly by Stripe' : 'Set up for you, nothing to pay',
+    manage,
+    agents: plan.unlimited
+      ? { line: `${running} running, no limit`, percent: 0 }
+      : { line: `${running} of ${plan.agents ?? 0} running`, percent: Math.min(100, Math.round((running / Math.max(1, plan.agents ?? 1)) * 100)) },
+    hours: { line: `${n(Math.floor((plan.usedSeconds ?? 0) / 3600))} of ${n(hoursAll)} hours`, percent: usedPercent(plan) },
+  };
+}
+
+/** Whether Settings › Plan and Billing offers Stripe's billing page, and what it says instead. */
 export function cloudBilling(plan: CloudPlan | null): { row: boolean; says: string | null } {
   const mine = plan?.plan && plan.plan !== 'none' ? plan.plan : null;
   if (!mine) return { row: false, says: null };
-  if (plan?.billing === 'given') return { row: false, says: `Your ${NAME[mine]} plan was set up for you, so there is nothing to pay. Choosing a plan starts paying for it.` };
+  // The plan's own box already says it was set up for you.
+  if (plan?.billing === 'given') return { row: false, says: 'Choosing a plan starts paying for it.' };
   return { row: true, says: null };
 }
 

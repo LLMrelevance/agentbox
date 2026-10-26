@@ -30,7 +30,7 @@ describe('billing on the Cloud page', () => {
   });
 
   it('a plan set by hand has no billing row, and says why', () => {
-    expect(cloudBilling(plan('max', 'given'))).toEqual({ row: false, says: 'Your Max plan was set up for you, so there is nothing to pay. Choosing a plan starts paying for it.' });
+    expect(cloudBilling(plan('max', 'given'))).toEqual({ row: false, says: 'Choosing a plan starts paying for it.' });
   });
 
   it('no plan has neither', () => {
