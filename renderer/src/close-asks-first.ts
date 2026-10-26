@@ -11,7 +11,9 @@
 // `answerCloseAsk` does what the answer says; this is only the words.
 import type { ParsedOption } from './format';
 
-export type CloseAct = 'decide' | 'start' | 'drop' | 'ship' | 'close';
+// `discard` and `keep` belong to ./discard-asks-first.ts, which borrows this
+// strip for the one other question that has to stand in front of a press.
+export type CloseAct = 'decide' | 'start' | 'drop' | 'ship' | 'close' | 'discard' | 'keep';
 export interface CloseOption extends ParsedOption { act: CloseAct }
 export interface CloseAsk { ask: string; options: CloseOption[] }
 

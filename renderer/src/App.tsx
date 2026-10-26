@@ -66,13 +66,14 @@ import { LATER_KEYWORDS } from './palette-rows';
  `astral/w-86452550e5-looks`.
 */
 import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
-import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
-import { SHIP_OFFER } from './ship-offer';
+import { ago, closesTheTask, discardsTheChange, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
+import { discardAsk } from './discard-asks-first';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
 } from './drafts';
 import { approvalStage } from './approval-stage';
+import { roomForTheCard } from './room-for-the-card';
 import { approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
 // one it took went. Only the second is raised from here, because by the time
@@ -134,6 +135,8 @@ import { needsStaging, walkStageKey } from './walk-staging';
 import { TutorialOffer } from './components/TutorialOffer';
 import { holdForStoppedAgent, neverWarned, rememberWarned } from './stopped-agent';
 import { comeBackTo, neverOffered, offerOnNewProject, rememberOffered } from './tutorial';
+import { FirstRunFlow, OpenLesson } from './components/FirstRun';
+import { landing as firstRunLanding, lessonsLeft, setLessons, type Lesson } from './first-run';
 import {
   ANSWER_AFTER_MS, COACHED, COPY as WALK_COPY, FIRST_RUN_LABEL, advance as advanceRun, afterCommand, beatRows, coach, closingRefused, firstRunDone,
   finishedCleared, firstRunNeeded, projectsOfTheirOwn, inboxCleared, laterCleared, laterId, laterIndex,
@@ -412,7 +415,7 @@ export default function App() {
   // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
   // page reports it draws (Focus `onShown`), which is when those rows are offered.
   const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
-  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean } | null>(null);
+  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: ParsedOption[] | null } | null>(null);
   useEffect(() => {
     setThreadAsk((a) => (a && focused && a.key === `${focused.product}/${focused.id}` ? a : null));
   }, [focused?.product, focused?.id]);
@@ -986,6 +989,17 @@ export default function App() {
   // one of those failures produced.
   const [claude, setClaude] = useState({ missing: false, url: 'https://code.claude.com/docs/en/setup' });
   const [home, setHome] = useState('');
+  // The first run that starts on real work, while it is up.
+  const [fresh, setFresh] = useState(false);
+  // What it leaves to teach in the inbox itself, once each: the key beside the
+  // first thread, and the lit 1 on the first options an agent offers.
+  const [lessons, setLessonList] = useState<Lesson[]>(() => lessonsLeft(localStorage));
+  const dropLesson = useCallback((l: Lesson) => setLessonList((had) => {
+    if (!had.includes(l)) return had;
+    const next = had.filter((x) => x !== l);
+    setLessons(localStorage, next);
+    return next;
+  }), []);
   const runRef = useRef<FirstRun | null>(null);
   runRef.current = run;
   // The same, for the Claude Code answer, so `finishRun` can refuse a press
@@ -1000,12 +1014,13 @@ export default function App() {
   // that is the only honest test. It waits for the first snapshot, so a slow
   // read never flashes the welcome at someone who has twenty projects.
   useEffect(() => {
-    if (run || !snap) return;
+    if (run || fresh || !snap) return;
     if (walkWaitsForSignIn) return;
     if (!firstRunNeeded({ products: projectsOfTheirOwn(snap.products), done: firstRunDone(localStorage), forced: !!forcedRun.current })) return;
-    // A half-finished walk resumes where it stopped: the folder and name are
-    // saved as answered, so reopening resumes.
-    setRun(forcedRun.current ? { ...RUN_START, step: forcedRun.current } : readFirstRun(localStorage));
+    // A new install gets the first run that starts on real work
+    // (components/FirstRun.tsx); `?firstrun=` still walks the old one.
+    if (forcedRun.current) setRun({ ...RUN_START, step: forcedRun.current });
+    else setFresh(true);
     // AND THE LOOK IS WRITTEN DOWN HERE, on the one line that knows this Mac
     // has never been used. Before this, only the three setup screens and inbox
     // zero painted the lake and nothing was stored, so every other screen fell
@@ -1024,7 +1039,7 @@ export default function App() {
     // effect on the next launch.
     const seeded = seedFirstRunLook(localStorage, THEME_KEY);
     if (seeded) { setTheme(seeded.theme); setSkin(seeded.skin); }
-  }, [snap, run, walkWaitsForSignIn]);
+  }, [snap, run, fresh, walkWaitsForSignIn]);
 
   useEffect(() => { if (run) saveFirstRun(localStorage, run); }, [run]);
 
@@ -2612,11 +2627,15 @@ export default function App() {
   const waitingByThread = useMemo(() => waitingCounts(items, stateOfMine), [items, stateOfMine]);
   // Which thread's close is asking, by `product/id`; null while none is.
   const [closeAskOn, setCloseAskOn] = useState<string | null>(null);
-  const [closeAskWhy, setCloseAskWhy] = useState<'filed' | 'unshipped'>('filed');
+  const [closeAskWhy, setCloseAskWhy] = useState<'filed' | 'unshipped' | 'discard'>('filed');
+  // The option a discard question was raised for, sent only if it is answered
+  // yes (./discard-asks-first.ts).
+  const [discardPick, setDiscardPick] = useState<ParsedOption | null>(null);
   // Bumped on every raise, so a second E on the same thread scrolls to it again.
   const [closeAskRaised, setCloseAskRaised] = useState(0);
   const keyOf = (item: WorkItem) => `${item.product}/${item.id}`;
   const askingToClose = (item: WorkItem) => (closeAskOn !== keyOf(item) ? null
+    : closeAskWhy === 'discard' ? discardAsk()
     : closeAskWhy === 'unshipped' ? unshippedAsk() : closeAsk(waitingFiled(item).length));
   // Leaving the thread drops its question; a close asked from the list opens
   // the thread and asks in the same press, so the thread it opens keeps it.
@@ -3052,6 +3071,18 @@ export default function App() {
   useEffect(() => {
     if (!answered) frontApproval.current = snap?.approvals?.[0] ?? null;
   }, [snap?.approvals, answered]);
+  // The list scrolls clear of the card while it is up (./room-for-the-card).
+  const cardRoomUndo = useRef<(() => void) | null>(null);
+  const cardRoom = useCallback((el: HTMLDivElement | null) => {
+    cardRoomUndo.current?.();
+    cardRoomUndo.current = el ? roomForTheCard(el) : null;
+  }, []);
+  // AND THE OPEN THREAD'S OWN CARD IS THE ONE IN FRONT. The order is decided in
+  // the main process, because ⌘Y is answered there, ahead of this page; all
+  // this says is which thread is being read (shared/which-card-is-in-front.mjs).
+  useEffect(() => {
+    void api.lookingAt(focused ? { product: focused.product, id: focused.id } : null);
+  }, [focused?.product, focused?.id]);
 
   // A saved draft is a conversation in progress: opening the item opens the
   // reply dock with it, instead of the draft hiding behind R (drafts already
@@ -3990,12 +4021,23 @@ export default function App() {
   // one before it (`deferCommit`), so Z takes back the close, the last thing.
   // `answerWith` is made further down.
   const answerWithRef = useRef<((item: WorkItem, text: string) => Promise<unknown>) | null>(null);
+  const pickRef = useRef<((item: WorkItem, n: number, how?: { confirmed?: boolean }) => Promise<void>) | null>(null);
   const answerCloseAsk = useCallback(async (item: WorkItem, n: number) => {
     const waiting = waitingFiled(item);
     const option = askingToClose(item)?.options.find((o) => o.n === n);
     if (!option) return;
+    const pick = discardPick;
     setCloseAskOn(null);
     setOptionSel(null);
+    setDiscardPick(null);
+    // THE ONE QUESTION HERE THAT IS NOT ABOUT CLOSING (./discard-asks-first.ts).
+    // Keeping the change is the whole of its own answer: the question goes and
+    // the thread is where it was, with its offer still standing.
+    if (option.act === 'keep') return;
+    if (option.act === 'discard') {
+      if (pick) await pickRef.current?.(item, pick.n, { confirmed: true });
+      return;
+    }
     if (option.act === 'ship') {
       const words = shipItAsk(item);
       if (words) await answerWithRef.current?.(item, words);
@@ -4012,8 +4054,8 @@ export default function App() {
     }
     // Work off main was asked about before this question could come up.
     await markDone(item, { force: true, unshippedOk: true });
-  }, [waitingFiled, resolve, markDone, closeAskOn, closeAskWhy]);
-  const keepThreadOpen = useCallback(() => { setCloseAskOn(null); setOptionSel(null); }, []);
+  }, [waitingFiled, resolve, markDone, closeAskOn, closeAskWhy, discardPick]);
+  const keepThreadOpen = useCallback(() => { setCloseAskOn(null); setOptionSel(null); setDiscardPick(null); }, []);
 
   // THERE IS NO DECLINE.
   //
@@ -4419,13 +4461,14 @@ export default function App() {
   // asks when a finished run left a change and said nothing is known only to
   // the page drawing it, and comes back through `onShown` (./ship-offer.ts).
   // The keys and the pick both read this, so a number can never answer
-  // something other than the row the pointer can see.
+  // something other than the row the pointer can see — the OPTIONS it drew and
+  // not a constant, since the app's own offer now has more than one wording.
   const offerNow = useCallback((item: WorkItem): ParsedOption[] => (
     offerIsLive(item) ? itemOptions(item)
-      : openShows?.ship && openShows.key === keyOf(item) ? SHIP_OFFER : []
+      : openShows?.ship && openShows.key === keyOf(item) ? openShows.ship : []
   ), [openShows]);
 
-  const pickOption = useCallback(async (item: WorkItem, n: number) => {
+  const pickOption = useCallback(async (item: WorkItem, n: number, { confirmed = false }: { confirmed?: boolean } = {}) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
     // anything to it are a reply and being taken to its window.
@@ -4443,6 +4486,19 @@ export default function App() {
     // "Close this task" is done here, the way E does it, and never sent: as a
     // reply it would reopen the row and start a run to close it (format.ts).
     if (closesTheTask(option.text)) { await markDone(item); return; }
+    // THROWING THE WORK AWAY ASKS FIRST (F-84, ./discard-asks-first.ts). One
+    // click sent it, the pane moved on, and the pointer came down on the next
+    // thread's "Ship it". Every other press here is a reply or a close and Z
+    // takes both back; this one ends in a folder.
+    if (!confirmed && discardsTheChange(option.text)) {
+      if (focused?.id !== item.id || focused?.product !== item.product) { setFocused(item); markSeen(item); }
+      setOptionSel(null);
+      setDiscardPick(option);
+      setCloseAskWhy('discard');
+      setCloseAskOn(keyOf(item));
+      setCloseAskRaised((c) => c + 1);
+      return;
+    }
     // "Change something first" ASKS A QUESTION, so it opens the box instead of
     // sending (format.ts, needsYourWords). Its own words go in as the first
     // line, so a send with nothing added does exactly what pressing 2 did
@@ -4490,7 +4546,10 @@ export default function App() {
       // what happened to it: "Option 1 → Practice" was read off the QA box as
       // meaning nothing.
     }, `Option ${option.n} sent → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow]);
+  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow, focused?.id, focused?.product]);
+  // The discard question is raised inside `pickOption` and answered by
+  // `answerCloseAsk`, which is made above it.
+  useEffect(() => { pickRef.current = pickOption; }, [pickOption]);
 
   // A CLICK IS AIMED AT A PLACE ON THE SCREEN, so it carries the same guard the
   // numbers have carried since ./pick-settles: answering from Needs you moves
@@ -5792,6 +5851,52 @@ export default function App() {
     // on whichever it was at launch.
   }, [firstRunPinned, theme, skin, machine]);
 
+  // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
+  // with two lessons left to give there.
+  const [landOn, setLandOn] = useState<string | null>(null);
+  const finishFresh = useCallback((sent: string | null) => {
+    const to = firstRunLanding(sent);
+    finishFirstRun(localStorage);
+    setLessons(localStorage, ['open', 'pick']);
+    setLessonList(['open', 'pick']);
+    setFresh(false);
+    setView(to.view);
+    setFocused(null);
+    setSelected(0);
+    setLandOn(to.select);
+  }, []);
+  // Its row arrives with a snapshot or two after the send.
+  const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
+  useEffect(() => { if (landAt >= 0) { setSelected(landAt); setLandOn(null); } }, [landAt]);
+  // A row that never comes must not take the cursor later, while you are elsewhere.
+  useEffect(() => {
+    if (!landOn) return undefined;
+    const t = setTimeout(() => setLandOn(null), 15_000);
+    return () => clearTimeout(t);
+  }, [landOn]);
+
+  // ↵ beside the row you are on, until a thread is opened.
+  const [lessonAt, setLessonAt] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!lessons.includes('open') || focused || fresh || (view !== 'inbox' && view !== 'progress')) { setLessonAt(null); return; }
+    const title = document.querySelector('.list-pane .row.selected .th-cell-title') ?? document.querySelector('.list-pane .th-cell-title');
+    if (!title) { setLessonAt(null); return; }
+    const range = document.createRange();
+    range.selectNodeContents(title);
+    const r = range.getBoundingClientRect();
+    setLessonAt({ left: r.right + 20, top: r.top + r.height / 2 - 17 });
+  }, [lessons, focused, fresh, view, list, selected]);
+  useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
+
+  // The first option's key lit, until a thread that offered options is left.
+  const pickSeen = useRef(false);
+  useEffect(() => {
+    const on = !!focused && lessons.includes('pick');
+    document.body.classList.toggle('teach-pick', on);
+    if (on && document.querySelector('.opt-row')) pickSeen.current = true;
+    if (!focused && pickSeen.current) dropLesson('pick');
+  });
+
   // THE SAME SCREEN, held for the beat it takes ⌘R to put her back where she
   // was, so the reload never shows her the inbox on its way to the task. Its
   // own line above the boot check rather than another clause inside it: on a
@@ -6342,7 +6447,10 @@ export default function App() {
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = askingToClose(focused);
-                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
+                    // No esc row on the discard question: its option 2 is the
+                    // same answer (./discard-asks-first.ts).
+                    const keep = closeAskWhy === 'discard' ? undefined : { label: KEEP_OPEN, onKeep: keepThreadOpen };
+                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep };
                   })()}
                   onNotice={showToast}
                   /*
@@ -7231,6 +7339,8 @@ export default function App() {
           its tether draws over whatever the app has open. w-82bb9e2c69.
           A ?modes= drawing stands INSTEAD of it, never over it: two full
           surfaces at once would photograph the welcome screen. */}
+      {fresh && !modeDraft && <FirstRunFlow snap={snap} home={home} onDone={finishFresh} />}
+      <OpenLesson at={lessonAt} />
       {run && !modeDraft && !walkWaitsForSignIn && (
         <Onboarding
           run={run}
@@ -7470,7 +7580,7 @@ export default function App() {
         // first thing she reads. approval-card.ts is the only copy.
         const reads = approvalReads(a.input, a.tool);
         return (
-          <div className="approvals">
+          <div className="approvals" ref={cardRoom}>
             <div className="approval-stack">
               {waiting > 1 && <div className="approval-ghost g2" />}
               {waiting > 0 && <div className="approval-ghost g1" />}

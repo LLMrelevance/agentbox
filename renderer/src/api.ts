@@ -17,6 +17,7 @@ import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
 import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
 import { accountSentence } from '../../shared/spawn-trouble.mjs';
 import { MOVE_SAY } from '../../shared/where-it-runs-from.mjs';
+import { cardsInFront } from '../../shared/which-card-is-in-front.mjs';
 // THE SECOND FRONT DOOR, AND IT HAS TO BE BUILT BEFORE THE LINE BELOW RUNS.
 // `useFixtures` reads `window.zero` once, at module load, and on the desktop
 // preload.cjs has already put it there. In a browser tab nothing has, so this
@@ -59,6 +60,8 @@ const workingFixtures = Math.max(0, Math.min(99, Number(params.get('working') ??
 // chips WRAP, and ranking-by-dragging was written against a single row, so it
 // silently did nothing across rows. This is the case that catches that.
 const crowdedFixtures = params.get('fixtures') === 'crowded';
+// The thread on screen, in fixtures only: see `lookingAt` below.
+let fixtureLooking: { product: string | null; id: string } | null = null;
 // ?fixtures=mock is the reference design, with its own copy, so the built
 // app can be put beside the picture and measured rather than remembered.
 const mockFixtures = params.get('fixtures') === 'mock';
@@ -410,6 +413,7 @@ export const api = {
       // is a real state worth being able to look at, and it is not the state
       // every other fixtures screenshot wants a card floating over.
       if (!params.has('approvals')) base.approvals = [];
+      else base.approvals = cardsInFront(base.approvals, fixtureLooking);
       // &cloud=mac|full|all draws the cloud button set up, two accounts in,
       // three threads running there, so its menu can be looked at.
       const cloud = params.get('cloud');
@@ -516,6 +520,17 @@ export const api = {
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
+  },
+
+  // WHERE YOU ARE, FOR THE ONE THING THAT DEPENDS ON IT: the approval card in
+  // front is the open thread's own, and the chord that answers it is caught in
+  // the main process. A build with no such channel keeps the oldest card in
+  // front, which is what it did before.
+  async lookingAt(at: { product: string | null; id: string } | null): Promise<void> {
+    // Fixtures have no main process to order the cards, and ?approvals is how
+    // this card is reviewed, so the same shared rule is applied here.
+    if (useFixtures) { fixtureLooking = at; return; }
+    try { await window.zero?.looking?.({ product: at?.product ?? null, id: at?.id ?? null }); } catch { /* the card simply stays where it was */ }
   },
 
   async refreshUsage(engine: 'claude' | 'codex' = 'claude'): Promise<{ ok: boolean; reading?: Usage; error?: string }> {

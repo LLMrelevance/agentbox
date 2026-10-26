@@ -486,6 +486,11 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 /* WHERE THREADS RUN: the cloud button and its menu (threads/Pages.tsx). */
 .th-cloud.count { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px 0 9px; font: inherit; font-size: 13px; }
 .th-cloud.count b { font-weight: 400; color: var(--text); font-variant-numeric: tabular-nums; }
+/* The same shape the count makes, for the word it wears until it is set up.
+   Room on the right for the dot, which sits in the corner of a square button. */
+.th-cloud.named { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px 0 9px; font: inherit; font-size: 13px; }
+.th-cloud-word { color: var(--text-dim); }
+.th-cloud.named:hover .th-cloud-word, .th-cloud.named.open .th-cloud-word { color: var(--text); }
 /* Picked is a soft grey here, not an orange box: one small dot beside On is
    the menu's only orange (picked 2026-10-16 as calmer). */
 .th-cloud-pop .opts > button.picked, .th-cloud-pop .opts > button.picked:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }
