@@ -95,6 +95,16 @@ nowhere else. That folder follows the public main on its own:
 Whether you ask before shipping is set by the person's own instructions, not
 by this file.
 
+## RELEASING IS ONE COMMAND: `npm run deploy` (2026-10-26)
+
+A release (the Mac app, npm, the agentbox.ac download and update feed, the
+cloud server) is `cd ~/Desktop/dev/agentbox-team && npm run deploy`, run by
+the person, because it signs with their Apple account. Hand them that line
+and nothing else. Do not write out the steps it runs: hand-written release
+steps went wrong in a dozen ways, which is why it exists. To see what it would
+do without changing anything, run `npm run deploy -- --check`. If it stops,
+fix what it names in `scripts/deploy.mjs` rather than giving a workaround.
+
 ## MAIN WAS REWRITTEN ON 2026-10-06
 
 The public `main` was rewritten from its first commit to take two real account
