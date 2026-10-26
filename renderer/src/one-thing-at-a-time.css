@@ -8,14 +8,17 @@
 .one-step:disabled { opacity: .35; cursor: default; }
 .one-step:disabled:hover { color: var(--text-dim); border-color: var(--line); background: none; }
 
-.one-sum { margin-bottom: 26px; }
+/* Spaced so the link and its text read as one block under the name, with clear
+   room before the question: 17, 13 and 27px of blank between the ink. */
+.one-sum { margin-bottom: 18px; }
+.one-sum + .one-answer { margin-top: 0; }
 /* The largest type on the page, so it is read before the question. The page
    sits in .markdown, whose h2 is a small grey capital label. */
-.one-sum .one-title { margin: 0 0 10px; font-size: 27px; line-height: 1.25; font-weight: 500; letter-spacing: -0.015em; text-transform: none; color: var(--text); }
+.one-sum .one-title { margin: 0 0 6px; font-size: 27px; line-height: 1.25; font-weight: 500; letter-spacing: -0.015em; text-transform: none; color: var(--text); }
 /* The Context, picked as "all three" in round seventeen, then without its label:
    the earlier messages on a quiet row, then the text set off by a thin line,
    smaller and fainter, at a readable width. */
-.one-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+.one-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 10px; }
 .one-cols { max-width: 680px; border-left: 2px solid var(--line-strong); padding-left: 14px; }
 .one-col { font-size: 13.5px; line-height: 1.55; color: var(--text-faint); white-space: pre-line; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

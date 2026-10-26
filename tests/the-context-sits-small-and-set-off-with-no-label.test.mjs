@@ -50,6 +50,24 @@ describe('the row above the text', () => {
   });
 });
 
+describe('the spacing', () => {
+  // "On this two-line one, the spacing looks off... too much spacing below the
+  // area... so little spacing atop the section." Measured as blank space
+  // between the ink, at their zoom on a two-line and a three-line Context: the
+  // name to the link 21.5px, the link to the text 8.5, the text to the question
+  // 38.5, the last set by the answer's own 28px top margin over the summary's
+  // 26. Now 17, 13 and 27 on both: the link and its text read as one block,
+  // and the question has its own clear space without floating away.
+  it('opens the gap above the text and closes the one below', () => {
+    expect(rule('.one-sum .one-title')).toMatch(/margin: 0 0 6px;/);
+    expect(rule('.one-head')).toMatch(/margin-bottom: 10px;/);
+    expect(rule('.one-sum')).toMatch(/margin-bottom: 18px;/);
+  });
+  it('and the answer under it adds no margin of its own', () => {
+    expect(rule('.one-sum + .one-answer')).toMatch(/margin-top: 0;/);
+  });
+});
+
 describe('the text', () => {
   it('is set off by a thin line down its left edge', () => {
     expect(rule('.one-cols')).toMatch(/border-left: 2px solid var\(--line-strong\); padding-left: 14px;/);
