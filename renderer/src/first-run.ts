@@ -111,15 +111,16 @@ export function stepsFor({ chats }: { chats: number }): Step[] {
 
 export interface Idea {
   text: string;
-  /** The schedule it keeps, with its words on the row and on the chip. */
-  repeat: RepeatShape & { short: string; label: string };
+  /** The schedule it keeps, with its words on the row and on the chip. None runs it once. */
+  repeat?: RepeatShape & { short: string; label: string };
 }
 
-/** Jobs people want running and rarely have. None names the project: a folder can be called anything. */
+/** A look at the code, then jobs people want running and rarely have. None names the project: a folder can be called anything. */
 export function ideasFor(): Idea[] {
   return [
+    { text: 'Explain how this project is put together' },
     { text: 'Test the app and flag what’s broken', repeat: { every: 'day', at: '08:00', short: 'Every morning', label: 'Every morning at 8:00am' } },
-    { text: 'Review the day’s changes for bugs', repeat: { every: 'day', at: '18:00', short: 'Every evening', label: 'Every evening at 6:00pm' } },
+    { text: 'Review the week’s changes for bugs', repeat: { every: 'week', on: 5, at: '16:00', short: 'Every Friday', label: 'Every Friday at 4:00pm' } },
     { text: 'Check for security holes and outdated packages', repeat: { every: 'week', on: 1, at: '09:00', short: 'Every Monday', label: 'Every Monday at 9:00am' } },
   ];
 }

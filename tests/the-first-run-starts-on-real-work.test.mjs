@@ -30,8 +30,10 @@
 //
 // Round seven: the founder wanted ideas "people would really want to click on
 // and say, 'Hey I don't actually have that running'", such as a QA agent that
-// tests the app and flags bugs. Each idea is now a job that keeps running on a
-// schedule, its first run starting at once, and the first run ends on that run.
+// tests the app and flags bugs. After the ideas were seen drawn: a look at the
+// code first ("start small"), then three jobs that keep running, with the
+// week's changes reviewed rather than the day's ("not sure I'm a fan"). A
+// repeating idea's first run starts at once, and the first run ends on it.
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -196,20 +198,26 @@ describe('the words', () => {
 
 describe('the first task ideas', () => {
   const ideas = ideasFor();
-  it('open on a QA agent that tests the app every morning', () => {
-    expect(ideas[0]).toMatchObject({ text: 'Test the app and flag what’s broken', repeat: { every: 'day', at: '08:00', short: 'Every morning' } });
+  it('start small, with a look at the code that runs once', () => {
+    expect(ideas[0]).toEqual({ text: 'Explain how this project is put together' });
   });
-  it('are three jobs that keep running, each on a schedule the app can keep', () => {
+  it('then a QA agent that tests the app every morning', () => {
+    expect(ideas[1]).toMatchObject({ text: 'Test the app and flag what’s broken', repeat: { every: 'day', at: '08:00', short: 'Every morning' } });
+  });
+  it('then a review of the week, not the day, and a security check', () => {
     expect(ideas.map((i) => i.text)).toEqual([
+      'Explain how this project is put together',
       'Test the app and flag what’s broken',
-      'Review the day’s changes for bugs',
+      'Review the week’s changes for bugs',
       'Check for security holes and outdated packages',
     ]);
-    for (const { repeat } of ideas) expect(isRepeatRule(repeat)).toBe(true);
+    expect(ideas.some((i) => /day’s changes/.test(i.text))).toBe(false);
   });
-  it('say when they run in the words of the app\'s own repeat menu', () => {
-    expect(ideas.map((i) => i.repeat.label)).toEqual(['Every morning at 8:00am', 'Every evening at 6:00pm', 'Every Monday at 9:00am']);
-    expect(ideas[2].repeat).toMatchObject({ every: 'week', on: 1 });
+  it('keep a schedule the app can keep, said in the words of its own repeat menu', () => {
+    const repeating = ideas.filter((i) => i.repeat);
+    for (const { repeat } of repeating) expect(isRepeatRule(repeat)).toBe(true);
+    expect(repeating.map((i) => i.repeat.label)).toEqual(['Every morning at 8:00am', 'Every Friday at 4:00pm', 'Every Monday at 9:00am']);
+    expect(repeating.map((i) => i.repeat.on)).toEqual([undefined, 5, 1]);
   });
 });
 
@@ -224,7 +232,7 @@ describe('the run a new repeating task starts with', () => {
   });
   afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
 
-  for (const idea of ideasFor()) {
+  for (const idea of ideasFor().filter((i) => i.repeat)) {
     it(`is the row the store makes for "${idea.text}", whatever the hour`, async () => {
       const { short: _s, label: _l, ...rule } = idea.repeat;
       const made = store.composeRepeat('p', { title: idea.text, ...rule });

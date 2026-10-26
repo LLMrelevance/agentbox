@@ -268,7 +268,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
 
   const pickIdea = useCallback((i: number) => {
     setText(IDEAS[i].text);
-    setRepeat(IDEAS[i].repeat);
+    setRepeat(IDEAS[i].repeat ?? null);
     setIdea(-1);
     setTimeout(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }, 0);
   }, []);
@@ -471,7 +471,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
               {IDEAS.map((t, i) => (
                 <div key={t.text} className={`ob-item ob-noslot${idea === i ? ' ob-on' : ''}`} onClick={() => pickIdea(i)}>
                   <div className={`ob-name${idea === i ? '' : ' ob-dim'}`}><span>{t.text}</span></div>
-                  <div className="ob-meta">{t.repeat.short}</div>
+                  <div className="ob-meta">{t.repeat?.short}</div>
                 </div>
               ))}
             </div>
