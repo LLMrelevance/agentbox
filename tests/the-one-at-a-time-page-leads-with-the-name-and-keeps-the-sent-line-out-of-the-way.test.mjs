@@ -54,8 +54,10 @@ describe('the summary under the name', () => {
     expect(rules.repeatsTitle).toBeUndefined();
     expect(css).not.toContain('.one-you');
   });
-  it('runs two lines across the page before it stops, and opens on a click', () => {
-    expect(rule('.one-col')).toMatch(/-webkit-line-clamp: 2/);
+  it('runs three short lines before it stops, and opens on a click', () => {
+    // Two full-width lines until round seventeen
+    // (tests/the-context-sits-under-its-label-small-and-set-off).
+    expect(rule('.one-col')).toMatch(/-webkit-line-clamp: 3/);
     expect(rule('.one-cols.one-whole .one-col')).toMatch(/-webkit-line-clamp: unset/);
   });
   it('with no rule under it', () => {

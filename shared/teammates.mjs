@@ -119,6 +119,13 @@ export function dutyStart(d, now = Date.now()) {
 }
 
 export const DUTY_LABEL_PREFIX = 'duty:';
+
+// What needs the person's yes first, as a rule. A question saved there is not
+// one (setup refuses it now; older teammates may still carry one).
+export function yesFirst(asksFirst) {
+  const rule = String(asksFirst ?? '').trim();
+  return rule && !rule.endsWith('?') ? rule : null;
+}
 // A run your own words in a teammate's chat woke. You are in that chat
 // waiting for its answer, so it is next for a free agent.
 export const CHAT_LABEL = 'from-chat';

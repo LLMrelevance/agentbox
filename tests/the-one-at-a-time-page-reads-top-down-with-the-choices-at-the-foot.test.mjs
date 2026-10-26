@@ -26,9 +26,11 @@ const noop = () => {};
 describe('the summary on top', () => {
   const draw = (p) => renderToStaticMarkup(h(QueueSummary, { onToggle: noop, open: false, ...p }));
 
-  it('is the Context, its label running into its text', () => {
+  it('is the Context, under a row with its label and the earlier messages', () => {
+    // The label ran into the text until round seventeen
+    // (tests/the-context-sits-under-its-label-small-and-set-off).
     const html = draw({ context: 'Funding deadlines in the next 3 weeks.', earlier: 1 });
-    expect(visible(html)).toMatch(/^Context Funding deadlines in the next 3 weeks\. Show 1 earlier message$/);
+    expect(visible(html)).toMatch(/^Context Show 1 earlier message Funding deadlines in the next 3 weeks\.$/);
   });
   it('opens the earlier messages from one line, counted', () => {
     expect(visible(draw({ context: 'c', you: null, earlier: 8 }))).toContain('Show 8 earlier messages');

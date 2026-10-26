@@ -48,6 +48,14 @@ export function earlierCount(events: AgentEvent[], outcome: ItemOutcome | null, 
   return outcome ? messages : Math.max(0, messages - (newestAnswer(events, null) ? 1 : 0));
 }
 
+/** Fewer messages than this behind the fold, and the fold would hide her own ask to save a line or two. */
+const FOLD_FROM = 3;
+
+/** Whether the page draws the whole conversation rather than folding `behind` messages away. None behind is a fold of steps only, which still helps. */
+export function drawnWhole(behind: number): boolean {
+  return behind > 0 && behind < FOLD_FROM;
+}
+
 /**
  * Where the page starts on a thread that has been answered since its newest
  * answer, by a reply or a pick: at that answer, so the question stays in view

@@ -5,7 +5,7 @@ import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
   offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT, GREETING, starterAsks,
-  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL,
+  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst,
 } from '../shared/teammates.mjs';
 import { isShippedNote } from '../shared/shipped-note.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
@@ -350,8 +350,11 @@ export class Teammates {
           : `Someone to take on asks like these, which I keep making:\n${asks}${read}`;
         this.describe({ text, product: row.product, threads }, now);
       }
-      // Clean, so the answered offer leaves Needs you rather than waiting to be read.
+      // Clean, so the answered offer leaves Needs you rather than waiting to be
+      // read, and titled for what happened, so it no longer reads as an offer.
+      const like = String(row.title ?? '').match(/“(.+)”/)?.[1];
       workItemsDisk.updateWorkItem(dir, row.id, {
+        ...(like ? { title: tap.kind === 'make' ? `Made a teammate for things like “${like}”` : `No teammate for things like “${like}”` } : {}),
         status: 'done',
         labels: [...(row.labels ?? []), 'clean'],
         note: tap.kind === 'make' ? 'A new teammate is setting itself up in the team chat.' : 'Not now. This one will not be offered again.',
@@ -385,7 +388,7 @@ export class Teammates {
   _threadsBehind(row, listed, items, chat) {
     const kept = chat.messages.find((m) => m.kind === 'act' && m.verb === 'offered' && m.text === row.title && m.threads?.length);
     if (kept) return kept.threads;
-    const titles = new Set(listed.map((l) => l.slice(2).trim().toLowerCase()));
+    const titles = new Set(listed.map((l) => l.slice(2).replace(/ \(\d+ times\)$/, '').trim().toLowerCase()));
     return items.filter((i) => (i.labels ?? []).includes('founder') && !teammateIdOf(i) && titles.has(String(i.label || i.title).trim().toLowerCase()))
       .slice(0, 12).map((i) => ({ product: i.product, id: i.id, title: String(i.label || i.title).trim() }));
   }
@@ -524,7 +527,8 @@ export class Teammates {
       '',
       t.job ? `Your job: ${t.job}` : null,
       t.goal ? `Your goal: ${t.goal}${t.counted ? ` (counted as: ${t.counted})` : ''}` : null,
-      t.asksFirst ? `Ask the person first: ${t.asksFirst}` : null,
+      yesFirst(t.asksFirst) ? `Ask the person first: ${yesFirst(t.asksFirst)}`
+        : t.asksFirst ? "What needs the person's yes first is not set: what you saved there is a question. Ask it with team_post, with options, and save their answer as a statement with team_setup asksFirst." : null,
       t.duties?.length ? null : isWorks(t.works) ? `You wake on your own ${ruleLabel(t.works)}.` : 'You wake when someone writes to you or passes you work.',
       '',
       ...(t.duties?.length ? ['## What you do on your own', ...t.duties.map((d) => `- ${d.what} (${dutyWhen(d).toLowerCase()})${d.tell ? `. Bring the person in only when ${d.tell}` : ''}`), 'You also wake when someone writes to you or passes you work.', ''] : []),
