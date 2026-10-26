@@ -23,7 +23,7 @@ const GoogleMark = () => (
   </svg>
 );
 
-type Mode = 'sign-in' | 'sign-up' | 'check-email' | 'agree';
+type Mode = 'sign-in' | 'sign-up' | 'check-email' | 'agree' | 'reset' | 'reset-sent' | 'new-password';
 
 // WAITING ON THE BROWSER IS A PAGE OF ITS OWN (2026-10-04). The first teammate
 // to install this clicked Continue with Google and saw nothing happen: the
@@ -42,6 +42,10 @@ type Mode = 'sign-in' | 'sign-up' | 'check-email' | 'agree';
 // at reading size, under the button pressed, which is what courts ask of a
 // line like this. A Google sign-in on the Sign in tab can still be someone
 // new; the cloud server then says so and the card asks once, here.
+// AND A PASSWORD CAN BE SEEN AND RESET (2026-10-25). Show puts it on the
+// screen while it is typed, so the one that reaches the cloud is the one you
+// meant; Forgot password emails a link back to this app, and the new password
+// is typed here (tests/a-locked-out-cloud-account-can-reset-its-password).
 const TERMS_URL = 'https://agentbox.ac/terms';
 const PRIVACY_URL = 'https://agentbox.ac/privacy';
 const TermsLinks = () => <>the <a href={TERMS_URL} onClick={(e) => { e.preventDefault(); window.open(TERMS_URL, '_blank'); }}>Terms</a> and the <a href={PRIVACY_URL} onClick={(e) => { e.preventDefault(); window.open(PRIVACY_URL, '_blank'); }}>Privacy policy</a></>;
@@ -56,10 +60,14 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // a password is hidden until you ask, so none is read over a shoulder
   const [busy, setBusy] = useState<null | 'google' | 'email'>(null);
   const [error, setError] = useState<string | null>(null);
   const first = useRef<HTMLInputElement | null>(null);
   useEffect(() => { first.current?.focus(); }, [mode]);
+  // Which reset this card is waiting on: a cancelled one must not steer the
+  // card the person has already moved on from.
+  const resetTry = useRef(0);
 
   const [copied, setCopied] = useState(false);
   const google = async () => {
@@ -130,11 +138,52 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
     if (closable) onSignedIn?.();
   };
 
+  const askForReset = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy('email'); setError(null);
+    const sent = await api.cloudAccountSignIn({ method: 'reset', email });
+    setBusy(null);
+    if (!sent.ok) { setError(sent.error ?? 'That did not work. Try again.'); return; }
+    const mine = ++resetTry.current;
+    setPassword(''); setMode('reset-sent');
+    const link = await api.cloudAccountSignIn({ method: 'reset-wait' });
+    if (resetTry.current !== mine) return;
+    if (!link.ok) { if (!link.cancelled) setError(link.error ?? 'That reset did not finish. Ask for the email again.'); setMode('reset'); return; }
+    setMode('new-password');
+  };
+
+  const useNewPassword = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy('email'); setError(null);
+    const out = await api.cloudAccountSignIn({ method: 'new-password', password, acceptTerms: agreedHere(email) });
+    setBusy(null);
+    if ('needsTerms' in out && out.needsTerms) { setMode('agree'); return; }
+    if (!out.ok) { setError(out.error ?? 'That did not work. Try again.'); return; }
+    if (closable) onSignedIn?.();
+  };
+
+  const passwordField = (autoComplete: string, label: string, focused = false) => (
+    <label><span>{label}</span>
+      <span className="si-pw">
+        <input ref={focused ? first : undefined} type={showPassword ? 'text' : 'password'} value={password} autoComplete={autoComplete} onChange={(e) => setPassword(e.target.value)} />
+        <button type="button" className="si-pw-show" aria-pressed={showPassword} onClick={() => setShowPassword((on) => !on)}>{showPassword ? 'Hide' : 'Show'}</button>
+      </span>
+    </label>
+  );
+
   const heading = mode === 'sign-up' ? 'Create your account'
     : mode === 'check-email' ? 'Check your email'
       : mode === 'agree' ? 'Agree to the terms'
+      : mode === 'reset' ? 'Reset your password'
+      : mode === 'reset-sent' ? 'Check your email'
+      : mode === 'new-password' ? 'Choose a new password'
       : signedOut ? 'You are signed out' : `Sign in to ${Name}`;
-  const lede = mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
+  const lede = mode === 'reset' ? 'We will email you a link to open on this computer.'
+    : mode === 'reset-sent' ? `We sent a link to ${email}. Open it on this computer.`
+    : mode === 'new-password' ? 'You will be signed in with it.'
+    : mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
     : cloud ? 'Then your agents run in the cloud.'
       : purpose === 'phone' ? 'Then your phone can read and reply to your threads, even with this computer closed.'
       : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
@@ -163,6 +212,23 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
 
         {mode === 'check-email' ? (
           <button type="button" className="si-primary" onClick={() => { setMode('sign-in'); setPassword(''); }}>Back to sign in</button>
+        ) : mode === 'reset' ? (
+          <>
+            <form className="si-form" onSubmit={askForReset}>
+              <label><span>Email</span>
+                <input ref={first} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
+              </label>
+              <button type="submit" className="si-primary" disabled={!email.trim() || !!busy}>{busy ? 'Sending…' : 'Email me a link'}</button>
+            </form>
+            <p className="si-switch si-center"><button type="button" onClick={() => { setMode('sign-in'); setError(null); }}>Back to sign in</button></p>
+          </>
+        ) : mode === 'reset-sent' ? (
+          <p className="si-switch si-center"><button type="button" onClick={() => { resetTry.current++; void api.cloudAccountCancel(); setMode('sign-in'); setError(null); }}>Cancel</button></p>
+        ) : mode === 'new-password' ? (
+          <form className="si-form" onSubmit={useNewPassword}>
+            {passwordField('new-password', 'New password', true)}
+            <button type="submit" className="si-primary" disabled={!password || !!busy}>{busy ? 'Saving…' : 'Save and sign in'}</button>
+          </form>
         ) : mode === 'agree' ? (
           <>
             <button type="button" className="si-primary" disabled={!!busy} onClick={() => void agree()}>{busy ? 'Finishing…' : 'Agree and continue'}</button>
@@ -183,13 +249,14 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
               <label><span>Email</span>
                 <input ref={mode === 'sign-in' ? first : undefined} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
               </label>
-              <label><span>Password</span>
-                <input type="password" value={password} autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} onChange={(e) => setPassword(e.target.value)} />
-              </label>
+              {passwordField(mode === 'sign-up' ? 'new-password' : 'current-password', 'Password')}
               <button type="submit" className="si-primary" disabled={!canSubmit || !!busy}>
                 {busy === 'email' ? (mode === 'sign-up' ? 'Creating…' : 'Signing in…') : mode === 'sign-up' ? 'Create account' : 'Sign in'}
               </button>
             </form>
+            {cloud && mode === 'sign-in' && (
+              <p className="si-switch si-center si-forgot"><button type="button" onClick={() => { setMode('reset'); setError(null); }}>Forgot password?</button></p>
+            )}
             {cloud && mode === 'sign-up' && (
               <p className="si-terms">By creating an account or continuing with Google, you agree to <TermsLinks />.</p>
             )}

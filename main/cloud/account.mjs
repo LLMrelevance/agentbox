@@ -9,8 +9,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { cloudConfigPath, readCloudConfig, readCloudKey, writeCloudKey, cloudKeyPath, cloudAccountConfig, forgetCloudKey } from './config.mjs';
-import { withDeadline, plainAuthError } from '../team/session.mjs';
-import { signInWithGoogle, cancelGoogleSignIn } from '../team/sign-in.mjs';
+import { withDeadline } from '../team/session.mjs';
+import { plainAuthError } from '../team/auth-words.mjs';
+import { signInWithGoogle, cancelGoogleSignIn, sendPasswordReset } from '../team/sign-in.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
 const CALL_MS = 30_000;
@@ -37,6 +38,9 @@ export async function currentCloudTerms(config) {
  */
 export function cloudAccountSession({ config, openExternal, log = () => {}, createClient = null }) {
   let lastUrl = null;
+  // A reset is one client from the email to the new password: the client that
+  // asked for the link holds the other half of the code the link carries.
+  let resetting = null;
   const client = async () => {
     const make = createClient || (await import('@supabase/supabase-js')).createClient;
     const mem = new Map();
@@ -70,7 +74,26 @@ export function cloudAccountSession({ config, openExternal, log = () => {}, crea
       if (error) throw new Error(plainAuthError(error.message));
       return data?.session?.access_token ?? null;
     },
-    cancel: () => cancelGoogleSignIn(),
+    // The reset email's link comes back to the address a Google sign-in comes
+    // back to, so the database had to be told of no new one.
+    async startReset(email) {
+      const c = await client();
+      const { opened } = await sendPasswordReset({ client: c, email, returnUrl: config.signInReturn || RETURN_URL, log });
+      resetting = { client: c, opened };
+    },
+    async waitForReset() {
+      if (!resetting) throw new Error('Ask for the reset email again.');
+      await resetting.opened;
+    },
+    async newPassword(password) {
+      if (!resetting) throw new Error('Ask for the reset email again.');
+      const { error } = await resetting.client.auth.updateUser({ password: String(password ?? '') });
+      if (error) throw new Error(plainAuthError(error.message));
+      const token = tokenOf((await resetting.client.auth.getSession()).data);
+      resetting = null;
+      return token;
+    },
+    cancel: () => { resetting = null; return cancelGoogleSignIn(); },
     reopen: () => (lastUrl ? openExternal(lastUrl) : null),
   };
 }
@@ -82,10 +105,22 @@ export function cloudAccountSession({ config, openExternal, log = () => {}, crea
  * that same sign-in once they do.
  */
 export async function cloudSignIn({ config, session, method, email, password, name, acceptTerms = false, env = process.env, home = os.homedir() }) {
+  // A reset is three presses, and only the last one has an account to open:
+  // send the email, wait for its link, then take the new password.
+  if (method === 'reset' || method === 'reset-wait') {
+    try {
+      if (method === 'reset') { await session.startReset(email); return { ok: true, sent: true }; }
+      await session.waitForReset();
+      return { ok: true, opened: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || String(err), ...(err?.cancelled ? { cancelled: true } : {}) };
+    }
+  }
   let token;
   let agreeing = acceptTerms;
   try {
     if (method === 'google') token = await session.google();
+    else if (method === 'new-password') token = await session.newPassword(password);
     else if (method === 'email') token = await session.email(email, password);
     else if (method === 'sign-up') {
       agreeing = true;
