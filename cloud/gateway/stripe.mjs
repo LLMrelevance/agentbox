@@ -85,8 +85,20 @@ export function stripeClient({ key, webhookSecret, managedPayments = false, fetc
     },
     session: (id) => call('GET', `/v1/checkout/sessions/${encodeURIComponent(id)}`),
     expire: (id) => call('POST', `/v1/checkout/sessions/${encodeURIComponent(id)}/expire`),
-    async billing({ customer, returnUrl }) {
-      return (await call('POST', '/v1/billing_portal/sessions', { customer, return_url: returnUrl })).url;
+    // `switchTo`: open at Stripe's page confirming that change, with its proration shown.
+    async billing({ customer, returnUrl, switchTo = null }) {
+      let flow = {};
+      if (switchTo) {
+        const sub = await call('GET', `/v1/subscriptions/${encodeURIComponent(switchTo.subscription)}`);
+        const item = sub.items?.data?.[0]?.id;
+        if (!item) throw new Error(`Stripe's subscription ${switchTo.subscription} has no item to change`);
+        flow = { flow_data: {
+          type: 'subscription_update_confirm',
+          subscription_update_confirm: { subscription: sub.id, items: [{ id: item, price: await priceOf(switchTo.plan), quantity: 1 }] },
+          after_completion: { type: 'redirect', redirect: { return_url: returnUrl } },
+        } };
+      }
+      return (await call('POST', '/v1/billing_portal/sessions', { customer, return_url: returnUrl, ...flow })).url;
     },
     subscription: (id) => call('GET', `/v1/subscriptions/${encodeURIComponent(id)}`),
     signed: (raw, header, nowMs) => stripeSigned(raw, header, webhookSecret, nowMs),
