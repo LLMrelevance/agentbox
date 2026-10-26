@@ -15,8 +15,20 @@
 //  - The chats offered are the newest in the folders you picked, never one that
 //    is already in the inbox.
 //  - The chats step is skipped when there is nothing to bring in.
+//
+// Round six, after the founder tried it in a fresh window:
+//  - "why is it a requirement that we have them bring in the projects?" It was
+//    not. A chat already runs in its own folder, so bringing it in makes that
+//    folder's project with nobody asked, and the folder step is gone.
+//  - The ideas named the project, so a folder called after a person read
+//    "Explain how <their first name> is put together". They name nothing now.
+//  - Sending the first task left them on "Add another while it works" with a
+//    quiet "Open my inbox" beside Send: "I got kind of stuck here". Sending
+//    now lands in the inbox, on In progress, with that task picked.
+//  - That folder was the tester's own home folder. The fresh window runs with
+//    a throwaway home, so the home check missed it; any user's home is refused.
 import { describe, it, expect } from 'vitest';
-import { listKey, folderChoices, chatChoices, stepsFor, foldersLabel, ideasFor } from '../renderer/src/first-run.ts';
+import { listKey, folderChoices, chatChoices, chatsHeadline, projectsToMake, stepsFor, ideasFor, landing } from '../renderer/src/first-run.ts';
 
 const key = (k, mods = {}) => ({ key: k, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
@@ -35,11 +47,13 @@ describe('the keys on a list screen', () => {
   it('Space is not the tick any more', () => {
     expect(listKey(key(' '))).toBe(null);
   });
-  it('the arrows move, Tab renames and Escape skips', () => {
+  it('the arrows move and Escape skips', () => {
     expect(listKey(key('ArrowUp'))).toBe('up');
     expect(listKey(key('ArrowDown'))).toBe('down');
-    expect(listKey(key('Tab'))).toBe('rename');
     expect(listKey(key('Escape'))).toBe('skip');
+  });
+  it('Tab does nothing, with no folder left to rename', () => {
+    expect(listKey(key('Tab'))).toBe(null);
   });
 });
 
@@ -82,6 +96,10 @@ describe('the folders offered', () => {
     const early = folderChoices(threads, { home: '' });
     expect(early.map((f) => f.short)).toEqual(['~/dev/northwind', '~/dev/api', '~/dev/website']);
   });
+  it('never offer another user\'s home folder, which is what a window with a throwaway home sees', () => {
+    const elsewhere = [thread('/Users/someone', 5, { short: '/Users/someone' }), thread('/home/someone', 4, { short: '/home/someone' }), thread('/Users/someone/dev/app', 3, { short: '/Users/someone/dev/app' })];
+    expect(folderChoices(elsewhere, { home: '/tmp/fresh-home' }).map((f) => f.folder)).toEqual(['/Users/someone/dev/app']);
+  });
   it('count each chat once even when a folder is written with a trailing slash', () => {
     const two = [thread(`${HOME}/dev/x`, 1), { ...thread(`${HOME}/dev/x/`, 2), folder: `${HOME}/dev/x/` }];
     expect(folderChoices(two, { home: HOME })).toEqual([expect.objectContaining({ chats: 2 })]);
@@ -93,38 +111,79 @@ describe('the chats offered', () => {
     thread(`${HOME}/dev/northwind`, 10), thread(`${HOME}/dev/northwind`, 30),
     thread(`${HOME}/dev/northwind`, 20, { imported: true }),
     thread(`${HOME}/dev/website`, 40),
+    thread(HOME, 99),
+    thread(`${HOME}/Downloads`, 98),
+    thread('', 97),
   ];
-  it('are the newest in the folders you picked', () => {
-    expect(chatChoices(threads, [`${HOME}/dev/northwind`]).map((t) => t.when)).toEqual([30, 10]);
+  const got = chatChoices(threads, { home: HOME });
+  it('are the newest from every folder, with no folder to pick first', () => {
+    expect(got.map((t) => t.when)).toEqual([40, 30, 10]);
   });
-  it('leave out a chat already in the inbox and a folder you did not pick', () => {
-    const got = chatChoices(threads, [`${HOME}/dev/northwind`]);
+  it('leave out a chat already in the inbox', () => {
     expect(got.some((t) => t.imported)).toBe(false);
-    expect(got.some((t) => t.folder.endsWith('website'))).toBe(false);
+  });
+  it('leave out a chat whose folder cannot be a project, since it would have nowhere to run', () => {
+    expect(got.map((t) => t.folder)).not.toContain(HOME);
+    expect(got.map((t) => t.folder)).not.toContain(`${HOME}/Downloads`);
+    expect(got.map((t) => t.folder)).not.toContain('');
   });
   it('stop at eight', () => {
     const many = Array.from({ length: 12 }, (_, i) => thread(`${HOME}/dev/n`, i));
-    expect(chatChoices(many, [`${HOME}/dev/n`])).toHaveLength(8);
+    expect(chatChoices(many, { home: HOME })).toHaveLength(8);
+  });
+});
+
+describe('the projects a press makes', () => {
+  const chats = [thread(`${HOME}/dev/northwind`, 3), thread(`${HOME}/dev/northwind/`, 2), thread(`${HOME}/dev/api`, 1)];
+  it('are one per folder the chats ran in, named after the folder', () => {
+    expect(projectsToMake(chats, [])).toEqual([
+      { folder: `${HOME}/dev/northwind`, name: 'Northwind' },
+      { folder: `${HOME}/dev/api`, name: 'Api' },
+    ]);
+  });
+  it('leave out a folder a project already points at', () => {
+    const products = [{ slug: 'api', name: 'Api', repoPath: `${HOME}/dev/api/` }];
+    expect(projectsToMake(chats, products).map((p) => p.folder)).toEqual([`${HOME}/dev/northwind`]);
+  });
+  it('take a free name when one is taken by another folder', () => {
+    const products = [{ slug: 'northwind', name: 'Northwind', repoPath: '/elsewhere/northwind' }];
+    expect(projectsToMake(chats, products)[0].name).toBe('Northwind 2');
+  });
+  it('give two folders with one name two names', () => {
+    const two = [thread(`${HOME}/a/api`, 2), thread(`${HOME}/b/api`, 1)];
+    expect(projectsToMake(two, []).map((p) => p.name)).toEqual(['Api', 'Api 2']);
   });
 });
 
 describe('the steps', () => {
-  it('are folders, chats and a first task when there are chats to bring in', () => {
-    expect(stepsFor({ chats: 3 })).toEqual(['folders', 'chats', 'task']);
+  it('are the chats and a first task when there are chats to bring in', () => {
+    expect(stepsFor({ chats: 3 })).toEqual(['chats', 'task']);
   });
-  it('skip the chats when there are none', () => {
-    expect(stepsFor({ chats: 0 })).toEqual(['folders', 'task']);
+  it('are only the first task when there are none', () => {
+    expect(stepsFor({ chats: 0 })).toEqual(['task']);
+  });
+});
+
+describe('where the first run ends', () => {
+  it('is In progress, on the task just sent', () => {
+    expect(landing('w-1')).toEqual({ view: 'progress', select: 'w-1' });
+  });
+  it('is Needs you when no task was sent', () => {
+    expect(landing(null)).toEqual({ view: 'inbox', select: null });
   });
 });
 
 describe('the words', () => {
-  it('count the folders on the button', () => {
-    expect(foldersLabel(1)).toBe('Use 1 folder');
-    expect(foldersLabel(2)).toBe('Use 2 folders');
-    expect(foldersLabel(0)).toBe('Use a folder');
+  it('name the agent the chats came from, and neither when they came from both', () => {
+    expect(chatsHeadline([{ source: 'terminal' }, { source: 'desktop' }])).toBe('Bring in your latest Claude Code chats');
+    expect(chatsHeadline([{ source: 'codex' }])).toBe('Bring in your latest Codex chats');
+    expect(chatsHeadline([{ source: 'codex' }, { source: 'editor' }])).toBe('Bring in your latest chats');
   });
   it('offer a first task that only reads the code first', () => {
-    expect(ideasFor('Northwind')[0]).toBe('Explain how Northwind is put together');
-    expect(ideasFor('Northwind')).toHaveLength(3);
+    expect(ideasFor()[0]).toBe('Explain how this project is put together');
+    expect(ideasFor()).toHaveLength(3);
+  });
+  it('never name the project, which can be called anything', () => {
+    for (const idea of ideasFor()) expect(idea.slice(1)).toBe(idea.slice(1).toLowerCase());
   });
 });

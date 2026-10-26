@@ -66,17 +66,11 @@
 .first-run .ob-slot { display: flex; align-items: center; justify-content: center; }
 .first-run .ob-plus { color: var(--text-faint); font-size: 18px; line-height: 14px; }
 .first-run .ob-name { min-width: 0; font-size: 16px; line-height: 22px; color: var(--text); letter-spacing: -.005em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 6px 0 10px; margin: -6px 0 -10px; }
-.first-run .ob-name small { font-size: 15px; color: var(--text-faint); margin-left: 12px; letter-spacing: 0; }
-.first-run .ob-name.ob-faint { color: var(--text-faint); }
 .first-run .ob-name.ob-dim { color: var(--text-dim); }
 .first-run .ob-item.ob-on .ob-name > span { text-decoration: underline; text-decoration-color: var(--underline); text-decoration-thickness: 1px; text-underline-offset: 7px; }
-.first-run .ob-rename { font: inherit; color: var(--text); background: transparent; border: 0; padding: 0; outline: none; caret-color: var(--accent); text-decoration: underline; text-decoration-color: var(--text-faint); text-underline-offset: 7px; }
 /* The words end on the hairline's edge: the margin takes back the spacing after the last letter. */
 .first-run .ob-meta { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-faint); white-space: nowrap; display: flex; align-items: center; gap: 14px; margin-right: -.12em; }
-.first-run .ob-meta:has(.ob-path, .ob-clock) { margin-right: 0; }
-.first-run .ob-path, .first-run .ob-clock { text-transform: none; letter-spacing: 0; font-size: 12px; }
-.first-run .ob-clock { font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
-.first-run .ob-refused { margin: 16px 0 0; color: var(--text-faint); font-size: 14px; max-width: 620px; }
+.first-run .ob-refused { margin: 16px 0 0; color: var(--text-dim); font-size: 14px; max-width: 620px; }
 
 /* A square tick box. */
 .first-run .ob-tick { width: 14px; height: 14px; border: 1px solid var(--line-strong); position: relative; flex: none; transition: border-color .15s; }
@@ -90,9 +84,6 @@
 .first-run .ob-sq { width: 7px; height: 7px; background: var(--text-dim); flex: none; display: inline-block; }
 .first-run .ob-sq.ob-live { background: var(--accent); }
 .first-run .ob-sq.ob-off { background: transparent; border: 1px solid var(--text-faint); }
-.first-run .ob-pulse { animation: ob-pulse 1.6s ease-in-out infinite; }
-@keyframes ob-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-.first-run .ob-arrive { animation: ob-up .45s cubic-bezier(.2, .7, .2, 1) both; }
 
 /* The composer, as the empty inbox draws it. A real field, so the caret sits
    before the placeholder until something is typed. */
@@ -106,8 +97,28 @@
 .first-run .ob-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
 .first-run .ob-chips { display: flex; gap: 10px; }
 .first-run .ob-chip { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; font-size: 15px; color: var(--text-dim); border: 1px solid var(--line-strong); background: rgba(40, 38, 37, .4); white-space: nowrap; }
-.first-run .ob-chip:hover { background: var(--wash-strong); color: var(--text); }
+.first-run .ob-chip:hover, .first-run .ob-chip.ob-open { background: var(--wash-strong); color: var(--text); }
+.first-run .ob-chip .ob-plus { width: 10px; font-size: 16px; text-align: center; }
 .first-run .ob-sw { width: 10px; height: 10px; flex: none; }
+
+/* The project menu: the composer's own, a folder's path beside its name. */
+.first-run .ob-compose { position: relative; z-index: 2; }
+.first-run .ob-anchor { position: relative; display: inline-flex; }
+.first-run .ob-scrim { position: absolute; inset: 0; }
+.first-run .ob-menu {
+  position: absolute; left: 0; top: calc(100% + 6px); min-width: 340px; padding: 5px;
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--pop, var(--bg)); border: 1px solid var(--line-strong); box-shadow: 0 18px 50px rgba(0, 0, 0, .5);
+  animation: ob-menu-in .13s cubic-bezier(.2, .8, .3, 1);
+}
+@keyframes ob-menu-in { from { opacity: 0; transform: translateY(3px); } }
+.first-run .ob-menu-head { padding: 7px 10px 4px; font: 10.5px var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--text-faint); }
+.first-run .ob-menu-rule { height: 1px; margin: 5px 6px; background: var(--line); }
+.first-run .ob-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 7px 10px; border: 0; background: none; font-size: 14px; line-height: 20px; color: var(--text-dim); text-align: left; white-space: nowrap; }
+.first-run .ob-row.ob-on { background: var(--wash-strong); color: var(--text); }
+.first-run .ob-row .ob-plus { width: 10px; font-size: 16px; text-align: center; }
+.first-run .ob-row-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.first-run .ob-row small { padding-left: 18px; font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); }
 .first-run .ob-ideas { margin-top: 36px; }
 .first-run .ob-ideas .ob-item { height: 44px; border: 0; cursor: pointer; }
 .first-run .ob-ideas .ob-item:hover .ob-name { color: var(--text); }

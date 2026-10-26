@@ -6,8 +6,8 @@ import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
 import { projectNameFor } from './agent-import-card';
 import { shortPath } from './onboarding';
 
-export type Step = 'folders' | 'chats' | 'task';
-export type ListKey = 'up' | 'down' | 'toggle' | 'next' | 'skip' | 'rename' | null;
+export type Step = 'chats' | 'task';
+export type ListKey = 'up' | 'down' | 'toggle' | 'next' | 'skip' | null;
 
 type KeyLike = { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean };
 
@@ -19,7 +19,6 @@ export function listKey(e: KeyLike): ListKey {
   }
   if (e.key === 'ArrowUp') return 'up';
   if (e.key === 'ArrowDown') return 'down';
-  if (e.key === 'Tab') return 'rename';
   if (e.key === 'Escape') return 'skip';
   return null;
 }
@@ -39,14 +38,23 @@ export interface FolderChoice {
 
 const bare = (folder: string) => folder.replace(/\/+$/, '');
 
+// Anyone's home folder, so a window run with a throwaway home still refuses the real one.
+const A_HOME = /^\/(Users|home)\/[^/]+$|^\/root$/;
+
+/** Whether a chat ran in a folder that can be a project. */
+function placed(t: ThreadLike, home: string): boolean {
+  const folder = bare(String(t.folder ?? ''));
+  if (!folder || folder === '/' || A_HOME.test(folder)) return false;
+  // The chat's own `~/` path answers before the app has said where home is.
+  return checkProjectFolder(folder, { home }).ok && (!t.short || checkProjectFolder(t.short, { home }).ok);
+}
+
 /** The folders your agents already ran in, busiest first. */
 export function folderChoices(threads: ThreadLike[], { home = '', max = 5 }: { home?: string; max?: number } = {}): FolderChoice[] {
   const by = new Map<string, FolderChoice>();
   for (const t of threads) {
-    const folder = bare(String(t.folder ?? ''));
-    if (!folder || folder === '/') continue;
-    // The chat's own `~/` path answers before the app has said where home is.
-    if (!checkProjectFolder(folder, { home }).ok || (t.short && !checkProjectFolder(t.short, { home }).ok)) continue;
+    if (!placed(t, home)) continue;
+    const folder = bare(String(t.folder));
     const had = by.get(folder);
     if (had) {
       had.chats += 1;
@@ -64,31 +72,54 @@ export function folderChoices(threads: ThreadLike[], { home = '', max = 5 }: { h
   return [...by.values()].sort((a, b) => b.chats - a.chats || b.when - a.when).slice(0, max);
 }
 
-/** The newest chats in the folders picked, leaving out any already in the inbox. */
-export function chatChoices<T extends ThreadLike>(threads: T[], folders: string[], { max = 8 }: { max?: number } = {}): T[] {
-  const picked = new Set(folders.map(bare));
+/** The newest chats not yet in the inbox, from any folder that can be a project. */
+export function chatChoices<T extends ThreadLike>(threads: T[], { home = '', max = 8 }: { home?: string; max?: number } = {}): T[] {
   return threads
-    .filter((t) => !t.imported && picked.has(bare(String(t.folder ?? ''))))
+    .filter((t) => !t.imported && placed(t, home))
     .sort((a, b) => (b.when ?? 0) - (a.when ?? 0))
     .slice(0, max);
 }
 
+type ProjectLike = { name: string; repoPath?: string | null };
+
+/** The projects bringing these chats in makes: one per folder no project points at yet. */
+export function projectsToMake(chats: ThreadLike[], products: ProjectLike[]): Array<{ folder: string; name: string }> {
+  const owned = new Set(products.map((p) => bare(p.repoPath ?? '')).filter(Boolean));
+  const taken = products.map((p) => p.name);
+  const out: Array<{ folder: string; name: string }> = [];
+  for (const t of chats) {
+    const folder = bare(String(t.folder ?? ''));
+    if (!folder || owned.has(folder)) continue;
+    owned.add(folder);
+    const name = projectNameFor({ name: folder.split('/').pop() ?? '' }, taken);
+    taken.push(name);
+    out.push({ folder, name });
+  }
+  return out;
+}
+
+export function chatsHeadline(chats: Array<{ source?: string }>): string {
+  const codex = chats.filter((t) => t.source === 'codex').length;
+  const from = codex === 0 ? 'Claude Code ' : codex === chats.length ? 'Codex ' : '';
+  return `Bring in your latest ${from}chats`;
+}
+
 export function stepsFor({ chats }: { chats: number }): Step[] {
-  return chats > 0 ? ['folders', 'chats', 'task'] : ['folders', 'task'];
+  return chats > 0 ? ['chats', 'task'] : ['task'];
 }
 
-export function foldersLabel(n: number): string {
-  if (n <= 0) return 'Use a folder';
-  return n === 1 ? 'Use 1 folder' : `Use ${n} folders`;
-}
-
-/** The first one only reads the code, so nothing changes unless you want it to. */
-export function ideasFor(name: string): string[] {
+/** The first one only reads the code. None names the project: a folder can be called anything. */
+export function ideasFor(): string[] {
   return [
-    `Explain how ${name} is put together`,
-    `Find a bug in ${name} and fix it`,
-    `Add tests where ${name} has none`,
+    'Explain how this project is put together',
+    'Find a bug and fix it',
+    'Add tests where there are none',
   ];
+}
+
+/** Where the first run leaves you: on the task you sent, or in Needs you. */
+export function landing(sent: string | null): { view: 'inbox' | 'progress'; select: string | null } {
+  return sent ? { view: 'progress', select: sent } : { view: 'inbox', select: null };
 }
 
 /** The one-time lessons left after the first run: the key beside the first thread, and the lit 1. */

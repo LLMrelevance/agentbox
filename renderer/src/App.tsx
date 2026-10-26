@@ -135,7 +135,7 @@ import { TutorialOffer } from './components/TutorialOffer';
 import { holdForStoppedAgent, neverWarned, rememberWarned } from './stopped-agent';
 import { comeBackTo, neverOffered, offerOnNewProject, rememberOffered } from './tutorial';
 import { FirstRunFlow, OpenLesson } from './components/FirstRun';
-import { lessonsLeft, setLessons, type Lesson } from './first-run';
+import { landing as firstRunLanding, lessonsLeft, setLessons, type Lesson } from './first-run';
 import {
   ANSWER_AFTER_MS, COACHED, COPY as WALK_COPY, FIRST_RUN_LABEL, advance as advanceRun, afterCommand, beatRows, coach, closingRefused, firstRunDone,
   finishedCleared, firstRunNeeded, projectsOfTheirOwn, inboxCleared, laterCleared, laterId, laterIndex,
@@ -5806,28 +5806,41 @@ export default function App() {
     // on whichever it was at launch.
   }, [firstRunPinned, theme, skin, machine]);
 
-  // THE FIRST RUN ENDS IN THE INBOX, with two lessons left to give there.
-  const finishFresh = useCallback(() => {
+  // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
+  // with two lessons left to give there.
+  const [landOn, setLandOn] = useState<string | null>(null);
+  const finishFresh = useCallback((sent: string | null) => {
+    const to = firstRunLanding(sent);
     finishFirstRun(localStorage);
     setLessons(localStorage, ['open', 'pick']);
     setLessonList(['open', 'pick']);
     setFresh(false);
-    setView('inbox');
+    setView(to.view);
     setFocused(null);
     setSelected(0);
+    setLandOn(to.select);
   }, []);
+  // Its row arrives with a snapshot or two after the send.
+  const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
+  useEffect(() => { if (landAt >= 0) { setSelected(landAt); setLandOn(null); } }, [landAt]);
+  // A row that never comes must not take the cursor later, while you are elsewhere.
+  useEffect(() => {
+    if (!landOn) return undefined;
+    const t = setTimeout(() => setLandOn(null), 5000);
+    return () => clearTimeout(t);
+  }, [landOn]);
 
-  // ↵ beside the first thread, until a thread is opened.
+  // ↵ beside the row you are on, until a thread is opened.
   const [lessonAt, setLessonAt] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
-    if (!lessons.includes('open') || focused || fresh || view !== 'inbox') { setLessonAt(null); return; }
-    const title = document.querySelector('.list-pane .th-cell-title');
+    if (!lessons.includes('open') || focused || fresh || (view !== 'inbox' && view !== 'progress')) { setLessonAt(null); return; }
+    const title = document.querySelector('.list-pane .row.selected .th-cell-title') ?? document.querySelector('.list-pane .th-cell-title');
     if (!title) { setLessonAt(null); return; }
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
     setLessonAt({ left: r.right + 20, top: r.top + r.height / 2 - 17 });
-  }, [lessons, focused, fresh, view, list]);
+  }, [lessons, focused, fresh, view, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
   // The first option's key lit, until a thread that offered options is left.
