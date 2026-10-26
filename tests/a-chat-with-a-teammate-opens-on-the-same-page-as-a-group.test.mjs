@@ -68,28 +68,18 @@ describe('the page it opens on', () => {
     expect(lit).toHaveLength(1);
     expect(lit[0]).toContain('Priya');
   });
-  it('is the group page: the Chats list, the chat, and People', () => {
-    expect(hook).toMatch(/chatPage: \(key: string, people: string\[\], chat: ReactNode\) =>[\s\S]{0,300}<GroupPage/);
-    expect(hook).toMatch(/chatPage[\s\S]{0,600}<GroupsColumn rows=\{rows\} current=\{key\}/);
-    expect(hook).toMatch(/chatPage[\s\S]{0,900}<PeoplePanel/);
+  // The Chats list and bar come from a-persons-chat-opened-from-chats-keeps-the-chats-list.
+  it('lists who is in it down the right, inside the Chats frame', () => {
+    expect(hook).toMatch(/chatPeople: \(people: string\[\]\) => \{[\s\S]{0,200}directPeople\(\{ people, rooms: all, team, meId \}\)[\s\S]{0,100}<PeoplePanel/);
+    expect(app).toMatch(/\{inChats && roomsUi\.live && roomsUi\.chatPeople\(directs\.find\(\(d\) => d\.id === focused\.id\)\?\.people \?\? \[\]\)\}\s*<\/ChatsFrame>/);
+    const css = read('../renderer/src/team/rooms/rooms.css');
+    expect(css).toContain('.cx-frame-main:has(> .gr-side) { flex-direction: row; }');
   });
-  it('wears the group page’s header, not the thread’s crumb', () => {
-    expect(hook).toMatch(/chatHeading: \(key: string\) => <GroupsHead/);
-    // The thread's crumb still has its holder, out of sight, so it draws no back button in its place.
-    expect(app).toMatch(/focused && personChat \? <>\{roomsUi\.chatHeading\(`direct:\$\{focused\.id\}`\)\}<div hidden ref=\{setTaskHeader\} \/><\/>/);
-    expect(app).toContain('inChats={personChat}');
-  });
-  it('its box says Message, as a group’s does, and Add people is the header’s own button', () => {
+  it('its box says Message, as a group’s does', () => {
     expect(focus).toContain("talkWord={inChats ? 'Message' : undefined}");
     expect(focus).toMatch(/inChats && !said\.draft && talkNames\?\.length \? \{ \.\.\.said, text: `Message \$\{joinNames\(talkNames\)\}` \}/);
-    expect(app).toContain('{personChat && focused && !settingsOpen && !teamShown && <AddPeople className="th-new"');
   });
   it('says nothing about agents until one is working in it', () => {
     expect(focus).toContain('{!heldByPerson && !(inChats && !session) && <Live');
-  });
-  it('only for a direct record with Groups on; any other thread keeps its own page', () => {
-    expect(app).toMatch(/const personChat = directOpen && roomsUi\.live && narrowSidebar;/);
-    expect(app).toMatch(/personChat && focused\s+\? roomsUi\.chatPage\(`direct:\$\{focused\.id\}`/);
-    expect(app).toMatch(/: focused \? inChatPage\(\s*<TicketItems\.Provider/);
   });
 });

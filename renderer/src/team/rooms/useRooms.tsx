@@ -370,13 +370,10 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
     sidebarGroups: (onGroupsPage: boolean, chats?: () => void) => <SidebarGroups onGroupsPage={onGroupsPage} onGroups={chats ?? openTab} label={chats ? 'Chats' : 'Groups'} />,
     /** The group a teammate's card was opened over, for its Back. */
     roomName: open ? nameOf(open) : null,
-    /** A direct record's chat on the group's page: every chat down the left, who is in it down the right. */
-    chatPage: (key: string, people: string[], chat: ReactNode) => {
+    /** Who is in a direct record's chat, listed the way a group lists its people. */
+    chatPeople: (people: string[]) => {
       const { members, wall, roomOf } = directPeople({ people, rooms: all, team, meId });
-      return <GroupPage chat={chat}
-        list={<GroupsColumn rows={rows} current={key} now={now} onOpen={pickGroup} />}
-        people={<PeoplePanel room={{ members, wall }} onPerson={(id) => { if (!roomOf[id]) return; openRoom(roomOf[id]); setPane(`person:${id}`); }} />} />;
+      return <PeoplePanel room={{ members, wall }} onPerson={(id) => { if (!roomOf[id]) return; openRoom(roomOf[id]); setPane(`person:${id}`); }} />;
     },
-    chatHeading: (key: string) => <GroupsHead current={rows.find((g) => g.key === key)} onFind={() => setFinderOpen(true)} />,
   };
 }
