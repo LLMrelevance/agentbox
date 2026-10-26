@@ -83,6 +83,52 @@ export function rankMatches<T extends { id: string }>(query: string, rows: T[]):
   return [...rows].sort((a, b) => rank(a) - rank(b));
 }
 
+/* ------------------------- what she typed, marked ------------------------- */
+
+// Where each typed word sits in the label, as [start, end) ranges in order. A
+// word is marked where it starts a word of the label before anywhere inside
+// one, and two typed words never claim the same word. A word found only in the
+// keywords marks nothing: the label does not contain it.
+export function matchMarks(label: string, query: string): [number, number][] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const text = label.toLowerCase();
+  const marks: [number, number][] = [];
+  for (const w of words) {
+    let at = -1;
+    for (const m of text.matchAll(/[\p{L}\p{N}]+/gu)) {
+      if (m[0].startsWith(w) && !marks.some(([s]) => s === m.index)) { at = m.index!; break; }
+    }
+    if (at < 0) at = text.indexOf(w);
+    if (at >= 0) marks.push([at, at + w.length]);
+  }
+  return marks.sort((a, b) => a[0] - b[0]);
+}
+
+/** The label in runs, each marked or not, which join back to the label. */
+export function markPieces(label: string, marks: [number, number][]): { text: string; on: boolean }[] {
+  const on = (i: number) => marks.some(([s, e]) => i >= s && i < e);
+  const pieces: { text: string; on: boolean }[] = [];
+  for (let i = 0; i < label.length; i++) {
+    const last = pieces[pieces.length - 1];
+    if (last && last.on === on(i)) last.text += label[i];
+    else pieces.push({ text: label[i], on: on(i) });
+  }
+  return pieces.length ? pieces : [{ text: label, on: false }];
+}
+
+/* ------------------------------- sections -------------------------------- */
+
+// New project and New thread stay on top (tests/her-word-is-project), the rows
+// that act on the thread come next under its name, and the rest follow. A row
+// with no section is one of the rest.
+export type PaletteSection = 'first' | 'thread' | 'anywhere';
+const SECTION_AT: Record<PaletteSection, number> = { first: 0, thread: 1, anywhere: 2 };
+
+/** Rows in section order; within a section the order is left as it came. */
+export function inSections<T extends { section?: PaletteSection }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => SECTION_AT[a.section ?? 'anywhere'] - SECTION_AT[b.section ?? 'anywhere']);
+}
+
 /* ---------------------------- the appearance rows ------------------------ */
 
 // A row as described, with the look it goes to instead of a callback, so this

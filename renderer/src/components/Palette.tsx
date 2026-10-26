@@ -3,11 +3,12 @@
 
 import { cloudCommands, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { chord } from '../this-keyboard';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { Product, View } from '../types';
 import { DONE } from '../done-word';
 import { commandKeys } from '../palette-keys';
-import { emptyLine, lookRows, matchesQuery, rankMatches } from '../palette-rows';
+import { emptyLine, inSections, lookRows, markPieces, matchMarks, matchesQuery, rankMatches, type PaletteSection } from '../palette-rows';
+import { glyphFor } from '../palette-glyphs';
 import { type Look } from '../skins';
 import { type ThemeChoice } from '../theme';
 import { NAME } from '../../../shared/product-name.mjs';
@@ -21,13 +22,16 @@ export interface Command {
   // the hint is shown, never matched (../palette-rows).
   keywords?: string;
   keyHint?: string;
+  section?: PaletteSection;
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], itemTitle, batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
+  /** The thread itemCommands act on, by its name, or how many are ticked. */
+  itemTitle?: string;
   // Rows are ticked, so every item-acting command means "these ones".
   batch?: boolean;
   // A picture is a theme here, not a setting on top of one (skins.ts), so every
@@ -109,14 +113,14 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   const commands: Command[] = useMemo(() => [
     // First, and labelled "project" because that is the word people type. Row
     // one by a product decision (tests/her-word-is-project).
-    { id: 'new-project', label: 'New project…', hint: 'name it, and it is yours', run: onNewProject },
+    { id: 'new-project', label: 'New project…', hint: 'name it, and it is yours', section: 'first', run: onNewProject },
     // AND THEN THE THREAD, which was not here at all: typing "new" offered New
     // project, Check for updates, Set up again and Open as a new user, and no
     // way to start a thread. "It is the thing I do most" (power-test-1, issue
     // 22).
-    { id: 'new-thread', label: 'New thread', hint: 'ask an agent for something', keywords: 'task compose write message ask start', keyHint: 'N', run: onNewThread },
+    { id: 'new-thread', label: 'New thread', hint: 'ask an agent for something', keywords: 'task compose write message ask start', keyHint: 'N', section: 'first', run: onNewThread },
     // Actions on the selected item next, so every chord can be searched for.
-    ...itemCommands,
+    ...itemCommands.map((c): Command => ({ ...c, section: 'thread' })),
     // One Filter row rather than a row per project, which filled the list. It
     // opens the corner's filter menu with the keyboard in it.
     { id: 'filter', label: 'Filter…', hint: 'Project, priority or agent', run: onOpenFilter },
@@ -367,23 +371,27 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     },
 
   ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, onNewThread, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
-  return open ? <PaletteBox commands={commands} onClose={onClose} /> : null;
+  const thread = itemCommands.length ? { label: batch ? 'These threads' : 'This thread', title: itemTitle ?? '' } : null;
+  return open ? <PaletteBox commands={commands} thread={thread} onClose={onClose} /> : null;
 }
 
 // The box itself, mounted fresh each time ⌘K opens, so it starts empty and focused.
-function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+function PaletteBox({ commands, thread, onClose }: { commands: Command[]; thread: { label: string; title: string } | null; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Only a key moves the list to the pick; a pointer is already over it.
+  const byKey = useRef(false);
 
   useEffect(() => inputRef.current?.focus(), []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return commands;
+    if (!q) return inSections(commands);
     // Ranked as well as filtered, so "rem" puts Remind Me above Remote Control
     // (../palette-rows).
-    return rankMatches(q, commands.filter((c) => matchesQuery(q, c)));
+    return inSections(rankMatches(q, commands.filter((c) => matchesQuery(q, c))));
   }, [commands, query]);
 
   // Unique keys, so two lists sharing an id cannot leave a stale row alive
@@ -391,39 +399,62 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
   const keys = useMemo(() => commandKeys(filtered), [filtered]);
 
   useEffect(() => setSelected(0), [query]);
+  useEffect(() => {
+    if (!byKey.current) return;
+    byKey.current = false;
+    listRef.current?.querySelector('.palette-item.selected')?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
+
+  // With no thread to act on, every row acts anywhere and no heading is drawn.
+  const headOf = (i: number) => {
+    if (!thread) return null;
+    const at = filtered[i].section ?? 'anywhere';
+    if (at === 'first' || (i > 0 && (filtered[i - 1].section ?? 'anywhere') === at)) return null;
+    return at === 'thread'
+      ? <div className="palette-head">{thread.label}<span>{thread.title}</span></div>
+      : <div className="palette-head">Anywhere</div>;
+  };
 
   return (
     <div className="modal-backdrop palette-backdrop" onClick={onClose}>
-      <div className="modal palette" onClick={(e) => e.stopPropagation()}>
-        <input
-          ref={inputRef}
-          className="palette-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type a command…"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose();
-            // Clamped at 0 as well as at the end, because with nothing matching
-            // there is no last row to stop at and Math.min alone walks to -1.
-            if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((s) => Math.max(0, Math.min(s + 1, filtered.length - 1))); }
-            if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((s) => Math.max(0, s - 1)); }
-            if (e.key === 'Enter' && filtered[selected]) filtered[selected].run();
-          }}
-        />
-        <div className="palette-list">
+      <div className="modal palette palette-k" onClick={(e) => e.stopPropagation()}>
+        <div className="palette-query">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.6" /><path d="M10.4 10.4L14 14" /></svg>
+          <input
+            ref={inputRef}
+            className="palette-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Type a command…"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onClose();
+              // Clamped at 0 as well as at the end, because with nothing matching
+              // there is no last row to stop at and Math.min alone walks to -1.
+              if (e.key === 'ArrowDown') { e.preventDefault(); byKey.current = true; setSelected((s) => Math.max(0, Math.min(s + 1, filtered.length - 1))); }
+              if (e.key === 'ArrowUp') { e.preventDefault(); byKey.current = true; setSelected((s) => Math.max(0, s - 1)); }
+              if (e.key === 'Enter' && filtered[selected]) filtered[selected].run();
+            }}
+          />
+          <button type="button" className="palette-esc" aria-label="Close" onClick={onClose}>esc</button>
+        </div>
+        <div className="palette-list" ref={listRef}>
           {filtered.length === 0 && <div className="palette-empty">{emptyLine(query)}</div>}
           {filtered.map((c, i) => (
-            <div
-              key={keys[i]}
-              className={`palette-item ${i === selected ? 'selected' : ''}`}
-              onClick={c.run}
-              onMouseEnter={() => setSelected(i)}
-            >
-              <span className="palette-label">{c.label}</span>
-              {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
-            </div>
+            <Fragment key={keys[i]}>
+              {headOf(i)}
+              <div
+                className={`palette-item ${i === selected ? 'selected' : ''}`}
+                onClick={c.run}
+                onMouseEnter={() => setSelected(i)}
+              >
+                <span className="palette-glyph" aria-hidden="true">{glyphFor(c)}</span>
+                <span className="palette-label">{markPieces(c.label, matchMarks(c.label, query)).map((p, j) => (p.on ? <mark key={j} className="palette-mark">{p.text}</mark> : p.text))}</span>
+                {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
+              </div>
+            </Fragment>
           ))}
         </div>
+        <div className="palette-foot" aria-hidden="true"><span><b>↑ ↓</b> move</span><span><b>↵</b> run</span><span>Every word filters, in any order</span></div>
       </div>
     </div>
   );
