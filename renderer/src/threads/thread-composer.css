@@ -99,6 +99,9 @@
 }
 .tc-note button:hover, .tc-note button:focus-visible { text-decoration-color: currentColor; outline: none; }
 
+/* The split, once it is asked for: what it would do, then the two answers. */
+.tc-split { display: flex; align-items: baseline; gap: 14px; }
+
 /* -------------------------------- the bar -------------------------------- */
 .tc-bar { display: flex; align-items: center; gap: 8px; padding: 12px 14px 12px 18px; border-top: 1px solid var(--tc-hair); position: relative; }
 .tc-chip {

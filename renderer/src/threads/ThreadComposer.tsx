@@ -500,6 +500,8 @@ export function ThreadComposer({
   /* ------------------------------- send --------------------------------- */
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whether the pasted list's split has been asked to show itself (`splitOpen`).
+  const [splitAsked, setSplitAsked] = useState(false);
   // THE TUTORIAL'S SEND CAN NEVER BE A DEAD END (w-9f6975906c, 2026-10-05).
   // Her screenshot: the tutorial's card open with an empty box, so Send stayed
   // off and she was stuck for fifteen minutes. If the practice text did not
@@ -521,6 +523,12 @@ export function ThreadComposer({
   // mention is one item's, not every item's), and the tutorial's own task.
   const listed = person || attachments.length || scripted || named.encode(typed.trim()) !== typed.trim() || mate
     ? [] : listedTasks(typed);
+  // THE OFFER IS NOT THE SEND (F-86, 2026-10-26). The link read as a way to
+  // see how the list would be divided and it started both agents on the first
+  // click. It opens the split now, and the send is its own word under it. The
+  // lines are read from what is typed, so editing the box past a list closes
+  // this on its own.
+  const splitOpen = splitAsked && listed.length > 1;
 
   // The dialog closes on Send; the box on the page stays, so it empties. The
   // send goes on with the words it already took, and a failed one reopens them
@@ -1147,13 +1155,23 @@ export function ThreadComposer({
         <AttachRow attachments={attachments} onRemove={(i) => setAttachments((x) => x.filter((_, j) => j !== i))} />
 
         {refusal && <div className="tc-note">{refusal}</div>}
-        {/* Send is untouched: this is the other reading offered, not a mode the
-            card is now in. */}
-        {listed.length > 1 && (
-          <div className="tc-note">
-            <button type="button" onClick={() => void sendTask({ asList: true })}>Send as {listed.length} separate threads</button>
+        {/* Send is untouched throughout: this is the other reading offered,
+            not a mode the card is now in. */}
+        {listed.length > 1 && (splitOpen ? (
+          <div className="tc-note tc-split">
+            {/* NOT THE LINES BACK AGAIN. They are in the box an inch above,
+                word for word, and a second copy of what you just typed is the
+                one thing on this card nobody would read. What the click owes
+                you is the rule it used and a way out. */}
+            <span>One thread for each line.</span>
+            <button type="button" onClick={() => void sendTask({ asList: true })}>Send {listed.length} threads</button>
+            <button type="button" onClick={() => setSplitAsked(false)}>Keep it as one</button>
           </div>
-        )}
+        ) : (
+          <div className="tc-note">
+            <button type="button" onClick={() => setSplitAsked(true)}>Send as {listed.length} separate threads</button>
+          </div>
+        ))}
         {dropped > 0 && (
           <div className="tc-note">
             {dropped === 1
