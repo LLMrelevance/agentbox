@@ -2,7 +2,7 @@
 // rows, the title, the right end of the top bar and the page. Kept apart from
 // useRooms, whose every field App reads is pinned by its own tests.
 import { useMemo, useState, type ReactNode } from 'react';
-import type { Product, RunningSession, TeammatesView } from '../types';
+import type { Product, RunningSession, TeammatesView, WorkItem } from '../types';
 import { TeammateMenu, TeammatesPage, TeammatesTitle, shownOf, type TeammateModels } from './TeammatesPage';
 import { SidebarGroups } from '../team/rooms/GroupsSidebar';
 import { api } from '../api';
@@ -11,7 +11,9 @@ import { asksYou, heldFor } from './chat-lines';
 /** `new`, a teammate's id, or `log:`, `about:` or `book:` one of its pages; 'team' opens the first chat. */
 export type TeammatesOpen = string | null;
 
-export function useTeammates({ view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, onChanged }: {
+export function useTeammates({ items = [], view: stored, asking = [], running = [], products, engines, models, me, mePic = null, onEnter, onOpenThread, onChanged }: {
+  /** Every thread the app holds, so what a teammate sent you is drawn as its inbox row. */
+  items?: WorkItem[];
   models?: TeammateModels;
   mePic?: string | null;
   view: TeammatesView | null | undefined;
@@ -52,7 +54,7 @@ export function useTeammates({ view: stored, asking = [], running = [], products
   const shown = shownOpen ? shownOf(shownOpen, team) : null;
   const mate = shown && shown.kind !== 'new' ? team.find((t) => t.id === shown.id) ?? null : null;
   const page: ReactNode = shownOpen && view
-    ? <TeammatesPage view={view} open={shownOpen} products={products} engines={engines} me={me}
+    ? <TeammatesPage view={view} items={items} open={shownOpen} products={products} engines={engines} me={me}
         onOpen={go} onOpenThread={onOpenThread} onChanged={onChanged} sessions={sessions} models={models} mePic={mePic} />
     : null;
   const call = async (op: string, args: Record<string, unknown>) => { const r = await api.teammates(op, args); if (r.ok) onChanged(); return r.ok; };
