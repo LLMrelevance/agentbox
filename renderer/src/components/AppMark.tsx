@@ -16,6 +16,8 @@ export function AppMark({ size = 24, title }: { size?: number; title?: string })
       className="product-mark app-mark"
       viewBox="10 10 80 80"
       width={size} height={size}
+      // Inline, because a panel's rule for its own icons would otherwise size it.
+      style={{ width: size, height: size }}
       role={title ? 'img' : undefined}
       aria-label={title}
       aria-hidden={title ? undefined : true}

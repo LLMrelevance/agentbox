@@ -94,7 +94,7 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
     return (
       <div className="si-page" role="dialog" aria-modal="true" aria-label="Finish signing in in your browser">
         <div className="si-card">
-          <span className="si-mark"><AppMark size={40} /></span>
+          <span className="si-mark"><AppMark size={34} /></span>
           <h1>Finish in your browser</h1>
           <p className="si-lede">
             {waitingUrl
@@ -150,7 +150,7 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
       {/* No key on purpose: a stray Escape would skip it without anyone meaning to. */}
       {onSkip && <button type="button" className="si-skip-corner" onClick={onSkip}>Skip for now</button>}
       <div className="si-card">
-        <span className="si-mark"><AppMark size={40} /></span>
+        <span className="si-mark"><AppMark size={34} /></span>
         <h1>{heading}</h1>
         <p className="si-lede">{mode === 'agree' ? <>You&rsquo;re new to {Name} Cloud. Read <TermsLinks />, then agree to finish.</> : lede}</p>
 
