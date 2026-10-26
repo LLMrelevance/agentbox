@@ -10,11 +10,14 @@ import os from 'node:os';
 import path from 'node:path';
 import { cloudConfigPath, readCloudConfig, readCloudKey, writeCloudKey, cloudKeyPath, cloudAccountConfig, forgetCloudKey } from './config.mjs';
 import { withDeadline, plainAuthError } from '../team/session.mjs';
-import { signInWithGoogle, cancelGoogleSignIn } from '../team/sign-in.mjs';
+import { signInWithGoogle, cancelGoogleSignIn, theBrowserComesBackWithACode } from '../team/sign-in.mjs';
 import { Name } from '../../shared/product-name.mjs';
 
 const CALL_MS = 30_000;
 const RETURN_URL = 'http://127.0.0.1:54783/auth/callback';
+// Long enough to go and open an email, short enough that the one address the
+// whole app signs in through is let go of rather than held for good.
+const CONFIRM_WAIT_MS = 15 * 60_000;
 
 export { cloudAccountConfig };
 
@@ -35,8 +38,13 @@ export async function currentCloudTerms(config) {
  * token of a fresh sign-in, held in memory only: the cloud key is what this
  * Mac keeps, so nothing asks the keychain.
  */
-export function cloudAccountSession({ config, openExternal, log = () => {}, createClient = null }) {
+export function cloudAccountSession({ config, openExternal, log = () => {}, createClient = null, confirmWaitMs = CONFIRM_WAIT_MS }) {
   let lastUrl = null;
+  // The client that made a new account, kept until its email's link comes
+  // back: the one-time proof that redeems the code is held inside it, so no
+  // other client on this Mac, and no other Mac, could finish that sign-up.
+  let confirming = null;
+  const returnUrl = () => config.signInReturn || RETURN_URL;
   const client = async () => {
     const make = createClient || (await import('@supabase/supabase-js')).createClient;
     const mem = new Map();
@@ -52,7 +60,7 @@ export function cloudAccountSession({ config, openExternal, log = () => {}, crea
   return {
     async google() {
       const c = await client();
-      await signInWithGoogle({ client: c, openExternal, returnUrl: config.signInReturn || RETURN_URL, log, onUrl: (u) => { lastUrl = u; } });
+      await signInWithGoogle({ client: c, openExternal, returnUrl: returnUrl(), log, onUrl: (u) => { lastUrl = u; } });
       return tokenOf((await c.auth.getSession()).data);
     },
     async email(email, password) {
@@ -63,12 +71,46 @@ export function cloudAccountSession({ config, openExternal, log = () => {}, crea
     // With confirmation on, a new account has no session until its email's
     // link is followed: null, and the page says to check the inbox.
     async signUp({ name, email, password }) {
-      const { data, error } = await (await client()).auth.signUp({
-        email: String(email ?? '').trim(), password: String(password ?? ''),
-        options: { data: { full_name: String(name ?? '').trim() || undefined } },
+      const c = await client();
+      const at = String(email ?? '').trim();
+      const { data, error } = await c.auth.signUp({
+        email: at, password: String(password ?? ''),
+        options: {
+          data: { full_name: String(name ?? '').trim() || undefined },
+          // Named, or the link goes to the database's own site_url: this Mac
+          // with no path, where nothing is listening (F-59, 2026-10-25).
+          emailRedirectTo: returnUrl(),
+        },
       });
       if (error) throw new Error(plainAuthError(error.message));
-      return data?.session?.access_token ?? null;
+      if (data?.session?.access_token) { confirming = null; return data.session.access_token; }
+      confirming = { client: c, email: at };
+      return null;
+    },
+
+    /** Another copy of the link, for one that never arrived or went astray. */
+    async resend() {
+      if (!confirming) throw new Error('Create the account again to get a new link.');
+      const { error } = await confirming.client.auth.resend({
+        type: 'signup', email: confirming.email, options: { emailRedirectTo: returnUrl() },
+      });
+      if (error) throw new Error(plainAuthError(error.message));
+    },
+
+    /** The access token of a sign-up whose link the browser brings back here. */
+    async confirmation() {
+      if (!confirming) return null;
+      const c = confirming.client;
+      await theBrowserComesBackWithACode({
+        client: c,
+        returnUrl: returnUrl(),
+        timeoutMs: confirmWaitMs,
+        log,
+        what: 'email confirmation',
+        done: { title: 'Your email is confirmed', line: `You can close this tab and go back to ${Name}.` },
+      });
+      confirming = null;
+      return tokenOf((await c.auth.getSession()).data);
     },
     cancel: () => cancelGoogleSignIn(),
     reopen: () => (lastUrl ? openExternal(lastUrl) : null),
@@ -91,6 +133,9 @@ export async function cloudSignIn({ config, session, method, email, password, na
       agreeing = true;
       token = await session.signUp({ name, email, password });
       if (!token) return { ok: true, confirm: true };
+    } else if (method === 'resend') {
+      await session.resend();
+      return { ok: true, confirm: true, sent: true };
     } else if (method === 'agree') {
       token = session.held;
       agreeing = true;
@@ -105,6 +150,19 @@ export async function cloudSignIn({ config, session, method, email, password, na
   if (out.ok) { session.held = null; return out; }
   if (out.error === 'terms' && !agreeing) return { ok: false, needsTerms: true, terms: out.terms ?? null };
   return { ok: false, error: out.message || out.error };
+}
+
+/**
+ * A new account's page says to check the inbox, and this waits behind it for
+ * the link to come back, then finishes the same sign-in: nothing else to press
+ * (F-59). Creating the account is what agrees to the terms, as on the page.
+ */
+export async function waitForEmailConfirmation({ config, session, env = process.env, home = os.homedir() }) {
+  let token;
+  try { token = await session.confirmation(); } catch (err) { return { ok: false, error: err?.message || String(err), ...(err?.cancelled ? { cancelled: true } : {}) }; }
+  if (!token) return { ok: false, error: 'nothing-waiting' };
+  const out = await signInToCloud({ config, acceptedTerms: await currentCloudTerms(config), googleSignIn: async () => token, env, home });
+  return out.ok ? out : { ok: false, error: out.message || out.error };
 }
 
 // `googleSignIn` gives the access token of whichever sign-in the page made.

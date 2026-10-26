@@ -62,6 +62,15 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
   useEffect(() => { first.current?.focus(); }, [mode]);
 
   const [copied, setCopied] = useState(false);
+  const [sent, setSent] = useState(false);
+  // The database sends at most one of these a minute (cloud/supabase/config.toml).
+  const resend = async () => {
+    setBusy('email'); setError(null); setSent(false);
+    const out = await api.cloudAccountSignIn({ method: 'resend' });
+    setBusy(null);
+    if (out.ok) { setSent(true); return; }
+    setError(out.error ?? 'That did not send. Try again in a minute.');
+  };
   const google = async () => {
     setBusy('google'); setError(null); setCopied(false);
     const out = cloud ? await api.cloudAccountSignIn({ method: 'google', acceptTerms: mode === 'sign-up' }) : await api.teamSignIn();
@@ -134,7 +143,12 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
     : mode === 'check-email' ? 'Check your email'
       : mode === 'agree' ? 'Agree to the terms'
       : signedOut ? 'You are signed out' : `Sign in to ${Name}`;
-  const lede = mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
+  const lede = mode === 'check-email'
+    ? cloud
+      // The cloud's link comes back to this Mac's own listener, so following it
+      // here finishes the sign-in with nothing left to press.
+      ? `We sent a link to ${email}. Follow it on this computer and ${Name} signs you in.`
+      : `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
     : cloud ? 'Then your agents run in the cloud.'
       : purpose === 'phone' ? 'Then your phone can read and reply to your threads, even with this computer closed.'
       : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
@@ -156,13 +170,21 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
 
         {(mode === 'sign-in' || mode === 'sign-up') && (
           <div className="si-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={mode === 'sign-in'} className={mode === 'sign-in' ? 'on' : ''} onClick={() => { setMode('sign-in'); setError(null); }}>Sign in</button>
-            <button type="button" role="tab" aria-selected={mode === 'sign-up'} className={mode === 'sign-up' ? 'on' : ''} onClick={() => { setMode('sign-up'); setError(null); }}>Create account</button>
+            {/* The password does not cross the tabs: an account made with one
+                typed to sign in is one nobody meant to make. */}
+            <button type="button" role="tab" aria-selected={mode === 'sign-in'} className={mode === 'sign-in' ? 'on' : ''} onClick={() => { setMode('sign-in'); setPassword(''); setError(null); }}>Sign in</button>
+            <button type="button" role="tab" aria-selected={mode === 'sign-up'} className={mode === 'sign-up' ? 'on' : ''} onClick={() => { setMode('sign-up'); setPassword(''); setError(null); }}>Create account</button>
           </div>
         )}
 
         {mode === 'check-email' ? (
-          <button type="button" className="si-primary" onClick={() => { setMode('sign-in'); setPassword(''); }}>Back to sign in</button>
+          <>
+            <button type="button" className="si-primary" onClick={() => { setMode('sign-in'); setPassword(''); setSent(false); }}>Back to sign in</button>
+            <div className="si-wait-row">
+              <button type="button" disabled={!!busy} onClick={() => void resend()}>{sent ? 'Sent again' : 'Send it again'}</button>
+              <button type="button" disabled={!!busy} onClick={() => { setMode('sign-up'); setPassword(''); setSent(false); setError(null); }}>Use a different address</button>
+            </div>
+          </>
         ) : mode === 'agree' ? (
           <>
             <button type="button" className="si-primary" disabled={!!busy} onClick={() => void agree()}>{busy ? 'Finishing…' : 'Agree and continue'}</button>
