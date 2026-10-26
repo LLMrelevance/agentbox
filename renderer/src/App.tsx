@@ -83,7 +83,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply, workMoving } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { focusTheReplyBox } from './focus-at-end';
 import { keyWhileABoxIsOpen, opensATextField, takesTheListBack } from './keys';
@@ -259,6 +259,7 @@ const HINTS_KEY = 'zero.keyhints';
 // every component says now lives in `hint-plate.ts`, which is one list for the
 // whole window rather than one per surface, and it is checked against the
 // handlers the same way this one was.
+const drawnIn = (el: JSX.Element, slot: HTMLElement | null) => (slot ? createPortal(el, slot) : el);
 const SNOOZE_KEY = 'zero.snooze';
 // When answers to her own asks started being delivered to the inbox rather than
 // filed straight into Done (see belongsInInbox). Stamped once, on the first run
@@ -519,6 +520,14 @@ export default function App() {
   // <html>; this is the same answer in a form the JSX below can ask.
   const [taskShape] = useState<TaskShape>(() => resolveTaskShape(localStorage.getItem(TASK_SHAPE_KEY)));
   const [modal, setModal] = useState<Modal>(null);
+  // Where the empty inbox wants the New thread box drawn, while it is on screen.
+  const [clearSlot, setClearSlot] = useState<HTMLDivElement | null>(null);
+  // N on the empty inbox goes into the box already on the page.
+  const startThread = () => {
+    const box = clearSlot?.querySelector('textarea');
+    // offsetParent is null where the page hides the box (a phone).
+    if (box?.offsetParent && modal !== 'compose') box.focus(); else setModal('compose');
+  };
   // Read by a send that lands after its card has closed, which must not close
   // or cover whatever has been opened since.
   const modalNow = useRef<Modal>(null);
@@ -2230,14 +2239,7 @@ export default function App() {
   ].sort(byRunningOrder(score)),
   [items, agentList, agentMode, scope, pendingIds, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds, stalledIds]);
 
-  // WHAT OF IN PROGRESS IS ACTUALLY MOVING, for the empty inbox to say. The
-  // tab holds a thread waiting its turn beside one being worked on, and the
-  // line said the whole tab was running (`workMoving`, w-712fc99e8d).
   const queuedIds = useMemo(() => new Set(snap?.supervisor.queued ?? []), [snap?.supervisor.queued]);
-  const moving = useMemo(
-    () => workMoving(progress, { live: liveIds, shipping: shippingIds, queued: queuedIds }),
-    [progress, liveIds, shippingIds, queuedIds],
-  );
   // AGENTBOX CLOUD OFFERS ITSELF WHERE THE FOUNDER PUT IT (2026-10-13,
   // cloud-upgrade.ts): threads queued while this Mac runs all it can say so,
   // and the last row of In progress offers the cloud. The plan is read from
@@ -5583,7 +5585,7 @@ export default function App() {
           else if (pointed) showToast('Later is for a thread that is still open.');
           break;
         // N starts a thread (w-fb9051e597). C does nothing: the cloud is ⌘C.
-        case 'n': case 'N': e.preventDefault(); setModal('compose'); break;
+        case 'n': case 'N': e.preventDefault(); startThread(); break;
         case 'z': case 'Z': undo(); break;
         // B FLIPS LIST AND BOARD (w-58c8f466e7): "I quite often switch between
         // board and list view". B for board; it shipped as V first and that
@@ -5604,7 +5606,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, togglePanel, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow, clearSlot]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -6916,9 +6918,7 @@ export default function App() {
                       // AND NOT UNDER THE LANDING (2026-10-06), which says the
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
-                      ? run === null && !landing && <InboxClear running={moving.running} queued={moving.queued} scheduled={snoozed.length} team={!!team}
-                          onView={(next) => { setView(next as View); setSelected(0); setMultiSel(new Set()); }}
-                          onCompose={() => setModal('compose')} />
+                      ? run === null && !landing && <InboxClear slot={setClearSlot} />
                       : <EmptyTab view={view} />
                 ) : <List
                   lead={view === 'inbox' && search === null && roomsUi.mentions.length
@@ -7041,8 +7041,14 @@ export default function App() {
           an undo can hand back. */}
       {/* Rooms' dialogs: invite, start a room, join from a link. */}
       {roomsUi.dialogs}
-      {modal === 'compose' && (
+      {/* One composer: the dialog while it is open, otherwise drawn open on
+          the empty inbox. Each place is its own mount (`key`) and each mount
+          reads the saved draft, so words typed on the page are in the dialog
+          when it opens. */}
+      {(modal === 'compose' || clearSlot) && drawnIn(
         <ThreadComposer
+          key={modal === 'compose' ? 'card' : 'page'}
+          inline={modal !== 'compose'}
           agentMates={teammatesUi.live ? snap.teammates?.list.filter((t) => t.status === 'active') : undefined}
           onToTeammate={async (to, text, product) => {
             const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to], fresh: true });
@@ -7193,8 +7199,7 @@ export default function App() {
               limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
           }}
-        />
-      )}
+        />, modal === 'compose' ? null : clearSlot)}
       {/* THE OLD COMPOSE CARD IS GONE FROM HERE (2026-10-01). The walk kept it
           for one round, because the new card refuses a task into the practice
           project and the walk's task is the one exception; the new card takes
