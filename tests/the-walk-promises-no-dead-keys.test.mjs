@@ -325,7 +325,9 @@ describe('the coaching card promises no dead key either', () => {
   // N, which beat four says. C was its twin until it turned to the cloud
   // (tests/the-cloud-is-on-or-off-with-one-key).
   it('N opens the compose card, which is what beat four says it does', () => {
-    expect(app).toMatch(/case 'n': case 'N':[\s\S]{0,80}setModal\('compose'\)/);
+    // startThread opens the card; the walk never draws the empty page's box.
+    expect(app).toMatch(/case 'n': case 'N':[\s\S]{0,80}startThread\(\)/);
+    expect(app).toMatch(/const startThread = \(\) => \{[\s\S]{0,300}setModal\('compose'\)/);
   });
 
   it('↵ opens the row under the cursor, which is what beat six says', () => {
