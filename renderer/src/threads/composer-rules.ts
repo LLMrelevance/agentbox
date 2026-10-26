@@ -506,6 +506,15 @@ export function keyOnTheNewThreadCard(
 }
 
 /**
+ * Whether the box on the empty inbox moves into the New thread dialog. A
+ * thread landing in Needs you takes the page away; if you were in the box, or
+ * left words in it, the dialog opens on what it held, over the list.
+ */
+export function writingMovesToTheDialog({ waiting, onScreen, writing }: { waiting: number; onScreen: boolean; writing: boolean }): boolean {
+  return waiting > 0 && onScreen && writing;
+}
+
+/**
  * Which rows the head draws. To an agent it is still To and Model, untouched.
  * To a person it is To and Send As, and the day appears only once it is a
  * task, because a message has nothing to be due.
