@@ -1,4 +1,9 @@
 // Which theme you get, and when the machine stops having an opinion.
+//
+// The sweep at the foot of this file used to flag every `matchMedia`, so a
+// media query about the SIZE of the screen failed it: main went red twice that
+// way, on the corner tag's `(resolution:)` and on the phone layout's
+// `(max-width:)`. The mode is `prefers-color-scheme` and nothing else.
 
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
@@ -7,6 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { nextTheme, resolveTheme } from '../renderer/src/theme.ts';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+
+const readsTheMachinesMode = (text) => /prefers-color-scheme/.test(text);
 
 describe('resolveTheme', () => {
   it('is dark when nobody has chosen, whatever the Mac says', () => {
@@ -32,22 +39,31 @@ describe('resolveTheme', () => {
     }
   });
 
+  it('tells a question about light and dark from a question about size', () => {
+    expect(readsTheMachinesMode("window.matchMedia('(prefers-color-scheme: dark)')")).toBe(true);
+    expect(readsTheMachinesMode('@media (prefers-color-scheme: light) { :root { --ink: #111; } }')).toBe(true);
+    // The phone layout's breakpoint and the corner tag's screen sharpness ask
+    // nothing about light and dark, and both are allowed.
+    expect(readsTheMachinesMode("matchMedia('(max-width: 700px), (max-height: 520px)')")).toBe(false);
+    expect(readsTheMachinesMode('window.matchMedia(`(resolution: ${now}dppx)`)')).toBe(false);
+  });
+
   it('leaves no reader of the machine anywhere in the window', () => {
-    // Matching the Mac is a look someone can PICK now, not something that
-    // happens to them, and the option to pick it is not built yet. Asserted
-    // over the source because a single reintroduced `matchMedia` in any file
-    // brings the disagreement back and nothing else would fail.
+    // Matching the Mac is a look someone can PICK, not something that happens
+    // to them. Asserted over the source because a second reader reintroduced
+    // in any file brings the disagreement back and nothing else would fail.
     const src = path.join(root, 'renderer/src');
     const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (
       e.isDirectory() ? walk(path.join(dir, e.name))
         : /\.(ts|tsx|css)$/.test(e.name) ? [path.join(dir, e.name)] : []
     ));
     const guilty = walk(src).filter((f) => {
-      if (f.endsWith('theme.ts')) return false; // its comment says why it is gone
+      // The one file allowed to read it, for the Match my system pick.
+      if (f.endsWith('theme.ts')) return false;
       // The corner tag is its own small window, approved to follow the Mac's
       // mode (corner-tag.css, w-dafae58a23). This rule is about the main window.
       if (f.includes(`${path.sep}corner-tag${path.sep}`)) return false;
-      return /prefers-color-scheme|matchMedia/.test(fs.readFileSync(f, 'utf8'));
+      return readsTheMachinesMode(fs.readFileSync(f, 'utf8'));
     });
     expect(guilty.map((f) => path.relative(root, f))).toEqual([]);
   });
