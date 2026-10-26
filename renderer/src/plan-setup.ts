@@ -277,9 +277,14 @@ export function foundHead(ready: Engine[]): string {
 export function foundLede(ready: Engine[]): string | null {
   if (!ready.length) return null;
   const names = ready.map(planName);
-  return ready.length > 1
-    ? `Your agents will run on your own ${names.join(' and ')} plans.`
-    : `Your agents will run on your own ${names[0]} plan.`;
+  if (ready.length > 1) return `Your agents will run on your own ${names.join(' and ')} plans.`;
+  // AND THE OTHER ROW IS ANSWERED TOO (w-04e8d6d6e6). The screen says it
+  // found one plan and then draws the other one under it offering to set it
+  // up, with nothing saying whether that one was looked for. A tester with
+  // ChatGPT signed in read the Claude row as something still to do.
+  const other = (['claude', 'codex'] as Engine[]).find((e) => !ready.includes(e));
+  const sentence = `Your agents will run on your own ${names[0]} plan.`;
+  return other ? `${sentence} You do not need ${planName(other)} as well.` : sentence;
 }
 
 /**

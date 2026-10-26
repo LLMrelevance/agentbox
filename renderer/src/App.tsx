@@ -45,8 +45,8 @@ import { ALIVE_EVERY_MS, markWindowAlive, type Place, placeIsSomewhere, readPlac
 import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
-import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames, projectsOffered, teammates } from './threads/composer-rules';
+import { ThreadComposer, type ComposeStart } from './threads/ThreadComposer';
+import { joinNames, writingMovesToTheDialog, projectsOffered, teammates } from './threads/composer-rules';
 import { chosenNames, whoSees } from './threads/summary-rules';
 import { shownToPeople } from '../../shared/thread-cards.mjs';
 import { changePathFor } from './code-artifact';
@@ -83,7 +83,7 @@ import { approvalReads } from './approval-card';
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
 import { wearJustMade, type JustMade } from './just-made';
-import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
+import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, inProgressTab, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
 import { focusTheReplyBox } from './focus-at-end';
 import { keyWhileABoxIsOpen, opensATextField, takesTheListBack } from './keys';
@@ -522,6 +522,17 @@ export default function App() {
   const [modal, setModal] = useState<Modal>(null);
   // Where the empty inbox wants the New thread box drawn, while it is on screen.
   const [clearSlot, setClearSlot] = useState<HTMLDivElement | null>(null);
+  const [clearWriting, setClearWriting] = useState(false);
+  const handOver = useRef<(() => ComposeStart) | null>(null);
+  // Set further down, where the list is known (`clearMoves`); the effect has
+  // to sit up here, above the render's early returns.
+  const clearMovesNow = useRef(false);
+  useLayoutEffect(() => {
+    if (!clearMovesNow.current) return;
+    clearMovesNow.current = false;
+    setComposeInitial(handOver.current?.() ?? null);
+    setModal('compose');
+  });
   // N on the empty inbox goes into the box already on the page.
   const startThread = () => {
     const box = clearSlot?.querySelector('textarea');
@@ -650,7 +661,7 @@ export default function App() {
   // an agent" on a message from a person turns that message into a thread.
   // `also` is everyone after the first in To, which is how "Add people" on an
   // open conversation hands the whole group over (threads/page-rules.ts).
-  const [composeInitial, setComposeInitial] = useState<{ to?: string; also?: string[]; body?: string } | null>(null);
+  const [composeInitial, setComposeInitial] = useState<ComposeStart | null>(null);
   // OPEN A CONVERSATION WITH THE REPLY BOX READY, carrying what was typed. The
   // composer hands over here when its To is someone you already talk to, and
   // "Message Maya" comes here first.
@@ -2239,6 +2250,11 @@ export default function App() {
   ].sort(byRunningOrder(score)),
   [items, agentList, agentMode, scope, pendingIds, dueAt, hiddenAt, score, now, team, teamProgress, liveIds, shippingIds, stalledIds]);
 
+  // AND THE TAB COUNTS EACH THREAD ONCE: the list, less what Needs you holds,
+  // the way `tabState` below has it for the board and `done` for the archive.
+  // The rule above is untouched; only what the tab draws and counts is this.
+  const progressTab = useMemo(() => inProgressTab(progress, inbox), [progress, inbox]);
+
   const queuedIds = useMemo(() => new Set(snap?.supervisor.queued ?? []), [snap?.supervisor.queued]);
   // AGENTBOX CLOUD OFFERS ITSELF WHERE THE FOUNDER PUT IT (2026-10-13,
   // cloud-upgrade.ts): threads queued while this Mac runs all it can say so,
@@ -2474,7 +2490,7 @@ export default function App() {
   // person's; that is now where the board already had it, in search.
   const wholeBox = view === 'inbox' ? inbox
     : view === 'snoozed' ? snoozed
-      : view === 'progress' ? progress
+      : view === 'progress' ? progressTab
         : done;
   const shownBox = useMemo(() => filterBox(wholeBox, boxFilter, directSlugs), [wholeBox, boxFilter, directSlugs]);
   // THE DISPLAY MENU'S FILTERS AND SORT, on top of the box (approved
@@ -3593,7 +3609,7 @@ export default function App() {
   const roomsUi = useRooms({
     rooms: snap?.team?.rooms, on: !!snap?.alpha?.rooms, meId: snap?.team?.me?.id ?? null,
     myName: snap?.team?.rooms?.me?.display_name ?? '', fullName: snap?.team?.me?.name ?? '', hasTeam: !!snap?.team?.team, now: Date.now(), toast: showToast,
-    directs,
+    team: snap?.team?.people, directs,
     onOpenDirect: (id) => { const item = items.find((i) => i.id === id); if (item) { setChatsDirect(id); setTeamOpen(false); setSettingsOpen(false); setFocused(item); markSeen(item); } },
     onLeavePage: () => { setFocused(null); setFocusedRepeat(null); setTeamOpen(false); closeSearch(); },
     // Teammates: the conversation you already have, or the new thread card addressed to them.
@@ -6109,6 +6125,13 @@ export default function App() {
     && !(view === 'snoozed' && repeats.length > 0);
   const bareView = search === null && !focused && !focusedRepeat && list.length === 0
     && !(view === 'snoozed' && repeats.length > 0) && !workspaceNavigation;
+  // A thread landed in Needs you while you were writing in the box on the
+  // empty inbox: the page is kept for the one render it takes to read the box,
+  // and the dialog opens on it before anything paints.
+  const clearWaiting = view === 'inbox' ? list.length + roomsUi.mentions.length : 0;
+  const clearMoves = view === 'inbox' && search === null && !focused && !focusedRepeat && modal !== 'compose'
+    && writingMovesToTheDialog({ waiting: clearWaiting, onScreen: clearSlot !== null, writing: clearWriting });
+  clearMovesNow.current = clearMoves;
   // ONE SURFACE ON AN OPENED TASK (design C): no card, hairlines
   // only, and the reading column centred on the window rather than on the pane
   // the panel left over. `flat` is the same condition that used to draw the
@@ -6864,6 +6887,8 @@ export default function App() {
                   }}
                   stoppable={!walking && stoppableNow(focused)}
                 />
+                {/* Who is in it, down the right, as a group lists them. */}
+                {inChats && roomsUi.live && roomsUi.chatPeople(directs.find((d) => d.id === focused.id)?.people ?? [])}
                 </ChatsFrame>
                 </TicketItems.Provider>
               ) : (
@@ -6892,7 +6917,7 @@ export default function App() {
                     // Yours while you are on the page, and the picked teammates' added in.
                     counts={{
                       inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length,
-                      progress: (mineShown ? shownCount(progress) : 0) + theirCount('progress'),
+                      progress: (mineShown ? shownCount(progressTab) : 0) + theirCount('progress'),
                       snoozed: (mineShown ? shownCount(snoozed) : 0) + theirCount('snoozed'),
                       done: (mineShown ? shownCount(done) : 0) + theirCount('done'),
                     }}
@@ -6904,12 +6929,12 @@ export default function App() {
                 )}
                 {roomShown ? roomsUi.page : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
-                {workspaceNavigation && emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length) ? (
+                {clearMoves || (workspaceNavigation && emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
                   // statement about her inbox and the page was saying it about
                   // her own filter, over a tab that still read 13.
-                  hiddenNow > 0
+                  hiddenNow > 0 && !clearMoves
                     ? <FilteredEmpty view={view} hidden={hiddenNow}
                         onClear={() => setInboxDisplay({ ...inboxDisplay, priorities: [], projects: [], updated: 'any', privacy: 'any' })} />
                     // "Nothing needs you" is about you alone; with a teammate
@@ -7049,6 +7074,8 @@ export default function App() {
         <ThreadComposer
           key={modal === 'compose' ? 'card' : 'page'}
           inline={modal !== 'compose'}
+          onWriting={setClearWriting}
+          handOver={handOver}
           agentMates={teammatesUi.live ? snap.teammates?.list.filter((t) => t.status === 'active') : undefined}
           onToTeammate={async (to, text, product) => {
             const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to], fresh: true });
@@ -7812,7 +7839,7 @@ export default function App() {
           <button type="button" className="back-esc fr-back" aria-label="Back" title="Back" onClick={() => { setSetupPlan(null); void checkPlan(); }}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
           </button>
-          <div className="fr-brand"><AppMark size={22} />{NAME}</div>
+          <div className="fr-brand"><AppMark size={13} />{NAME}</div>
           <PlanSetupCard
             plan={setupPlan}
             onDone={() => { setSetupPlan(null); void checkPlan(); void recheckClaude(); }}
