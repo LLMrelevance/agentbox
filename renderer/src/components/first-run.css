@@ -3,7 +3,7 @@
    already owns .mark, .on, .row and more. */
 .first-run {
   position: fixed; inset: 0; z-index: 2147483000;
-  font-family: 'Geist', -apple-system, sans-serif; font-size: 15px; line-height: 1.4;
+  font-family: 'Geist', 'Avenir Next', -apple-system, BlinkMacSystemFont, 'DejaVu Sans', sans-serif; font-size: 15px; line-height: 1.4;
   color: var(--text); -webkit-font-smoothing: antialiased;
   background-color: var(--bg);
   background-image: var(--skin-veil), var(--skin-tint), var(--skin-image);
