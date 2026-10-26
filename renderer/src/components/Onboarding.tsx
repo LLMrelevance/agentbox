@@ -1500,7 +1500,7 @@ export function Onboarding({
           : goingTo
             // The team strip has no data-tab, so `teamTab` finds the tab by
             // its place in the strip.
-            ? [...(teamTab(goingTo) ? [teamTab(goingTo) as string] : []), `.workspace-navigation [data-tab="${goingTo}"]`, `.tabs .tab[data-tab="${goingTo}"]`, ...ANCHOR.where ?? []]
+            ? [...(teamTab(goingTo) ? [teamTab(goingTo) as string] : []), `.workspace-navigation [data-tab="${goingTo}"]`, ...ANCHOR.where ?? []]
             : ANCHOR[run.step];
 
     if (!sel || !sel.length) return null;

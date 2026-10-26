@@ -98,7 +98,7 @@ describe('the component that draws it', () => {
   it('is what an emptied tab draws, above the unfiltered empty states', () => {
     // The order matters: the filtered test is read FIRST, so a filter can
     // never fall through to "Nothing needs you".
-    const branch = app.slice(app.indexOf('(workspaceNavigation && emptyView'), app.indexOf('(workspaceNavigation && emptyView') + 1400);
+    const branch = app.slice(app.indexOf('(emptyView && !theirRows.length'), app.indexOf('(emptyView && !theirRows.length') + 1400);
     expect(branch).toContain('<FilteredEmpty');
     expect(branch.indexOf('<FilteredEmpty')).toBeLessThan(branch.indexOf('<InboxClear'));
     expect(branch).toContain('hiddenNow');
