@@ -1156,7 +1156,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // reached this handler at all: the whole pair was dropped four times over on
   // the way from her card (main/repeats.mjs says where).
   ipcMain.handle('zero:compose-repeat', (_e, { product, title, body, priority, rule, engine, model }) => {
-    return store.composeRepeat(product, {
+    const made = store.composeRepeat(product, {
       title,
       body,
       priority,
@@ -1164,6 +1164,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       engine: supervisor.engineOffered(engine),
       model: supervisor.modelOffered(engine, model),
     });
+    // A new rule is owed at once, so its first run starts now, not on the next tick.
+    supervisor.wake();
+    return made;
   });
 
   // THE ONE HANDLER THAT TAKES A FREE-FORM PATCH, so it is the one that has to
