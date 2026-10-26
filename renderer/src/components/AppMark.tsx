@@ -1,13 +1,9 @@
 // THE AGENTBOX MARK: the app's own logo, wherever the app names itself.
 //
-// It is the "On the grid" icon made for the launch film and picked as the full
-// icon, tile and all, over the bare mark (2026-09-26). The same file is the
-// README's icon and the source of the app icon (scripts/make-icon.mjs).
-//
-// It used to be a drawn sunburst that lived inside ProductMark as the default
-// for any project without a picture, which put the app's logo beside every
-// unnamed project. Projects now wear their colour (ProductMark.tsx); this is
-// only ever Agentbox.
+// Nine dots on a dark tile with the top right one lit (picked 2026-10-25). The
+// same file is the README's icon and the source of the app icon
+// (scripts/make-icon.mjs). This is only ever Agentbox; projects wear their
+// colour (ProductMark.tsx).
 
 import icon from '../assets/agentbox-icon.svg?url';
 

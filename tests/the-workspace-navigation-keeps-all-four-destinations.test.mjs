@@ -195,8 +195,8 @@ describe('the top of the sidebar', () => {
     expect(top).toContain('>Northwind</span>');
   });
 
-  // With no team the corner names the app, so it wears the app's icon (the
-  // launch film's "On the grid" logo) rather than a letter (w-a514b58055).
+  // With no team the corner names the app, so it wears the app's icon rather
+  // than a letter (w-a514b58055).
   it('falls back to the app name and the app icon when there is no team', () => {
     const html = draw();
     const top = html.slice(0, html.indexOf('workspace-tabs'));

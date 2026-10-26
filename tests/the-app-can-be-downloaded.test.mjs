@@ -111,8 +111,8 @@ describe('signing and notarisation', () => {
     }
   });
 
-  // The logo is the "On the grid" icon from the launch film, one file that the
-  // app icon, the in-app mark and the README all draw. This is the test that
+  // The logo is one file that the app icon, the in-app mark and the README all
+  // draw. This is the test that
   // stops them drifting: a second copy of the logo anywhere fails it. It
   // replaced a test that pinned the old sunburst's geometry, which the founder
   // retired (w-a514b58055).
