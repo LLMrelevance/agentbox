@@ -13,6 +13,7 @@ import {
   type AskRow, type Engine, type EngineSetupState, type Plan, type StepRow,
 } from '../plan-setup';
 import { Cap } from './Onboarding';
+import { hoverLit } from '../onboarding';
 
 const Mark = ({ letter }: { letter: string }) => <span className="ps-mark" aria-hidden="true">{letter}</span>;
 
@@ -48,6 +49,17 @@ export function AskList({ rows, label, onPick, busy = false, start = 0 }: {
   start?: number;
 }) {
   const [lit, setLit] = useState(start);
+  // Whether the mouse has moved since this card was drawn (`hoverLit`). Without
+  // it the card lights whatever row is drawn under a mouse standing still, and
+  // here that row's Return opens a sign-in page for a plan nobody picked.
+  const stirred = useRef(false);
+  useEffect(() => {
+    const on = () => { stirred.current = true; };
+    // Capture, so the first movement counts before the row under the pointer
+    // asks to be lit.
+    window.addEventListener('mousemove', on, { capture: true });
+    return () => window.removeEventListener('mousemove', on, { capture: true });
+  }, []);
   // A row that leaves the app is its own anchor, so a CLICK on one is the
   // browser's to handle and never reaches here; this is the keyboard's copy of
   // that, and the only place `href` is opened by hand.
@@ -105,7 +117,8 @@ export function AskList({ rows, label, onPick, busy = false, start = 0 }: {
             href={row.href}
             target="_blank"
             rel="noreferrer"
-            onMouseEnter={() => setLit(i)}
+            onMouseEnter={() => setLit((l) => hoverLit(l, i, stirred.current))}
+            onMouseMove={() => setLit((l) => hoverLit(l, i, stirred.current))}
           >{inside}</a>
         ) : (
           <button
@@ -114,7 +127,8 @@ export function AskList({ rows, label, onPick, busy = false, start = 0 }: {
             role="option"
             aria-selected={lit === i}
             className={className}
-            onMouseEnter={() => setLit(i)}
+            onMouseEnter={() => setLit((l) => hoverLit(l, i, stirred.current))}
+            onMouseMove={() => setLit((l) => hoverLit(l, i, stirred.current))}
             onClick={() => choose(i)}
           >{inside}</button>
         );

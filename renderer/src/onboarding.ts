@@ -309,6 +309,19 @@ export function setupStepCount(run: { step: Step; tutorial?: boolean } | null): 
   return BEAT[run.step] ?? null;
 }
 
+/**
+ * WHICH ROW THE MOUSE MAY LIGHT. A row lights under the pointer, and the
+ *  pointer does not have to move for that: a card drawn under a mouse standing
+ *  still fires mouseenter on whatever row lands beneath it. The plan card and
+ *  the folder card put a row in the same place, so arriving on the folder
+ *  screen lit "I do not have one, skip for now", Return hint and all, under a
+ *  mouse nobody had touched since the last press. `moved` is whether the
+ *  pointer has moved since this screen was drawn; until it has, the lit row is
+ *  whatever the keyboard made it, which on arrival is none. */
+export function hoverLit(lit: number, row: number, moved: boolean): number {
+  return moved ? row : lit;
+}
+
 export type Event =
   | { t: 'start' }
   | { t: 'folder'; path: string }
@@ -2857,6 +2870,23 @@ export const NEAR_RIGHT = 220;
  * Room one line of the sentence needs: the flip test at the bottom edge uses
  *  it, and so does the probe that keeps the sentence off other people's text. */
 export const LINE_H = 22;
+/**
+ * THE NARROWEST A CARD BESIDE ITS RING MAY BE, and the air it keeps at the
+ *  window's edge. A card placed beside a ring is given a left and no right, so
+ *  what it really gets is whatever is left of the window. Beside the reply box,
+ *  which is as wide as its pane, that was 74px in the shot a tester sent on
+ *  2026-10-25, and the card came out a 100px strip of two-word lines. Under
+ *  this much room it goes back above or below its ring, where there is a whole
+ *  pane to be read in. */
+export const BESIDE_MIN = 200;
+export const BESIDE_MARGIN = 24;
+
+/**
+ * Whether a card starting at `left` has room to be read beside its ring.
+ *  Pure, like `ring`, so the one number that decides it is tested. */
+export function fitsBeside(left: number, view: { w: number }): boolean {
+  return view.w - left - BESIDE_MARGIN >= BESIDE_MIN;
+}
 
 /**
  * Draw the ring and place the sentence. Pure, so the geometry is tested rather

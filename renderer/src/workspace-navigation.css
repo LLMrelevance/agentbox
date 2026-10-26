@@ -1014,6 +1014,7 @@ body {
   display: block; position: absolute; top: 40px; bottom: 22px; left: var(--workspace-left); right: 22px; pointer-events: none;
 }
 :root[data-window="flat"][data-skin="ember-grid"] .panel-marks { top: 22px; }
+:root[data-shell="tab"][data-skin="ember-grid"] .panel-marks { top: 22px; }
 :root[data-skin="ember-grid"] .panel-marks::after {
   content: ''; position: absolute; inset: -7px;
   background:
