@@ -1,4 +1,4 @@
-// THE CONTEXT SITS UNDER ITS LABEL, SMALL AND SET OFF (w-65bcefb857, round seventeen).
+// THE CONTEXT SITS SMALL AND SET OFF, WITH NO LABEL (w-65bcefb857, round seventeen).
 //
 // "I keep not reading this thing up top, the context bar... something about it
 // looks a little funky." Measured at the founder's zoom: the Context ran the
@@ -8,6 +8,9 @@
 // light and dark; they picked F, "all three": the label and "Show N earlier
 // messages" on one quiet row, then the text under it, set off by a thin line
 // down its left edge, smaller and fainter, at most three lines.
+//
+// Then, once it had shipped: "remove the word \"context\"". The row above the
+// text keeps only "Show N earlier messages".
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -22,11 +25,15 @@ const rule = (sel) => css.match(new RegExp(`${sel.replace(/[.*+?^${}()|[\]\\]/g,
 const draw = (p) => renderToStaticMarkup(h(QueueSummary, { onToggle: () => {}, open: false, earlier: 0, ...p }));
 const visible = (html) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
-describe('the label row', () => {
-  it('holds the label and the way to the earlier messages, above the text', () => {
+describe('the row above the text', () => {
+  it('holds the way to the earlier messages, and no word for the text', () => {
     const html = draw({ title: 'Find accelerator funding deadlines', context: 'You asked for funding deadlines.', earlier: 11 });
-    expect(html).toMatch(/<div class="one-head"><span class="one-lab">Context<\/span><button type="button" class="one-earlier">Show 11 earlier messages<\/button><\/div><div class="one-cols"/);
-    expect(visible(html)).toBe('Find accelerator funding deadlines Context Show 11 earlier messages You asked for funding deadlines.');
+    expect(html).toMatch(/<div class="one-head"><button type="button" class="one-earlier">Show 11 earlier messages<\/button><\/div><div class="one-cols"/);
+    expect(visible(html)).toBe('Find accelerator funding deadlines Show 11 earlier messages You asked for funding deadlines.');
+    expect(html).not.toContain('one-lab');
+  });
+  it('and is not drawn when there is nothing earlier, the text right under the name', () => {
+    expect(draw({ title: 'T', context: 'c' })).toBe('<div class="one-sum"><h2 class="one-title">T</h2><div class="one-cols"><div class="one-col">c</div></div></div>');
   });
   it('and the text carries no label of its own', () => {
     expect(draw({ context: 'c' })).toMatch(/<div class="one-col">c<\/div>/);
@@ -37,7 +44,7 @@ describe('the label row', () => {
   it('and draws nothing with neither', () => {
     expect(draw({ context: null })).toBe('<div class="one-sum"></div>');
   });
-  it('sits on one line, quiet', () => {
+  it('quiet', () => {
     expect(rule('.one-head')).toMatch(/display: flex; align-items: baseline; gap: 16px;/);
     expect(rule('.one-earlier')).toMatch(/font-size: 12\.5px; color: var\(--text-faint\);/);
   });

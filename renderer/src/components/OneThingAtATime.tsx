@@ -41,11 +41,9 @@ export function QueueSummary({ title, context, earlier, steps = false, open, onT
   return (
     <div className="one-sum">
       {title && <h2 className="one-title">{title}</h2>}
-      {/* The label says the text under it can be skipped; the answer below is what to read. */}
-      {(context || toggle) && (
+      {toggle && (
         <div className="one-head">
-          {context && <span className="one-lab">Context</span>}
-          {toggle && <button type="button" className="one-earlier" onClick={onToggle}>{toggle}</button>}
+          <button type="button" className="one-earlier" onClick={onToggle}>{toggle}</button>
         </div>
       )}
       {context && (

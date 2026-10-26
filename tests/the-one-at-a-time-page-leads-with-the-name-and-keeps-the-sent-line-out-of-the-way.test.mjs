@@ -43,10 +43,10 @@ describe('the name is said once, and read first', () => {
 });
 
 describe('the summary under the name', () => {
-  it('is one context line, its label saying it can be skipped', () => {
+  it('is the Context alone, with no label', () => {
     const html = draw({ title: 'Restart button hover shifts sidebar', context: 'With Groups on, the sidebar widens.' });
-    expect(visible(html)).toBe('Restart button hover shifts sidebar Context With Groups on, the sidebar widens.');
-    expect(html).toContain('<span class="one-lab">Context</span>');
+    // The label went in round seventeen (tests/the-context-sits-small-and-set-off-with-no-label).
+    expect(visible(html)).toBe('Restart button hover shifts sidebar With Groups on, the sidebar widens.');
   });
   it('without your last message, which went unread', () => {
     expect(thread).not.toMatch(/\byou=\{/);
