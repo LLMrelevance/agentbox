@@ -965,8 +965,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const kept = voiceDraftsFor(`direct:${item.product}:${item.id}`)
       .filter((v) => !drafted.some((a) => a.draftId === v.id))
       .map((v) => ({ name: voiceNoteName(v.ms ?? 1000), image: false }));
-    return foldedReply(readDraft(item), [...drafted, ...kept], agent?.name);
-  }, [replyOpen, item.product, item.id, agent?.name]);
+    const said = foldedReply(readDraft(item), [...drafted, ...kept], agent?.name);
+    return inChats && !said.draft && talkNames?.length ? { ...said, text: `Message ${joinNames(talkNames)}` } : said;
+  }, [replyOpen, item.product, item.id, agent?.name, inChats, talkNames?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A TASK OPENS AT ITS END, NOT AT ITS BEGINNING.
   //
@@ -1925,7 +1926,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             the byline this pane already draws, and nowhere else on this screen
             (w-6246b0c91f). Handing them to `Live` as
             well is what made one screen say "Codex" twice. */}
-        {!heldByPerson && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }} />}
+        {/* A chat says nothing about agents until one you called in is working. */}
+        {!heldByPerson && !(inChats && !session) && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }} />}
 
         {/* NO LINE UNDER A CONVERSATION OFFERING TO HAND IT TO AN AGENT
             (w-2e8aa16f0f): it read as one more message, and it made the whole
@@ -2163,7 +2165,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                than beside the box: that row is where this card already keeps
                the things you press. It is handed in whole so there is one stop
                button in the app and this card cannot grow a second. */
-            <DockComposer item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={onReplySend} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} stop={stopButton} />
+            <DockComposer item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={onReplySend} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} talkWord={inChats ? 'Message' : undefined} stop={stopButton} />
           ) : (
             /*
              * THE FOLDED BOX SHOWS WHAT IS IN IT. A pill saying "Reply…" over
@@ -2348,8 +2350,10 @@ function ModePicker({ value, options, label, onChange }: {
   );
 }
 
-function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null }: {
+function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null, talkWord = 'Reply to' }: {
   item: WorkItem;
+  /** "Message" on the Chats page, as a group's box says it. */
+  talkWord?: string;
   /** The coding agents this Mac offers, off the snapshot. One is no choice. */
   engines?: { id: string; label: string }[];
   /** Every thread she has, for the models she has used lately (`recentModels`). */
@@ -2398,7 +2402,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // reply box is pinned to stays the agent's.
   useEffect(() => {
     const box = document.querySelector<HTMLTextAreaElement>('.dock-input');
-    if (box) box.placeholder = talkTo?.length ? `Reply to ${joinNames(talkTo)}` : 'What should the agent do next?';
+    if (box) box.placeholder = talkTo?.length ? `${talkWord} ${joinNames(talkTo)}` : 'What should the agent do next?';
   });
   // The draft outlives the dock. Tab away, click elsewhere, even restart the
   // app: coming back to this item finds your words where you left them. A
@@ -3034,7 +3038,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           value={text}
           onChange={changeText}
           onPlain={setPlain}
-          placeholder={`Reply to ${joinNames(talkTo ?? [])}`}
+          placeholder={`${talkWord} ${joinNames(talkTo ?? [])}`}
           mentions={[
             ...chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project })),
             ...named.mentions.map((m) => ({ start: m.start, end: m.end, loose: false })),
