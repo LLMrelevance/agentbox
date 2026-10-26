@@ -118,7 +118,7 @@ export function WorkspaceNavigation({ view, collapsed, onToggle, onView, onSearc
   // it wears the Agentbox icon rather than a letter A.
   const mark = team?.team?.name
     ? <span className="th-mark" aria-hidden="true">{teamName.slice(0, 1).toUpperCase()}</span>
-    : <span className="th-mark th-mark-app" aria-hidden="true"><AppMark size={16} /></span>;
+    : <span className="th-mark th-mark-app" aria-hidden="true"><AppMark size={12} /></span>;
   // THE BOTTOM-LEFT CORNER, AND IT IS NULL WHEN THERE IS NOBODY TO PUT IN IT.
   //
   // YOUR OWN ROW IS ONE BUTTON, face, name and email, and it opens your account

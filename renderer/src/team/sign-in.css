@@ -7,7 +7,7 @@
 :root[data-theme="light"] .si-card { background: var(--surface); }
 /* The Agentbox logo, not a letter A (2026-10-04). Its dots reach the edge of
    their box, so it lines up with the heading as it stands. */
-.si-mark { display: block; width: 34px; height: 34px; margin: 0 0 18px; }
+.si-mark { display: block; width: 28px; height: 28px; margin: 0 0 18px; }
 .si-mark .app-mark { display: block; }
 .si-card h1 { margin: 0 0 8px; font-size: 20px; font-weight: 500; letter-spacing: -.015em; color: var(--text); }
 .si-lede { margin: 0 0 24px; font-size: 13.5px; line-height: 20px; color: var(--text-dim); }

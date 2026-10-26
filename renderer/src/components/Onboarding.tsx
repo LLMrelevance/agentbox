@@ -1052,7 +1052,7 @@ function Slab({ head, line, piece, onNext }: {
   }, [onNext]);
   return (
     <div className="fr-screen fr-screen-intro">
-      <div className="fr-brand"><AppMark size={19} />{NAME}</div>
+      <div className="fr-brand"><AppMark size={13} />{NAME}</div>
       <IntroPiece kind={piece} />
       <div className="fr-corner">
         <div>
@@ -1084,7 +1084,7 @@ function Statement({ head, line, go, onNext, skip, onSkip }: {
   }, [onNext]);
   return (
     <div className="fr-screen">
-      <div className="fr-brand"><AppMark size={19} />{NAME}</div>
+      <div className="fr-brand"><AppMark size={13} />{NAME}</div>
       <div className="fr-stack">
         <div className="fr-finish" role="status">
           <h1 className="fr-finish-head">{head}</h1>
@@ -1523,7 +1523,7 @@ export function Onboarding({
   return (
     <div className={backWord ? 'fr-screen has-back' : 'fr-screen'}>
       {backWord}
-      <div className="fr-brand"><AppMark size={19} />{NAME}</div>
+      <div className="fr-brand"><AppMark size={13} />{NAME}</div>
 
       {run.step === 'welcome' && (
         <div className="fr-corner">
