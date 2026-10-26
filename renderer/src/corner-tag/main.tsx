@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { GRIPS, Grip, HIDE_CHOICES, cardLines, cardScale, inPoints, tagSays } from '../../../shared/corner-tag.mjs';
 import { NAME } from '../../../shared/product-name.mjs';
 import { Lattice, Move, markMoves } from './lattice';
-import { PlaceButton, PlacePicker } from './place';
+import { MoveButton, PlacePicker } from './place';
 import './corner-tag.css';
 
 type Ready = { id: string; title: string; says: string; since?: number; open?: string | null };
@@ -333,7 +333,6 @@ function CardBody({ state, placing, setPlacing }: { state: State; placing: boole
             beside it while she decides: "you still need to see the component
             to be able to make those decisions". Two halves of one small pill
             rather than a pair of loose characters. */}
-        <PlaceButton onOpen={() => setPlacing(true)} />
         <span className="ct-size">
           <span className="ct-size-name">Size</span>
           <span className="ct-steps">
@@ -345,6 +344,7 @@ function CardBody({ state, placing, setPlacing }: { state: State; placing: boole
             </button>
           </span>
         </span>
+        <MoveButton here={state.corner} onOpen={() => setPlacing(true)} />
         <span className="ct-sep" />
         <button className="ct-off" onClick={() => bridge?.settings()}>Turn off…</button>
       </div>

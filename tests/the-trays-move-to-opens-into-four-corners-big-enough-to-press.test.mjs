@@ -1,23 +1,25 @@
-// THE TRAY'S LIST GAINS PLACE, AND PLACE OPENS INTO THE FOUR CORNERS
+// THE TRAY'S LIST GAINS "MOVE TO", AND IT OPENS INTO THE FOUR CORNERS
 // (w-6da6d4ad24).
 //
 // Nobody knew the tray could be moved: QA filed it as a bug for covering
-// another app's button. Of the drawings, the one picked was a Place button at
-// the foot of the list, the four corners drawn in it, that turns the list
-// into the screen with a button in each corner. The corners drawn inside
-// Place were "too small to click reasonably", so Place is ONE button and only
-// the corners it opens into move the tray.
+// another app's button. The design picked was "Move to" and a small screen
+// with four dots in it, after Size; its dots were "too small to click
+// reasonably", so pressing it should expand. It is one button, and it turns
+// the list into the screen with a big button in each corner. A first build
+// used a different design, a Place pill with four right angles, which was
+// not the one picked; these checks hold the picked one.
 //
 // Measured by drawing the pieces to markup, and against the page and its
-// stylesheet: one button at the foot beside Size, three corners to press and
-// the fourth saying where the tray is now, and each corner big enough to hit.
+// stylesheet: one button after Size with the tray's own corner lit, three
+// corners to press and the fourth saying where the tray is now, each big
+// enough to hit.
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PlaceButton, PlacePicker, placeSpots } from '../renderer/src/corner-tag/place.tsx';
+import { MoveButton, PlacePicker, placeSpots } from '../renderer/src/corner-tag/place.tsx';
 
 globalThis.React = React;
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -27,24 +29,40 @@ const rule = (sel) => [...css.matchAll(new RegExp(`(?:^|\\n)${sel.replace(/[.[\]
 const draw = (el) => renderToStaticMarkup(el);
 const count = (html, re) => (html.match(re) ?? []).length;
 
-describe('Place, at the foot of the list', () => {
-  const html = draw(React.createElement(PlaceButton, { onOpen: () => {} }));
+describe('"Move to", at the foot of the list', () => {
+  const html = draw(React.createElement(MoveButton, { here: 'br', onOpen: () => {} }));
 
-  it('is called Place and is one button, not four small ones', () => {
-    expect(html).toContain('>Place<');
+  it('says Move to, and the words and the small screen are one button', () => {
+    expect(html).toContain('>Move to<');
     expect(count(html, /<button/g)).toBe(1);
     expect(html).toContain('aria-label="Move the tray to another corner"');
+    expect(html.indexOf('Move to')).toBeLessThan(html.indexOf('ct-mini-screen'));
   });
 
-  it('draws the four corners inside that button', () => {
-    expect(count(html, /class="ct-corner"/g)).toBe(4);
-    for (const turn of [0, 90, 180, 270]) expect(html).toContain(`rotate(${turn}deg)`);
+  it('draws a small screen with four corners and lights only the one the tray is in', () => {
+    for (const here of ['tl', 'tr', 'bl', 'br']) {
+      const one = draw(React.createElement(MoveButton, { here, onOpen: () => {} }));
+      expect(count(one, /class="ct-mini-corner/g)).toBe(4);
+      expect(count(one, /ct-mini-corner is-here/g)).toBe(1);
+    }
+    expect(count(draw(React.createElement(MoveButton, { here: undefined, onOpen: () => {} })), /is-here/g)).toBe(0);
   });
 
-  it('sits beside Size in the foot, before it', () => {
+  it('is not the Place pill that was built by mistake', () => {
+    expect(html).not.toContain('Place');
+    expect(html).not.toContain('ct-steps');
+  });
+
+  it('sits after Size and before Turn off, and is told the tray\'s corner', () => {
     const foot = page.slice(page.indexOf('<div className="ct-foot">'));
-    expect(foot.indexOf('<PlaceButton')).toBeGreaterThan(-1);
-    expect(foot.indexOf('<PlaceButton')).toBeLessThan(foot.indexOf('<span className="ct-size">'));
+    const at = foot.indexOf('<MoveButton here={state.corner}');
+    expect(at).toBeGreaterThan(foot.indexOf('<span className="ct-size">'));
+    expect(at).toBeLessThan(foot.indexOf('ct-off'));
+  });
+
+  it('lights the corner in the tray\'s own apricot and leaves the rest quiet', () => {
+    expect(rule('.ct-mini-corner.is-here')).toMatch(/fill:\s*var\(--ct-lat\)/);
+    expect(rule('.ct-mini-corner')).toMatch(/fill:\s*var\(--ct-faint\)/);
   });
 });
 

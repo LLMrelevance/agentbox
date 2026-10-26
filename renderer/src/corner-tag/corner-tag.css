@@ -231,7 +231,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'DejaVu Sa
   position: absolute; left: 0; top: 0;
   background: var(--ct-tint-hover);
   border-radius: calc(8px * var(--ct-cs)); padding: calc(9px * var(--ct-cs)) calc(8px * var(--ct-cs)) calc(8px * var(--ct-cs));
-  /* As wide as its foot needs, with Place and Size side by side in it. */
+  /* As wide as its foot needs, with Size and Move to side by side in it. */
   box-sizing: border-box; width: max-content; max-width: calc(496px * var(--ct-cs)); min-width: calc(240px * var(--ct-cs));
 }
 .ct-line {
@@ -305,12 +305,15 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'DejaVu Sa
 }
 
 /* ---- moving the tray, from the foot of its own list (w-6da6d4ad24) ----
-   Place is the Size pill's shape with one button in it, the four corners
-   drawn inside. Pressing it turns the list into the screen, where each corner
-   is its own button, big enough to hit. */
+   "Move to" and a small screen, the corner the tray is in lit, are one
+   button. Pressing it turns the list into the screen, where each corner is
+   its own button, big enough to hit. */
+.ct-foot .ct-move { display: inline-flex; align-items: center; gap: calc(6px * var(--ct-cs)); margin-left: calc(4px * var(--ct-cs)); }
+.ct-mini-screen { display: block; flex: none; width: calc(21px * var(--ct-cs)); height: calc(15px * var(--ct-cs)); }
+.ct-mini-frame { fill: none; stroke: currentColor; stroke-opacity: 0.3; stroke-width: 1.2; }
+.ct-mini-corner { fill: var(--ct-faint); }
+.ct-mini-corner.is-here { fill: var(--ct-lat); }
 .ct-corner { display: block; flex: none; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
-.ct-foot .ct-place .ct-steps button { width: auto; gap: calc(3px * var(--ct-cs)); padding: 0 calc(7px * var(--ct-cs)); }
-.ct-foot .ct-place svg { width: calc(8px * var(--ct-cs)); height: calc(8px * var(--ct-cs)); }
 
 .ct-place-head { display: flex; align-items: center; justify-content: space-between; }
 .ct-place-head button {

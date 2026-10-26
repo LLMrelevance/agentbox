@@ -1,7 +1,8 @@
-// MOVING THE TRAY FROM ITS OWN LIST (w-6da6d4ad24). Place sits at the foot of
-// the list beside Size, and pressing it turns the list into the four corners
-// of the screen. The corners are the buttons, each big enough to press: drawn
-// inside Place itself they were "too small to click reasonably".
+// MOVING THE TRAY FROM ITS OWN LIST (w-6da6d4ad24). "Move to" and a small
+// screen sit at the foot of the list after Size, and pressing them turns the
+// list into the four corners of the screen. The corners are the buttons, each
+// big enough to press: inside the small screen they were "too small to click
+// reasonably".
 import React from 'react';
 import type { Grip } from '../../../shared/corner-tag.mjs';
 
@@ -23,17 +24,27 @@ export function CornerMark({ corner }: { corner: Grip }) {
   );
 }
 
-/** At the foot of the list: one button, with all four corners drawn in it. */
-export function PlaceButton({ onOpen }: { onOpen: () => void }) {
+/** A small screen with its four corners, the one the tray is in lit. */
+export function ScreenMark({ here }: { here: Grip | undefined }) {
+  const at = { tl: [3, 3.2], tr: [13, 3.2], bl: [3, 8.8], br: [13, 8.8] } as const;
   return (
-    <span className="ct-size ct-place">
-      <span className="ct-size-name">Place</span>
-      <span className="ct-steps">
-        <button aria-label="Move the tray to another corner" title="Move the tray to another corner" onClick={onOpen}>
-          {CORNERS.map((c) => <CornerMark key={c} corner={c} />)}
-        </button>
-      </span>
-    </span>
+    <svg className="ct-mini-screen" viewBox="0 0 21 15" aria-hidden>
+      <rect className="ct-mini-frame" x="0.6" y="0.6" width="19.8" height="13.8" rx="2.4" />
+      {CORNERS.map((c) => (
+        <rect key={c} className={`ct-mini-corner${c === here ? ' is-here' : ''}`} x={at[c][0]} y={at[c][1]} width="5" height="3" rx="0.9" />
+      ))}
+    </svg>
+  );
+}
+
+/** At the foot of the list: the words and the small screen are one button,
+ *  and it opens the corners rather than being them. */
+export function MoveButton({ here, onOpen }: { here: Grip | undefined; onOpen: () => void }) {
+  return (
+    <button className="ct-move" aria-label="Move the tray to another corner" title="Move the tray to another corner" onClick={onOpen}>
+      <span>Move to</span>
+      <ScreenMark here={here} />
+    </button>
   );
 }
 
