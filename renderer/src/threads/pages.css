@@ -266,7 +266,8 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-table[data-sorting] .row:not([data-lifted]) .has-act .th-when { visibility: visible !important; }
 .th-cell-person { font-size: 13px; line-height: 20px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; }
 .th-cell-person .tm-av { margin-right: 9px; flex: none; }
-.th-empty { padding: 32px var(--row-r, 24px) 32px var(--text-x, 32px); color: var(--text-faint); font-size: 14px; }
+.th-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; padding: 32px 24px 12vh; color: var(--text-faint); font-size: 14px; line-height: 21px; }
+.th-empty > span { max-width: 420px; }
 
 /* ------------------------------------------------------------ the view row */
 .th-bar { display: flex; align-items: center; gap: 24px; padding: 14px var(--row-r, 24px) 8px var(--text-x, 32px); min-height: 30px; }
@@ -409,9 +410,10 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-clear h2 { margin: 0 0 8px; font-size: 18px; font-weight: 500; letter-spacing: -.01em; color: var(--text); }
 .th-clear p { margin: 0 0 22px; font-size: 14px; line-height: 21px; color: var(--text-dim); }
 .th-clear-acts { display: flex; align-items: center; gap: 14px; }
-/* Nothing needs you: the heading over the New thread box, one column in the
-   middle of what is left under the tabs, a little above centre. */
-.list-pane:has(> .th-start) { display: flex; flex-direction: column; }
+/* A screen of words sits in the middle of what is left under the tabs, a
+   little above centre. Nothing needs you: the heading over the New thread box,
+   one column. */
+.list-pane:has(> .th-start), .list-pane:has(> .th-empty), .list-pane:has(> .th-clear-filtered) { display: flex; flex-direction: column; }
 .th-clear.th-start { flex: 1; display: flex; flex-direction: column; justify-content: center; max-width: none; padding: 32px var(--row-r, 24px) 12vh var(--text-x, 32px); }
 .th-start > * { width: 720px; max-width: 100%; align-self: center; }
 .th-start h2 { margin: 0 0 28px; font-size: 28px; line-height: 1.15; letter-spacing: -.025em; }
@@ -420,7 +422,14 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
    Her note on the first cut, which put the whole sentence in the heading:
    "This feels almost like a punishment in terms of the harsh text." */
 .th-clear-mark { display: block; color: var(--accent); opacity: .55; margin: 0 0 14px -1px; }
+.th-clear.th-clear-filtered { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; max-width: none; padding: 40px 24px 12vh; }
+.th-clear-filtered .th-clear-mark { margin: 0 0 14px; }
 .th-clear-filtered p { color: var(--text-faint); }
+/* With no computer there is nowhere to send a new thread. */
+.workspace-layout:has(.th-connect) .th-new { display: none; }
+/* The steps keep their left edge; the group is what is centred. */
+.th-start > .th-connect-group { width: fit-content; max-width: 100%; align-self: center; }
+.th-clear.th-start.th-connect { padding-left: 24px; padding-right: 24px; }
 .th-connect h2 { margin-bottom: 16px; }
 .th-connect ol { margin: 0 0 26px; padding: 0; list-style: none; counter-reset: step; font-size: 14px; line-height: 26px; color: var(--text); }
 /* The numbers sit on the heading's left edge, and a wrapped step under its own words. */

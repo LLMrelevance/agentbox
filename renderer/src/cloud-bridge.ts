@@ -51,6 +51,19 @@ const READS = new Set([
   // Where she dragged a row or a project to: kept on this page, not sent.
   'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
 ]);
+// The reads whose callers take a field off the answer: each gets an empty
+// answer of its own shape, not null (tests/the-done-tab-opens-on-the-web-app).
+const ON_COMPUTER = 'This is on your computer.';
+export const EMPTY_READS = {
+  olderItems: async () => ({ items: [], more: false }),
+  commandCatalog: async () => [],
+  codeFile: async () => ({ ok: false, error: ON_COMPUTER }),
+  railNote: async () => ({ ok: false, error: ON_COMPUTER }),
+  agentConversation: async () => ({ ok: false, reason: ON_COMPUTER }),
+  // Settings opens on the pages a browser keeps; the computer's own are not drawn here.
+  settingsRead: async () => ({ ok: true, workspace: null, projects: [] }),
+};
+
 export function readCloudConfig(doc: Document = document): CloudConfig | null {
   const raw = doc.querySelector('meta[name="agentbox-cloud"]')?.getAttribute('content');
   if (!raw) return null;
@@ -209,7 +222,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     };
   }
 
-  Object.assign(bridge, {
+  Object.assign(bridge, EMPTY_READS, {
     async snapshot() {
       await boot;
       const view = phoneView(rows);
@@ -232,8 +245,6 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     // starting one is the computer's to do.
     agentUpdate: async (p: any) => { if (p?.action === 'start') throw new Error(NOT_HERE); return null; },
     sessionTrace: async () => ({ sessions: [] }),
-    // Settings opens on the pages a browser keeps; the computer's own are not drawn here.
-    settingsRead: async () => ({ ok: true, workspace: null, projects: [] }),
     repeats: async () => [],
     // Her Mac runs the agents; nothing here asks her to set one up.
     engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),

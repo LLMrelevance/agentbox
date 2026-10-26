@@ -49,6 +49,10 @@ describe('no computer has connected to this account', () => {
     expect(pages).toContain('Use another account');
     expect(read('renderer/src/cloud-bridge.ts')).toMatch(/phoneConnect:\s*phoneConnectState\(/);
   });
+
+  it('offers no New thread while there is no computer to send one to', () => {
+    expect(read('renderer/src/threads/pages.css')).toMatch(/\.workspace-layout:has\(\.th-connect\) \.th-new \{ display: none; \}/);
+  });
 });
 
 describe('the new thread box with no computer', () => {

@@ -28,7 +28,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
-import { onCloudPhone, onPhone } from '../phone-screen';
+import { onCloudPhone, onPhone, phoneSized } from '../phone-screen';
 import { computerSays } from '../phone-rows';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
@@ -1777,7 +1777,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane) && (!onCloudPhone() || WEB_PAGES.has(p.id)))
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane) && (!onCloudPhone() || WEB_PAGES.has(p.id)) && !(p.id === 'shortcuts' && phoneSized()))
     .map((p) => (onCloudPhone() && p.id === 'phone' ? { ...p, label: 'Account' } : p));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),

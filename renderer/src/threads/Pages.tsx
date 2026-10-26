@@ -467,14 +467,16 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
 export function ConnectComputer({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
   const as = email ? <> as <b>{email}</b></> : null;
   return <div className="th-clear th-start th-connect">
-    <h2>Connect your computer</h2>
-    <ol>
-      <li><span>Open {Name} on your computer.</span></li>
-      <li><span>In Settings › Phone, sign in{as}.</span></li>
-      <li><span>Your threads show up here within a minute.</span></li>
-    </ol>
-    <div className="th-clear-acts">
-      <button type="button" className="th-connect-out" onClick={onSignOut}>Use another account</button>
+    <div className="th-connect-group">
+      <h2>Connect your computer</h2>
+      <ol>
+        <li><span>Open {Name} on your computer.</span></li>
+        <li><span>In Settings › Phone, sign in{as}.</span></li>
+        <li><span>Your threads show up here within a minute.</span></li>
+      </ol>
+      <div className="th-clear-acts">
+        <button type="button" className="th-connect-out" onClick={onSignOut}>Use another account</button>
+      </div>
     </div>
   </div>;
 }
@@ -531,7 +533,7 @@ export function EmptyTab({ view }: { view: TabView }) {
     // persona read as the app losing it.
     done: 'Nothing closed yet. A finished thread waits in Needs you until you close it.',
   };
-  return <div className="th-empty">{words[view] ?? 'Nothing here.'}</div>;
+  return <div className="th-empty"><span>{words[view] ?? 'Nothing here.'}</span></div>;
 }
 
 /* ------------------------------------------------------------ one thread's cells */
