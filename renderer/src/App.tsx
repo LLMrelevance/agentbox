@@ -5826,7 +5826,7 @@ export default function App() {
   // A row that never comes must not take the cursor later, while you are elsewhere.
   useEffect(() => {
     if (!landOn) return undefined;
-    const t = setTimeout(() => setLandOn(null), 5000);
+    const t = setTimeout(() => setLandOn(null), 15_000);
     return () => clearTimeout(t);
   }, [landOn]);
 

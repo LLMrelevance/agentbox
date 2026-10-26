@@ -16,8 +16,8 @@ import { MAC } from '../this-keyboard';
 import { taskTitle } from '../team/agent-mentions';
 import { projectSwatch } from '../threads/composer-rules';
 import {
-  chatChoices, chatsHeadline, folderChoices, ideasFor, isSend, listKey, projectsToMake, stepsFor,
-  type FolderChoice, type Step,
+  chatChoices, chatsHeadline, firstRunOf, folderChoices, ideasFor, isSend, listKey, projectsToMake, stepsFor,
+  type FolderChoice, type Idea, type Step,
 } from '../first-run';
 import './first-run.css';
 
@@ -47,6 +47,12 @@ function Mark() {
     </svg>
   );
 }
+
+const RepeatIcon = () => (
+  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+    <path d="M17 3l3 3-3 3" /><path d="M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3" /><path d="M20 13v2a3 3 0 0 1-3 3H4" />
+  </svg>
+);
 
 function Legend({ pairs }: { pairs: Array<[string[], string]> }) {
   return (
@@ -102,6 +108,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const [menu, setMenu] = useState<number | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [text, setText] = useState('');
+  const [repeat, setRepeat] = useState<Idea['repeat'] | null>(null);
   const [idea, setIdea] = useState(-1);
   const [busy, setBusy] = useState(false);
   const field = useRef<HTMLTextAreaElement | null>(null);
@@ -246,10 +253,25 @@ export function FirstRunFlow({ snap, home, onDone }: {
     const p = await projectFor(folder);
     if (!p) { setBusy(false); setProblem('That folder could not be used. Choose another.'); return; }
     const body = said.includes('\n') ? said : undefined;
-    const item = await api.compose({ product: p.slug, title: taskTitle(said), body, kind: 'directive', priority: 5 }).catch(() => null);
-    if (!item?.id) { setBusy(false); setProblem('That did not send. Try again.'); return; }
-    leave(item.id);
-  }, [text, busy, at, chooseAnother, projectFor, leave]);
+    let first: string | null = null;
+    if (repeat) {
+      const { short: _short, label: _label, ...rule } = repeat;
+      const made = await api.composeRepeat({ product: p.slug, title: taskTitle(said), body, priority: 5, rule }).catch(() => null);
+      first = made?.id ? firstRunOf(made) : null;
+    } else {
+      const item = await api.compose({ product: p.slug, title: taskTitle(said), body, kind: 'directive', priority: 5 }).catch(() => null);
+      first = item?.id ?? null;
+    }
+    if (!first) { setBusy(false); setProblem('That did not send. Try again.'); return; }
+    leave(first);
+  }, [text, repeat, busy, at, chooseAnother, projectFor, leave]);
+
+  const pickIdea = useCallback((i: number) => {
+    setText(IDEAS[i].text);
+    setRepeat(IDEAS[i].repeat);
+    setIdea(-1);
+    setTimeout(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }, 0);
+  }, []);
 
   const skip = useCallback(() => leave(null), [leave]);
 
@@ -309,15 +331,13 @@ export function FirstRunFlow({ snap, home, onDone }: {
           if (idea === 0) { setIdea(-1); field.current?.focus(); } else setIdea((i) => i - 1);
         } else if (e.key === 'Enter' && idea >= 0) {
           e.preventDefault();
-          setText(IDEAS[idea]);
-          setIdea(-1);
-          setTimeout(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }, 0);
+          pickIdea(idea);
         }
       }
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [screen, leaving, ready, chats, cursor, menu, places, idea, text, go, start, startSetup, bringIn, send, skip, pickPlace]);
+  }, [screen, leaving, ready, chats, cursor, menu, places, idea, text, go, start, startSetup, bringIn, send, skip, pickPlace, pickIdea]);
 
   useEffect(() => { if (screen === 'task' && !leaving) field.current?.focus(); }, [screen, leaving]);
 
@@ -433,6 +453,12 @@ export function FirstRunFlow({ snap, home, onDone }: {
                       </div>
                     )}
                   </span>
+                  {repeat && (
+                    <button type="button" className="ob-chip ob-repeat" title="Run it once instead"
+                      onMouseDown={(e) => e.preventDefault()} onClick={() => setRepeat(null)}>
+                      <RepeatIcon />{repeat.label}<span className="ob-x" aria-label="Run it once instead">×</span>
+                    </button>
+                  )}
                 </div>
                 <div className="ob-actions">
                   <button type="button" className="ob-btn ob-quiet" onClick={skip}>Not now <Key k="esc" /></button>
@@ -443,9 +469,9 @@ export function FirstRunFlow({ snap, home, onDone }: {
             {problem && <p className="ob-refused">{problem}</p>}
             <div className="ob-ideas ob-in" style={{ animationDelay: '0.2s' }}>
               {IDEAS.map((t, i) => (
-                <div key={t} className={`ob-item ob-noslot${idea === i ? ' ob-on' : ''}`}
-                  onClick={() => { setText(t); setIdea(-1); field.current?.focus(); }}>
-                  <div className={`ob-name${idea === i ? '' : ' ob-dim'}`}><span>{t}</span></div><div />
+                <div key={t.text} className={`ob-item ob-noslot${idea === i ? ' ob-on' : ''}`} onClick={() => pickIdea(i)}>
+                  <div className={`ob-name${idea === i ? '' : ' ob-dim'}`}><span>{t.text}</span></div>
+                  <div className="ob-meta">{t.repeat.short}</div>
                 </div>
               ))}
             </div>

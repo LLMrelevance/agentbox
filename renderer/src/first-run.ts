@@ -3,6 +3,7 @@
 // holds what each rule is for.
 
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
+import { occurrenceId, periodKey, type RepeatShape } from '../../shared/repeats.mjs';
 import { projectNameFor } from './agent-import-card';
 import { shortPath } from './onboarding';
 
@@ -108,13 +109,25 @@ export function stepsFor({ chats }: { chats: number }): Step[] {
   return chats > 0 ? ['chats', 'task'] : ['task'];
 }
 
-/** The first one only reads the code. None names the project: a folder can be called anything. */
-export function ideasFor(): string[] {
+export interface Idea {
+  text: string;
+  /** The schedule it keeps, with its words on the row and on the chip. */
+  repeat: RepeatShape & { short: string; label: string };
+}
+
+/** Jobs people want running and rarely have. None names the project: a folder can be called anything. */
+export function ideasFor(): Idea[] {
   return [
-    'Explain how this project is put together',
-    'Find a bug and fix it',
-    'Add tests where there are none',
+    { text: 'Test the app and flag what’s broken', repeat: { every: 'day', at: '08:00', short: 'Every morning', label: 'Every morning at 8:00am' } },
+    { text: 'Review the day’s changes for bugs', repeat: { every: 'day', at: '18:00', short: 'Every evening', label: 'Every evening at 6:00pm' } },
+    { text: 'Check for security holes and outdated packages', repeat: { every: 'week', on: 1, at: '09:00', short: 'Every Monday', label: 'Every Monday at 9:00am' } },
   ];
+}
+
+/** The id of the run a rule made now starts with: a new rule is owed at once. */
+export function firstRunOf(rule: RepeatShape & { id: string }, now = Date.now()): string | null {
+  const key = periodKey(rule, now);
+  return key ? occurrenceId(rule.id, key) : null;
 }
 
 /** Where the first run leaves you: on the task you sent, or in Needs you. */

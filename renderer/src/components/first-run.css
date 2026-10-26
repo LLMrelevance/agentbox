@@ -99,6 +99,9 @@
 .first-run .ob-chip { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; font-size: 15px; color: var(--text-dim); border: 1px solid var(--line-strong); background: rgba(40, 38, 37, .4); white-space: nowrap; }
 .first-run .ob-chip:hover, .first-run .ob-chip.ob-open { background: var(--wash-strong); color: var(--text); }
 .first-run .ob-chip .ob-plus { width: 10px; font-size: 16px; text-align: center; }
+.first-run .ob-chip svg { color: var(--text-faint); flex: none; }
+.first-run .ob-chip .ob-x { margin: 0 -3px 0 2px; font-size: 16px; color: var(--text-faint); }
+.first-run .ob-chip:hover .ob-x { color: var(--text); }
 .first-run .ob-sw { width: 10px; height: 10px; flex: none; }
 
 /* The project menu: the composer's own, a folder's path beside its name. */

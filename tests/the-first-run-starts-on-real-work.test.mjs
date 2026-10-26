@@ -27,8 +27,18 @@
 //    now lands in the inbox, on In progress, with that task picked.
 //  - That folder was the tester's own home folder. The fresh window runs with
 //    a throwaway home, so the home check missed it; any user's home is refused.
-import { describe, it, expect } from 'vitest';
-import { listKey, folderChoices, chatChoices, chatsHeadline, projectsToMake, stepsFor, ideasFor, landing } from '../renderer/src/first-run.ts';
+//
+// Round seven: the founder wanted ideas "people would really want to click on
+// and say, 'Hey I don't actually have that running'", such as a QA agent that
+// tests the app and flags bugs. Each idea is now a job that keeps running on a
+// schedule, its first run starting at once, and the first run ends on that run.
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { listKey, folderChoices, chatChoices, chatsHeadline, projectsToMake, stepsFor, ideasFor, landing, firstRunOf } from '../renderer/src/first-run.ts';
+import { isRepeatRule } from '../shared/repeats.mjs';
+import { Store } from '../main/store.mjs';
 
 const key = (k, mods = {}) => ({ key: k, metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...mods });
 
@@ -179,11 +189,52 @@ describe('the words', () => {
     expect(chatsHeadline([{ source: 'codex' }])).toBe('Bring in your latest Codex chats');
     expect(chatsHeadline([{ source: 'codex' }, { source: 'editor' }])).toBe('Bring in your latest chats');
   });
-  it('offer a first task that only reads the code first', () => {
-    expect(ideasFor()[0]).toBe('Explain how this project is put together');
-    expect(ideasFor()).toHaveLength(3);
-  });
   it('never name the project, which can be called anything', () => {
-    for (const idea of ideasFor()) expect(idea.slice(1)).toBe(idea.slice(1).toLowerCase());
+    for (const idea of ideasFor()) expect(idea.text.slice(1)).toBe(idea.text.slice(1).toLowerCase());
   });
+});
+
+describe('the first task ideas', () => {
+  const ideas = ideasFor();
+  it('open on a QA agent that tests the app every morning', () => {
+    expect(ideas[0]).toMatchObject({ text: 'Test the app and flag what’s broken', repeat: { every: 'day', at: '08:00', short: 'Every morning' } });
+  });
+  it('are three jobs that keep running, each on a schedule the app can keep', () => {
+    expect(ideas.map((i) => i.text)).toEqual([
+      'Test the app and flag what’s broken',
+      'Review the day’s changes for bugs',
+      'Check for security holes and outdated packages',
+    ]);
+    for (const { repeat } of ideas) expect(isRepeatRule(repeat)).toBe(true);
+  });
+  it('say when they run in the words of the app\'s own repeat menu', () => {
+    expect(ideas.map((i) => i.repeat.label)).toEqual(['Every morning at 8:00am', 'Every evening at 6:00pm', 'Every Monday at 9:00am']);
+    expect(ideas[2].repeat).toMatchObject({ every: 'week', on: 1 });
+  });
+});
+
+describe('the run a new repeating task starts with', () => {
+  let root, store;
+  beforeEach(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'first-run-'));
+    const dir = path.join(root, 'p');
+    fs.mkdirSync(dir);
+    fs.writeFileSync(path.join(dir, 'project.json'), JSON.stringify({ schemaVersion: 1, id: 'p', name: 'P' }));
+    store = await new Store({ accountRoot: root, products: [] }).init();
+  });
+  afterEach(() => { fs.rmSync(root, { recursive: true, force: true }); });
+
+  for (const idea of ideasFor()) {
+    it(`is the row the store makes for "${idea.text}", whatever the hour`, async () => {
+      const { short: _s, label: _l, ...rule } = idea.repeat;
+      const made = store.composeRepeat('p', { title: idea.text, ...rule });
+      for (const hour of [1, 8, 13, 23]) {
+        const now = new Date(2026, 9, 26, hour, 30).getTime();
+        const [due] = store.repeats.due(store.productDir('p'), now);
+        expect(firstRunOf(made, now)).toBe(due.key && (await store.repeats.serve(store.productDir('p'), made.id, due.key, now)).occurrenceId);
+        store.endRepeat('p', made.id);
+        Object.assign(made, store.composeRepeat('p', { title: idea.text, ...rule }));
+      }
+    });
+  }
 });
