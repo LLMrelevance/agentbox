@@ -51,6 +51,8 @@ export interface PlanCard { id: PaidPlan; name: string; price: string; slots: st
 
 export function planCards(plan: CloudPlan | null): PlanCard[] {
   const mine = plan?.plan && plan.plan !== 'none' ? plan.plan : null;
+  // Off a plan set by hand, another plan is a first purchase, not a switch.
+  const verb = mine && plan?.billing !== 'given' ? 'Switch to' : 'Choose';
   return ORDER.map((id) => {
     const p = PLANS[id];
     return {
@@ -58,9 +60,17 @@ export function planCards(plan: CloudPlan | null): PlanCard[] {
       slots: p.unlimited ? 'Unlimited agent slots' : `+${p.agents} agent slots`,
       hours: `${n(p.hoursPerMonth)} hours a month`,
       current: mine === id,
-      button: mine === id ? null : `${mine ? 'Switch to' : 'Choose'} ${NAME[id]}`,
+      button: mine === id ? null : `${verb} ${NAME[id]}`,
     };
   });
+}
+
+/** Whether Settings › Cloud shows Stripe's billing row, and what it says instead. */
+export function cloudBilling(plan: CloudPlan | null): { row: boolean; says: string | null } {
+  const mine = plan?.plan && plan.plan !== 'none' ? plan.plan : null;
+  if (!mine) return { row: false, says: null };
+  if (plan?.billing === 'given') return { row: false, says: `Your ${NAME[mine]} plan was set up for you, so there is nothing to pay. Choosing a plan starts paying for it.` };
+  return { row: true, says: null };
 }
 
 /** Under your plan's card: how many run now, and how much of the month is used. */

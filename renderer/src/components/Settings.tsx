@@ -35,7 +35,7 @@ import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
-import { type PaidPlan } from '../cloud-upgrade';
+import { cloudBilling, type PaidPlan } from '../cloud-upgrade';
 import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, meterPair } from '../account-words';
@@ -843,19 +843,24 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     setOpening(null);
     if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
     setChosen(id);
+    setSwitching(out.where === 'billing');
     setWaitingFor(plan?.plan ?? 'none');
   };
+  const [switching, setSwitching] = useState(false);
+  const [billSaid, setBillSaid] = useState<string | null>(null);
   const billing = async () => {
+    setBillSaid(null);
     const out = await api.cloudAccountBilling();
-    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    if (!out.ok) { setBillSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
     void read();
   };
-  const paying = !!plan?.plan && plan.plan !== 'none';
+  const bill = cloudBilling(plan);
   return (
     <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
       <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />
       {said && <p className="cloud-plans-say">{said}</p>}
-      {waitingFor && <p className="cloud-plans-say">Finish paying in your browser. Your plan shows here once you’ve paid.</p>}
+      {waitingFor && <p className="cloud-plans-say">{switching ? 'Confirm the change on Stripe’s page in your browser. Your plan shows here once it’s done.' : 'Finish paying in your browser. Your plan shows here once you’ve paid.'}</p>}
+      {bill.says && !waitingFor && <p className="cloud-plans-say">{bill.says}</p>}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
@@ -863,9 +868,9 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
           <li>Past a plan's hours, threads wait for your computer until the month turns.</li>
         </ul>
       </Group>
-      {paying && (
+      {bill.row && (
         <Group id="cloud-billing" label="Billing">
-          <Row label="Payment and invoices" desc="Handled by Stripe. Cancel any time.">
+          <Row label="Payment and invoices" desc={billSaid ?? 'Handled by Stripe. Cancel any time.'}>
             <button type="button" className="set-ghost" onClick={() => void billing()}>Open</button>
           </Row>
         </Group>
