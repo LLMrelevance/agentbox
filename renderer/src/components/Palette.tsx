@@ -26,7 +26,7 @@ export interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], itemTitle, batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, panelUp, onTogglePanel, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], itemTitle, batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -85,10 +85,8 @@ export function Palette({ products, supervisorPaused, itemCommands = [], itemTit
   /** 'team' for the team chat, 'roster' for the Teammates tab, or a teammate's id. */
   onTeammates?: (which: string) => void;
   onPauseTeammate?: (id: string, paused: boolean) => void;
-  panelUp: boolean;
   keyHints: boolean;
   onSetKeyHints: (v: boolean) => void;
-  onTogglePanel: () => void;
   // Absent where B does nothing (an open task, a search, the Team page), and
   // then the row is absent too.
   boardUp?: boolean;
@@ -290,13 +288,6 @@ export function Palette({ products, supervisorPaused, itemCommands = [], itemTit
       keywords: 'keys keyboard shortcut hotkeys commands cheatsheet help what does press bindings',
       run: onShortcuts,
     },
-    {
-      id: 'panel',
-      label: panelUp ? 'Collapse sidebar' : 'Expand sidebar',
-      hint: 'what this product is, and what else is open on it',
-      keyHint: '\\',
-      run: onTogglePanel,
-    },
     // Named for the view it takes you to.
     ...(onFlipView ? [{
       id: 'flip-view',
@@ -370,7 +361,7 @@ export function Palette({ products, supervisorPaused, itemCommands = [], itemTit
       run: () => onSetKeyHints(!keyHints),
     },
 
-  ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, onNewThread, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, panelUp, onTogglePanel, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
+  ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, onNewThread, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
   const thread = itemCommands.length ? { label: batch ? 'These threads' : 'This thread', title: itemTitle ?? '' } : null;
   return open ? <PaletteBox commands={commands} thread={thread} onClose={onClose} /> : null;
 }

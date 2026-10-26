@@ -1235,18 +1235,6 @@ body {
   font-size: 14px;
 }
 
-/* A VIEW WITH NOTHING IN IT.The words came out of List.tsx, and this takes the
-   card out from under them, because an empty card the size of the window is the
-   same page with the sentence painted out and it reads as a list that failed to
-   load. What is left is the ground the window already has, which is what the
-   inbox zero page has always shown. Its twin for a window wearing a picture is
-   down in the skin block, beside the rule it has to outrank.
-*/
-.list-pane.bare {
-  background: none;
-  box-shadow: none;
-}
-
 /* ONE LEFT EDGE FOR EVERY WORD. The group label, the title and the summary all
    start at --text-x; nothing is indented past anything else. The drawings
    doing otherwise was obvious at a glance, and the way to make that
@@ -5584,18 +5572,6 @@ a.set-ghost { text-decoration: none; display: inline-block; }
   border: 1px solid var(--skin-pane-line);
   -webkit-backdrop-filter: blur(var(--skin-blur));
   backdrop-filter: blur(var(--skin-blur));
-}
-
-/* AND NO CARD AT ALL WHEN THE VIEW IS EMPTY. Written out here rather than
-   folded into the plain rule above the list, because the wash, the hairline and
-   the blur are three things the skin adds and all three have to go or the card
-   is still on the picture in outline.
-*/
-:root[data-skin] .list-pane.bare {
-  background: none;
-  border: 0;
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 /* AN OPENED TASK, which is the whole window rather than a card (`.app.flat`).
