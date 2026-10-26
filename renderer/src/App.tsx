@@ -6836,7 +6836,6 @@ export default function App() {
         keyHints={keyHints}
         onSetKeyHints={(v) => { setModal(null); setHints(v); }}
         onSearch={openSearch}
-        itemTitle={multiSel.size ? `${selectable.filter((i) => multiSel.has(i.id)).length} selected` : (() => { const t = focused ?? pointed; return t ? rowTitle(t) : undefined; })()}
         itemCommands={(() => {
           // A cmd-A (or shift-J/K) selection turns the palette into batch
           // mode: every command it offers acts on the whole selection, and
