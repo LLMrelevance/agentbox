@@ -262,10 +262,8 @@
   --skin-tint: none;
   --skin-pane: var(--surface);
   --skin-pane-line: transparent;
-  /* The corner marks and the rays behind inbox zero, which only Ember Grid
-     draws (workspace-navigation.css). */
+  /* The corner marks, which only Ember Grid draws (workspace-navigation.css). */
   --skin-tick: transparent;
-  --skin-rays: none;
   --skin-blur: 0px;
   /* The opaque writing surface. With no skin on there is no photograph to
      average, so it falls back to the card the app already had. */
@@ -567,10 +565,8 @@
   --skin-tint: none;
   --skin-pane: var(--surface);
   --skin-pane-line: transparent;
-  /* The corner marks and the rays behind inbox zero, which only Ember Grid
-     draws (workspace-navigation.css). */
+  /* The corner marks, which only Ember Grid draws (workspace-navigation.css). */
   --skin-tick: transparent;
-  --skin-rays: none;
   --skin-blur: 0px;
   /* The opaque writing surface. With no skin on there is no photograph to
      average, so it falls back to the card the app already had. */
@@ -714,10 +710,6 @@
   --skin-dim: 0;
   /* The film's L-shaped corner marks, 12px long, 8px in from each corner. */
   --skin-tick: #5c5855;
-  /* Inbox zero's backdrop, from the film's "0 terminals opened" card: the
-     brand's 24 rays in the one orange, fading in past the figure and out
-     toward the edge, over a faint orange glow. */
-  --skin-rays: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='-500 -500 1000 1000'><defs><radialGradient id='f' gradientUnits='userSpaceOnUse' cx='0' cy='0' r='490'><stop offset='0.26' stop-color='%23EE6018' stop-opacity='0'/><stop offset='0.34' stop-color='%23EE6018' stop-opacity='0.26'/><stop offset='1' stop-color='%23EE6018' stop-opacity='0'/></radialGradient><radialGradient id='g' gradientUnits='userSpaceOnUse' cx='0' cy='0' r='380'><stop offset='0' stop-color='%23EE6018' stop-opacity='0.10'/><stop offset='1' stop-color='%23EE6018' stop-opacity='0'/></radialGradient></defs><circle r='380' fill='url(%23g)'/><g stroke='url(%23f)' stroke-width='1.3' stroke-linecap='round'><line x1='0.0' y1='-125.0' x2='0.0' y2='-480.0'/><line x1='32.4' y1='-120.7' x2='124.2' y2='-463.6'/><line x1='62.5' y1='-108.3' x2='240.0' y2='-415.7'/><line x1='88.4' y1='-88.4' x2='339.4' y2='-339.4'/><line x1='108.3' y1='-62.5' x2='415.7' y2='-240.0'/><line x1='120.7' y1='-32.4' x2='463.6' y2='-124.2'/><line x1='125.0' y1='-0.0' x2='480.0' y2='-0.0'/><line x1='120.7' y1='32.4' x2='463.6' y2='124.2'/><line x1='108.3' y1='62.5' x2='415.7' y2='240.0'/><line x1='88.4' y1='88.4' x2='339.4' y2='339.4'/><line x1='62.5' y1='108.3' x2='240.0' y2='415.7'/><line x1='32.4' y1='120.7' x2='124.2' y2='463.6'/><line x1='0.0' y1='125.0' x2='0.0' y2='480.0'/><line x1='-32.4' y1='120.7' x2='-124.2' y2='463.6'/><line x1='-62.5' y1='108.3' x2='-240.0' y2='415.7'/><line x1='-88.4' y1='88.4' x2='-339.4' y2='339.4'/><line x1='-108.3' y1='62.5' x2='-415.7' y2='240.0'/><line x1='-120.7' y1='32.4' x2='-463.6' y2='124.2'/><line x1='-125.0' y1='0.0' x2='-480.0' y2='0.0'/><line x1='-120.7' y1='-32.4' x2='-463.6' y2='-124.2'/><line x1='-108.3' y1='-62.5' x2='-415.7' y2='-240.0'/><line x1='-88.4' y1='-88.4' x2='-339.4' y2='-339.4'/><line x1='-62.5' y1='-108.3' x2='-240.0' y2='-415.7'/><line x1='-32.4' y1='-120.7' x2='-124.2' y2='-463.6'/></g></svg>");
   --bg: #1a1817;
   --surface: #282625;
   --bg-raised: #2f2d2c;
