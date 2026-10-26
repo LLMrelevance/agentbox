@@ -408,6 +408,12 @@
 .gr-chat .rm-full .rm-chat-list { max-width: none; padding-left: var(--text-x, 32px); padding-right: 32px; }
 .gr-chat .rm-full .rm-compose { max-width: none; margin-left: var(--text-x, 32px); margin-right: 32px; }
 .gr-chat .rm-full .rm-chat-err { margin-left: var(--text-x, 32px); }
+/* A chat with teammates is a thread's page inside the group's: the same edges as a group's chat. */
+.gr-chat .focus, .gr-chat .focus-dock { max-width: none; padding-left: var(--text-x, 32px); padding-right: 32px; }
+.workspace-layout .gr-chat .focus { padding-top: 15px; }
+.gr-chat .chat-day { margin-bottom: 16px; }
+.gr-chat .chat-day::after { content: none; }
+.topbar .th-new { white-space: nowrap; }
 .gr-notice { flex: none; margin: 16px 32px 0 var(--text-x, 32px); }
 .gr-notice .t { flex: 1; min-width: 0; }
 .gr-notice .rm-btn { margin-left: 0; }

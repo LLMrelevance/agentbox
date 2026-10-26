@@ -57,15 +57,16 @@ export function TeamPeople({ item }: { item: WorkItem }) {
  * On conversation pages only, which `peopleInConversation` decides, so no
  * other page can grow this control by accident.
  */
-export function AddPeople({ product, onAdd }: {
+export function AddPeople({ product, onAdd, className = 'tm-add-people' }: {
   product: Product | undefined | null;
   onAdd: (who: { to: string; also: string[] }) => void;
+  className?: string;
 }) {
   const team = useContext(TeamContext);
   const who = peopleInConversation(product, team?.me ?? null, team?.state.people ?? []);
   if (!who) return null;
-  return <button type="button" className="tm-add-people" title="Add people to a new conversation" onClick={() => onAdd(who)}>
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
+  return <button type="button" className={className} title="Add people to a new conversation" onClick={() => onAdd(who)}>
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" aria-hidden="true">
       <circle cx="6" cy="5.5" r="2.5" />
       <path d="M1.75 13c0-2.2 1.9-3.6 4.25-3.6 1 0 1.9.25 2.6.7" />
       <path d="M12 9v5M9.5 11.5h5" />
