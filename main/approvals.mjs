@@ -210,6 +210,43 @@ let sightings = 0;
 const REQUEST_SUFFIX = '.request.json';
 
 /**
+ * Requests this app found in the spool when it started, by directory and id.
+ *
+ * NOTHING CAN ANSWER ONE OF THESE, which is why they are not cards. The key
+ * that makes an answer the user's is generated per run and never written down,
+ * so a request raised before this process started is one its waiter -- if one
+ * still exists at all -- reads as a forgery and deletes.
+ *
+ * Remembered by id rather than deleted once, because an orphan that outlived a
+ * crash puts its own request back every two seconds
+ * (approval-prompt-core.mjs).
+ */
+const fromTheLastRun = new Set();
+
+/**
+ * Forget every card in the spool. Called once at startup, before any worker of
+ * this run can have raised one, and never after.
+ */
+export function dropCardsFromTheLastRun(storeRoot) {
+  const dir = spoolDir(storeRoot);
+  let files = [];
+  try { files = fs.readdirSync(dir); } catch { return 0; }
+  let dropped = 0;
+  for (const f of files) {
+    if (!f.endsWith(REQUEST_SUFFIX)) continue;
+    const id = f.slice(0, -REQUEST_SUFFIX.length);
+    fromTheLastRun.add(`${dir}\0${id}`);
+    removeSpoolEntry(dir, f);
+    removeSpoolEntry(dir, `${id}.answer.json`);
+    dropped += 1;
+  }
+  if (dropped) {
+    console.warn(`zero: ${dropped} approval${dropped === 1 ? '' : 's'} in the spool ${dropped === 1 ? 'was' : 'were'} raised by a run that has ended; nothing is waiting on ${dropped === 1 ? 'it' : 'them'} and ${dropped === 1 ? 'it has' : 'they have'} been taken out`);
+  }
+  return dropped;
+}
+
+/**
  * Orders requests first seen in the same poll. Not by `readdir`, which returns
  * name order on macOS, and a forgery picks its own name. `ctime` is the one
  * timestamp a worker cannot move backwards: `utimes` can set mtime and
@@ -231,7 +268,8 @@ export function listPending(storeRoot, { now = Date.now } = {}) {
   const at = now();
   // NUL cannot occur in a path, so two spools never collide.
   const prefix = `${dir}\0`;
-  const names = files.filter((f) => f.endsWith(REQUEST_SUFFIX));
+  const names = files.filter((f) => f.endsWith(REQUEST_SUFFIX)
+    && !fromTheLastRun.has(prefix + f.slice(0, -REQUEST_SUFFIX.length)));
   // Queue everything new in this pass before reading any of it, oldest first.
   for (const { f } of names
     .filter((f) => !seenAt.has(prefix + f.slice(0, -REQUEST_SUFFIX.length)))

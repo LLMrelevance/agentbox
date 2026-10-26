@@ -9,3 +9,5 @@ command -v xvfb-run >/dev/null 2>&1 || {
   sudo apt-get update -qq
   sudo apt-get install -y -qq xvfb xauth libgtk-3-0 libnss3 libasound2
 }
+# ffmpeg: design rounds film a flow drawn over the real app, frame by frame.
+command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg; }
