@@ -25,7 +25,7 @@ import { SEND_MAX_BYTES, sendFiles, sentFileName } from './phone-sends-files';
 import { LINK_RENEW_MS, fileOnPhone, linkForFile, linkOfEntry as linkOfName, objectsToSign, phonePage, renewLinks, type Links } from './phone-links';
 import { BUCKET, cloudPlaces, findFile, findFolder, installCloudFiles, type Place } from './cloud-files';
 import {
-  LIVE_FOR_MS, NOT_HERE, PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
+  LIVE_FOR_MS, NOT_HERE, PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneConnectState, phoneHistory, phoneSlug, phoneStatusLine,
   phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
 } from './phone-rows';
 import { phoneSender } from './phone-send';
@@ -60,6 +60,13 @@ export function readCloudConfig(doc: Document = document): CloudConfig | null {
   } catch { return null; }
 }
 
+/** The commit this site was built from, stamped by scripts/build-phone-site.mjs. */
+export function readBuildStamp(doc: Pick<Document, 'querySelector'> = document): { sha: string; at: number } | null {
+  const m = /^([0-9a-f]{40}) (\S+)$/.exec(doc.querySelector('meta[name="agentbox-build"]')?.getAttribute('content') ?? '');
+  const at = m ? Date.parse(m[2]) : NaN;
+  return m && Number.isFinite(at) ? { sha: m[1].slice(0, 7), at } : null;
+}
+
 // The same server function the Mac's card posts to (main/feedback.mjs), on the
 // cloud this site was built for, which is also the one origin its page may reach.
 export const feedbackAddressOn = (cfg: CloudConfig) => new URL('/functions/v1/feedback', cfg.url).href;
@@ -75,6 +82,7 @@ const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
 export function installCloudBridge(cfg: CloudConfig | null = typeof document === 'undefined' ? null : readCloudConfig()): boolean {
   if (!cfg || typeof window === 'undefined' || (window as any).zero) return false;
   const client: CloudClient = cloudClient(cfg, { storage: localStorage, fetchImpl: (u, i) => fetch(u, i) });
+  const build = readBuildStamp();
   document.documentElement.dataset.door = 'phone';
   document.documentElement.dataset.via = 'cloud';
   document.documentElement.dataset.shell = 'tab';
@@ -209,7 +217,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
         phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) }) : null,
-        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
+        phoneConnect: phoneConnectState({ signedIn: client.signedIn(), started, error, projects: rows.projects, email: client.session()?.user.email }),
+        phoneAccount: client.signedIn() ? { email: client.session()?.user.email ?? null, seenAt: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects), build } : null,
+        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, queued: view.queued, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
@@ -222,6 +232,8 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     // starting one is the computer's to do.
     agentUpdate: async (p: any) => { if (p?.action === 'start') throw new Error(NOT_HERE); return null; },
     sessionTrace: async () => ({ sessions: [] }),
+    // Settings opens on the pages a browser keeps; the computer's own are not drawn here.
+    settingsRead: async () => ({ ok: true, workspace: null, projects: [] }),
     repeats: async () => [],
     // Her Mac runs the agents; nothing here asks her to set one up.
     engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),

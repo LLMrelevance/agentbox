@@ -185,9 +185,12 @@ export function createTeamService({
     if (!phoneInbox || phone.ready?.() === false) return;
     try {
       await phoneInbox.syncOnce();
-      if (state.phoneError) set({ phoneError: null });
+      // Told to the window only when it changes, not on every five-second pass.
+      if (state.phoneError || !state.phoneSentAt) set({ phoneError: null, phoneSentAt: now() });
+      else state.phoneSentAt = now();
     } catch (err) {
-      set({ phoneError: String(err?.message ?? err) });
+      const said = String(err?.message ?? err);
+      if (state.phoneError !== said) set({ phoneError: said });
     }
   }
 

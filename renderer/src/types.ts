@@ -218,6 +218,9 @@ export interface TeamState {
   phoneSite?: string | null;
   /** That address as a QR code (svg), drawn on Settings › Phone. It carries no key. */
   phoneSiteQr?: string | null;
+  /** When this computer's threads last reached the web app, and why the last try did not. */
+  phoneSentAt?: number | null;
+  phoneError?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
   /** This build has an account to sign in to, whether or not Multiplayer is on. */
@@ -898,6 +901,10 @@ export interface Snapshot {
   phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string; cloud?: true }[];
   // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
   phoneStatus?: string | null;
+  // On the hosted phone, signed in to an account no computer has connected to yet (phone-rows.ts phoneConnectState).
+  phoneConnect?: { email: string | null } | null;
+  // On the hosted phone: who it is signed in as, and when a computer of theirs last wrote (0 for never).
+  phoneAccount?: { email: string | null; seenAt: number; cloud: boolean; build?: { sha: string; at: number } | null } | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;

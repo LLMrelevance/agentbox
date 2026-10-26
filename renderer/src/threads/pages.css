@@ -421,6 +421,14 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
    "This feels almost like a punishment in terms of the harsh text." */
 .th-clear-mark { display: block; color: var(--accent); opacity: .55; margin: 0 0 14px -1px; }
 .th-clear-filtered p { color: var(--text-faint); }
+.th-connect h2 { margin-bottom: 16px; }
+.th-connect ol { margin: 0 0 26px; padding: 0; list-style: none; counter-reset: step; font-size: 14px; line-height: 26px; color: var(--text); }
+/* The numbers sit on the heading's left edge, and a wrapped step under its own words. */
+.th-connect li { display: grid; grid-template-columns: 1.4em 1fr; counter-increment: step; }
+.th-connect li::before { content: counter(step) "."; color: var(--text-faint); }
+.th-connect b { font-weight: 500; overflow-wrap: anywhere; }
+.th-connect-out { height: 32px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; color: var(--text); font: inherit; font-size: 13.5px; cursor: pointer; }
+.th-connect-out:hover { background: var(--wash-strong); }
 
 /* ------------------------------------------------------------ in a browser tab */
 /* No title bar to clear in a tab, so the top inset matches the bottom one

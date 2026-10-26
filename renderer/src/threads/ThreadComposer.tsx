@@ -46,6 +46,7 @@ import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type Pr
 import { composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
+import { onCloudPhone } from '../phone-screen';
 import { listedTasks } from '../message-split';
 import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortPicked, effortShown, readLastEffort, writeLastEffort } from '../effort';
@@ -510,7 +511,7 @@ export function ThreadComposer({
   // The other reason Send can be off: there is no project to send to at all
   // (w-f8d123be62). It gets a line in the bar rather than a tooltip, because
   // the whole fault was that nothing on screen said anything.
-  const stopper = noProjectYet(product, { person: !!person });
+  const stopper = noProjectYet(product, { person: !!person, noComputer: onCloudPhone() });
   // A task needs somewhere to live whoever it is for, so a task to a person
   // is held to the task's bar, not the message's.
   const asMessage = !!person && sendAs === 'message';
@@ -1240,7 +1241,7 @@ export function ThreadComposer({
             {stopper && (
               <span className="tc-why">
                 {stopper.reason}{' '}
-                {onNewProject
+                {onNewProject && stopper.action
                   ? <button type="button" className="tc-why-do" onClick={onNewProject}>{stopper.action}</button>
                   : stopper.action}
               </span>

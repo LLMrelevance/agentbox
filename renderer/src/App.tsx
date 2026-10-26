@@ -166,7 +166,7 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
+import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
@@ -4802,7 +4802,7 @@ export default function App() {
     // finding 7).
     if (onCloudPhone()) {
       try { await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id }); } catch (err) { showToast(`Not sent: ${String((err as Error)?.message ?? err)}`); return; }
-      showToast('Stop sent. Your Mac stops the agent when it gets it.');
+      showToast('Stop sent. Your computer stops the agent when it gets it.');
       await refresh();
       return;
     }
@@ -6486,7 +6486,8 @@ export default function App() {
                 )}
                 {roomShown ? roomsUi.page : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
-                {clearMoves || (emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
+                {snap.phoneConnect ? <ConnectComputer email={snap.phoneConnect.email} onSignOut={() => { void api.teamSignOut().then(() => refresh()); }} />
+                : clearMoves || (emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
                   // statement about her inbox and the page was saying it about
@@ -7121,7 +7122,8 @@ export default function App() {
           // bottom of settings page". Only while someone is signed in.
           // HER PHONE WITH THE MAC SHUT: the projects she puts on it, on the
           // Phone page, only while she is signed in.
-          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null } : undefined}
+          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null, email: snap.team.me?.email ?? null, sentAt: snap.team.phoneSentAt ?? null, error: snap.team.phoneError ?? null } : undefined}
+          phoneWeb={snap?.phoneAccount ? { ...snap.phoneAccount, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           onPhoneSignIn={snap?.team && !snap.team.signedIn ? () => setPhoneSignInOpen(true) : undefined}
           account={snap?.team?.signedIn && snap.team.me ? { email: snap.team.me.email, team: snap.team.team?.name ?? null, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           // THE VERSION AND THE CHECK FOR A NEWER ONE (w-39d6c237f7), off the

@@ -27,6 +27,7 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { Name } from '../../../shared/product-name.mjs';
 import { FleetContext } from '../fleet';
 import { TeammateLead } from '../teammates/row-lead';
 import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-word';
@@ -463,6 +464,21 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
 }
 
 /* ------------------------------------------------------------ an empty tab */
+export function ConnectComputer({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
+  const as = email ? <> as <b>{email}</b></> : null;
+  return <div className="th-clear th-start th-connect">
+    <h2>Connect your computer</h2>
+    <ol>
+      <li><span>Open {Name} on your computer.</span></li>
+      <li><span>In Settings › Phone, sign in{as}.</span></li>
+      <li><span>Your threads show up here within a minute.</span></li>
+    </ol>
+    <div className="th-clear-acts">
+      <button type="button" className="th-connect-out" onClick={onSignOut}>Use another account</button>
+    </div>
+  </div>;
+}
+
 /** THE EMPTY INBOX IS WHERE THE NEXT THREAD STARTS (w-4e9f957f97). The
  *  heading, and under it the New thread box drawn open on the page: App.tsx
  *  puts the one composer into `slot`. What is in progress has its own tab and

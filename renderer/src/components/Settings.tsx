@@ -28,7 +28,8 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
-import { onPhone } from '../phone-screen';
+import { onCloudPhone, onPhone } from '../phone-screen';
+import { computerSays } from '../phone-rows';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
@@ -63,6 +64,8 @@ import './settings.css';
  with the single-person build, keeps no team code. No pane handed in, no row.
 */
 type Pane = SettingsPageId | { project: string };
+// The web app's pages: every other one is the computer's to read and change.
+const WEB_PAGES = new Set<SettingsPageId>(['appearance', 'shortcuts', 'phone']);
 
 // A path a person can read in a narrow column: the home directory as ~, and the
 // account uuid cut to the part that distinguishes it. The whole path is still
@@ -699,7 +702,21 @@ function PhoneFeedbackGroup({ onFeedback }: { onFeedback: () => void }) {
 // of their projects connected"). One row and one dropdown, the way every
 // other choice on this page is made ("it's more of a dropdown kind of
 // thing"): Every project, None, or a tick beside each project.
-type MacShut = { site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onChoose: (all: boolean, except: string[]) => void };
+type MacShut = {
+  site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onChoose: (all: boolean, except: string[]) => void;
+  // Who this computer sends as, and whether its threads are reaching the web app (main/team/index.mjs phoneOnce).
+  email?: string | null; sentAt?: number | null; error?: string | null;
+};
+function PhoneConnection({ macShut }: { macShut: MacShut }) {
+  const as = macShut.email ?? 'your account';
+  if (macShut.error) {
+    const why = macShut.error.replace(/\.?$/, '.');
+    return <Row label="Not reaching the web app" desc={`${why[0].toUpperCase()}${why.slice(1)} Signed in as ${as}. It tries again every few seconds.`} />;
+  }
+  // Nothing until the first pass answers, and nothing from a main process older than this page.
+  if (!macShut.sentAt) return null;
+  return <Row label={`Connected as ${as}`} desc="Your phone and the web app have this computer's threads." />;
+}
 function PhoneProjectsPicker({ macShut }: { macShut: MacShut }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement | null>(null);
@@ -761,6 +778,7 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
   return (
     <>
       <Group id="phone-mac-shut" label="On your phone">
+        <PhoneConnection macShut={macShut} />
         <Row label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed.">
           <PhoneProjectsPicker macShut={macShut} />
         </Row>
@@ -770,7 +788,7 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
           <div className="set-row set-phone-qr">
             <img alt={`QR code that opens ${site} on a phone`} src={`data:image/svg+xml;utf8,${encodeURIComponent(macShut.siteQr)}`} />
             <div className="set-row-desc">
-              Scan with your phone's camera, or go to <code>{site}</code>. Sign in with this account, then add the page to your home screen and it opens like an app. Replies wait there until this computer wakes.
+              Scan with your phone's camera, or go to <code>{site}</code>. Sign in with this account, then add the page to your home screen and it opens like an app.
             </div>
           </div>
         ) : (
@@ -781,8 +799,32 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
   );
 }
 
-function PhonePage({ onFeedback, macShut, onSignIn }: { onFeedback?: () => void; macShut?: MacShut; onSignIn?: () => void }) {
+type PhoneWeb = { email: string | null; seenAt: number; cloud: boolean; build?: { sha: string; at: number } | null; onSignOut: () => void };
+function WebAccountPage({ web, feedback }: { web: PhoneWeb; feedback: ReactNode }) {
+  const computer = computerSays(web);
+  return (
+    <Page title="Account">
+      <Group id="account">
+        <Row label={web.email ? `Signed in as ${web.email}` : 'Signed in'}>
+          <button type="button" className="set-ghost" onClick={web.onSignOut}>Sign out</button>
+        </Row>
+      </Group>
+      <Group id="computer" label="Your computer">
+        <Row label={computer.label} desc={computer.desc} />
+      </Group>
+      {feedback}
+      {web.build && (
+        <Group id="updates" label="Updates">
+          <Row label="Web app version" desc={`${web.build.sha}, built ${new Date(web.build.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`} />
+        </Group>
+      )}
+    </Page>
+  );
+}
+
+function PhonePage({ onFeedback, macShut, onSignIn, web }: { onFeedback?: () => void; macShut?: MacShut; onSignIn?: () => void; web?: PhoneWeb }) {
   const feedback = onFeedback && onPhone() ? <PhoneFeedbackGroup onFeedback={onFeedback} /> : null;
+  if (web) return <WebAccountPage web={web} feedback={feedback} />;
   if (!macShut) {
     return (
       <Page title="Phone">
@@ -1531,7 +1573,7 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, phoneWeb, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1582,7 +1624,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   account?: { email: string; team?: string | null; onSignOut: () => void };
   /** HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): present while
    *  she is signed in, with the phone site's address once there is one. */
-  phoneCloud?: { site: string | null; siteQr: string | null };
+  phoneCloud?: { site: string | null; siteQr: string | null; email?: string | null; sentAt?: number | null; error?: string | null };
+  /** On the web app: the account it is signed in as, and its computer (cloud-bridge.ts). */
+  phoneWeb?: PhoneWeb;
   /** Opens the sign-in the phone needs, when this build has a cloud to sign in to. */
   onPhoneSignIn?: () => void;
   /**
@@ -1733,7 +1777,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane));
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane) && (!onCloudPhone() || WEB_PAGES.has(p.id)))
+    .map((p) => (onCloudPhone() && p.id === 'phone' ? { ...p, label: 'Account' } : p));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -2382,7 +2427,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage onFeedback={onFeedback} onSignIn={onPhoneSignIn} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} onSignIn={onPhoneSignIn} web={phoneWeb} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>
