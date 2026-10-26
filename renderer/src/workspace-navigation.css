@@ -1019,7 +1019,8 @@ body {
     linear-gradient(var(--skin-tick), var(--skin-tick)) right bottom / 1px 10px no-repeat;
 }
 :root[data-skin="ember-grid"] .modal { background: var(--bg-raised); border-color: var(--line-strong); }
-:root[data-skin="ember-grid"] .modal.palette { background: rgba(38, 36, 34, .97); border-color: rgba(255, 255, 255, .08); }
+/* Solid: at .97 a thread's text read through the box behind its rows. */
+:root[data-skin="ember-grid"] .modal.palette { background: rgb(38, 36, 34); border-color: rgba(255, 255, 255, .08); }
 :root[data-skin="ember-grid"] .set-title { font-weight: 400; letter-spacing: -0.035em; }
 
 /* INBOX ZERO, the film's "0 terminals opened" card. The figure is the film's

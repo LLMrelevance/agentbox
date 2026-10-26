@@ -8,6 +8,7 @@ import type { Product, View } from '../types';
 import { DONE } from '../done-word';
 import { commandKeys } from '../palette-keys';
 import { emptyLine, lookRows, matchesQuery, rankMatches } from '../palette-rows';
+import { glyphFor } from '../palette-glyphs';
 import { type Look } from '../skins';
 import { type ThemeChoice } from '../theme';
 import { NAME } from '../../../shared/product-name.mjs';
@@ -366,6 +367,9 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  // Only a key moves the list to the pick; a pointer is already over it.
+  const byKey = useRef(false);
 
   useEffect(() => inputRef.current?.focus(), []);
 
@@ -382,26 +386,35 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
   const keys = useMemo(() => commandKeys(filtered), [filtered]);
 
   useEffect(() => setSelected(0), [query]);
+  useEffect(() => {
+    if (!byKey.current) return;
+    byKey.current = false;
+    listRef.current?.querySelector('.palette-item.selected')?.scrollIntoView({ block: 'nearest' });
+  }, [selected]);
 
   return (
     <div className="modal-backdrop palette-backdrop" onClick={onClose}>
-      <div className="modal palette" onClick={(e) => e.stopPropagation()}>
-        <input
-          ref={inputRef}
-          className="palette-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Type a command…"
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') onClose();
-            // Clamped at 0 as well as at the end, because with nothing matching
-            // there is no last row to stop at and Math.min alone walks to -1.
-            if (e.key === 'ArrowDown') { e.preventDefault(); setSelected((s) => Math.max(0, Math.min(s + 1, filtered.length - 1))); }
-            if (e.key === 'ArrowUp') { e.preventDefault(); setSelected((s) => Math.max(0, s - 1)); }
-            if (e.key === 'Enter' && filtered[selected]) filtered[selected].run();
-          }}
-        />
-        <div className="palette-list">
+      <div className="modal palette palette-k" onClick={(e) => e.stopPropagation()}>
+        <div className="palette-query">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.6" /><path d="M10.4 10.4L14 14" /></svg>
+          <input
+            ref={inputRef}
+            className="palette-input"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Type a command…"
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onClose();
+              // Clamped at 0 as well as at the end, because with nothing matching
+              // there is no last row to stop at and Math.min alone walks to -1.
+              if (e.key === 'ArrowDown') { e.preventDefault(); byKey.current = true; setSelected((s) => Math.max(0, Math.min(s + 1, filtered.length - 1))); }
+              if (e.key === 'ArrowUp') { e.preventDefault(); byKey.current = true; setSelected((s) => Math.max(0, s - 1)); }
+              if (e.key === 'Enter' && filtered[selected]) filtered[selected].run();
+            }}
+          />
+          <button type="button" className="palette-esc" aria-label="Close" onClick={onClose}>esc</button>
+        </div>
+        <div className="palette-list" ref={listRef}>
           {filtered.length === 0 && <div className="palette-empty">{emptyLine(query)}</div>}
           {filtered.map((c, i) => (
             <div
@@ -410,11 +423,13 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
               onClick={c.run}
               onMouseEnter={() => setSelected(i)}
             >
+              <span className="palette-glyph" aria-hidden="true">{glyphFor(c)}</span>
               <span className="palette-label">{c.label}</span>
               {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
             </div>
           ))}
         </div>
+        <div className="palette-foot" aria-hidden="true"><span><b>↑ ↓</b> move</span><span><b>↵</b> select</span></div>
       </div>
     </div>
   );
