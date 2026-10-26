@@ -1,6 +1,6 @@
 // WHERE AGENTBOX CLOUD OFFERS ITSELF, AND WHAT IT SAYS (the founder's design
 // of 2026-10-13, w-1dc7ee2408: never a pop-up). A last row in the list and a
-// card on the board when the Mac is full and threads wait; the plans as cards
+// card on the board when the computer is full and threads wait; the plans as cards
 // on Settings › Cloud; the next plan up when this one has no room.
 // Drawn in components/List.tsx and components/CloudPlans.tsx.
 import { PLANS } from '../../cloud/gateway/plans.mjs';
@@ -40,7 +40,9 @@ export function cloudOffer({ cloud, plan, waiting, macFull }: {
     return { say, waiting: waitingLine, go: up ? { label: `Move to ${NAME[up]} · ${what(up)}`, act: 'pay', plan: up } : null };
   }
   if (!macFull) return null;
-  const go = (act: OfferGo['act']): Offer => ({ say: 'This Mac is running all it can.', waiting: waitingLine, go: { label: `Start ${them} in the cloud`, act } });
+  // This computer, whatever it is: the app runs on Linux, and this sentence is
+  // the one that asks for money.
+  const go = (act: OfferGo['act']): Offer => ({ say: 'This computer is running all it can.', waiting: waitingLine, go: { label: `Start ${them} in the cloud`, act } });
   if (!cloud.setUp) return go('sign-in');
   if (cloud.managed && (!plan || plan.plan === 'none')) return go('plans');
   if (cloud.mode === 'mac') return go('cloud-on');
