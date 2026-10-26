@@ -66,8 +66,8 @@ import { LATER_KEYWORDS } from './palette-rows';
  `astral/w-86452550e5-looks`.
 */
 import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
-import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
-import { SHIP_OFFER } from './ship-offer';
+import { ago, closesTheTask, discardsTheChange, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
+import { discardAsk } from './discard-asks-first';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
@@ -412,7 +412,7 @@ export default function App() {
   // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
   // page reports it draws (Focus `onShown`), which is when those rows are offered.
   const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
-  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean } | null>(null);
+  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: ParsedOption[] | null } | null>(null);
   useEffect(() => {
     setThreadAsk((a) => (a && focused && a.key === `${focused.product}/${focused.id}` ? a : null));
   }, [focused?.product, focused?.id]);
@@ -2612,11 +2612,15 @@ export default function App() {
   const waitingByThread = useMemo(() => waitingCounts(items, stateOfMine), [items, stateOfMine]);
   // Which thread's close is asking, by `product/id`; null while none is.
   const [closeAskOn, setCloseAskOn] = useState<string | null>(null);
-  const [closeAskWhy, setCloseAskWhy] = useState<'filed' | 'unshipped'>('filed');
+  const [closeAskWhy, setCloseAskWhy] = useState<'filed' | 'unshipped' | 'discard'>('filed');
+  // The option a discard question was raised for, sent only if it is answered
+  // yes (./discard-asks-first.ts).
+  const [discardPick, setDiscardPick] = useState<ParsedOption | null>(null);
   // Bumped on every raise, so a second E on the same thread scrolls to it again.
   const [closeAskRaised, setCloseAskRaised] = useState(0);
   const keyOf = (item: WorkItem) => `${item.product}/${item.id}`;
   const askingToClose = (item: WorkItem) => (closeAskOn !== keyOf(item) ? null
+    : closeAskWhy === 'discard' ? discardAsk()
     : closeAskWhy === 'unshipped' ? unshippedAsk() : closeAsk(waitingFiled(item).length));
   // Leaving the thread drops its question; a close asked from the list opens
   // the thread and asks in the same press, so the thread it opens keeps it.
@@ -3990,12 +3994,23 @@ export default function App() {
   // one before it (`deferCommit`), so Z takes back the close, the last thing.
   // `answerWith` is made further down.
   const answerWithRef = useRef<((item: WorkItem, text: string) => Promise<unknown>) | null>(null);
+  const pickRef = useRef<((item: WorkItem, n: number, how?: { confirmed?: boolean }) => Promise<void>) | null>(null);
   const answerCloseAsk = useCallback(async (item: WorkItem, n: number) => {
     const waiting = waitingFiled(item);
     const option = askingToClose(item)?.options.find((o) => o.n === n);
     if (!option) return;
+    const pick = discardPick;
     setCloseAskOn(null);
     setOptionSel(null);
+    setDiscardPick(null);
+    // THE ONE QUESTION HERE THAT IS NOT ABOUT CLOSING (./discard-asks-first.ts).
+    // Keeping the change is the whole of its own answer: the question goes and
+    // the thread is where it was, with its offer still standing.
+    if (option.act === 'keep') return;
+    if (option.act === 'discard') {
+      if (pick) await pickRef.current?.(item, pick.n, { confirmed: true });
+      return;
+    }
     if (option.act === 'ship') {
       const words = shipItAsk(item);
       if (words) await answerWithRef.current?.(item, words);
@@ -4012,8 +4027,8 @@ export default function App() {
     }
     // Work off main was asked about before this question could come up.
     await markDone(item, { force: true, unshippedOk: true });
-  }, [waitingFiled, resolve, markDone, closeAskOn, closeAskWhy]);
-  const keepThreadOpen = useCallback(() => { setCloseAskOn(null); setOptionSel(null); }, []);
+  }, [waitingFiled, resolve, markDone, closeAskOn, closeAskWhy, discardPick]);
+  const keepThreadOpen = useCallback(() => { setCloseAskOn(null); setOptionSel(null); setDiscardPick(null); }, []);
 
   // THERE IS NO DECLINE.
   //
@@ -4419,13 +4434,14 @@ export default function App() {
   // asks when a finished run left a change and said nothing is known only to
   // the page drawing it, and comes back through `onShown` (./ship-offer.ts).
   // The keys and the pick both read this, so a number can never answer
-  // something other than the row the pointer can see.
+  // something other than the row the pointer can see — the OPTIONS it drew and
+  // not a constant, since the app's own offer now has more than one wording.
   const offerNow = useCallback((item: WorkItem): ParsedOption[] => (
     offerIsLive(item) ? itemOptions(item)
-      : openShows?.ship && openShows.key === keyOf(item) ? SHIP_OFFER : []
+      : openShows?.ship && openShows.key === keyOf(item) ? openShows.ship : []
   ), [openShows]);
 
-  const pickOption = useCallback(async (item: WorkItem, n: number) => {
+  const pickOption = useCallback(async (item: WorkItem, n: number, { confirmed = false }: { confirmed?: boolean } = {}) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
     // anything to it are a reply and being taken to its window.
@@ -4443,6 +4459,19 @@ export default function App() {
     // "Close this task" is done here, the way E does it, and never sent: as a
     // reply it would reopen the row and start a run to close it (format.ts).
     if (closesTheTask(option.text)) { await markDone(item); return; }
+    // THROWING THE WORK AWAY ASKS FIRST (F-84, ./discard-asks-first.ts). One
+    // click sent it, the pane moved on, and the pointer came down on the next
+    // thread's "Ship it". Every other press here is a reply or a close and Z
+    // takes both back; this one ends in a folder.
+    if (!confirmed && discardsTheChange(option.text)) {
+      if (focused?.id !== item.id || focused?.product !== item.product) { setFocused(item); markSeen(item); }
+      setOptionSel(null);
+      setDiscardPick(option);
+      setCloseAskWhy('discard');
+      setCloseAskOn(keyOf(item));
+      setCloseAskRaised((c) => c + 1);
+      return;
+    }
     // "Change something first" ASKS A QUESTION, so it opens the box instead of
     // sending (format.ts, needsYourWords). Its own words go in as the first
     // line, so a send with nothing added does exactly what pressing 2 did
@@ -4490,7 +4519,10 @@ export default function App() {
       // what happened to it: "Option 1 → Practice" was read off the QA box as
       // meaning nothing.
     }, `Option ${option.n} sent → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow]);
+  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow, focused?.id, focused?.product]);
+  // The discard question is raised inside `pickOption` and answered by
+  // `answerCloseAsk`, which is made above it.
+  useEffect(() => { pickRef.current = pickOption; }, [pickOption]);
 
   // A CLICK IS AIMED AT A PLACE ON THE SCREEN, so it carries the same guard the
   // numbers have carried since ./pick-settles: answering from Needs you moves
@@ -6342,7 +6374,10 @@ export default function App() {
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = askingToClose(focused);
-                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
+                    // No esc row on the discard question: its option 2 is the
+                    // same answer (./discard-asks-first.ts).
+                    const keep = closeAskWhy === 'discard' ? undefined : { label: KEEP_OPEN, onKeep: keepThreadOpen };
+                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep };
                   })()}
                   onNotice={showToast}
                   /*
