@@ -79,6 +79,11 @@ export function stripeClient({ key, webhookSecret, managedPayments = false, fetc
         success_url: successUrl,
         cancel_url: cancelUrl,
         allow_promotion_codes: true,
+        // Adaptive Pricing, on by itself under Managed Payments, otherwise
+        // converts the dollars the plan screen offers into a currency read
+        // from the browser, and a promotion code is then redeemed against the
+        // converted total.
+        adaptive_pricing: { enabled: false },
         ...(managedPayments ? { managed_payments: { enabled: true } } : {}),
       });
       return { id: session.id, url: session.url };
