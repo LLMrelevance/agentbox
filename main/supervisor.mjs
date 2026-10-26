@@ -4048,8 +4048,9 @@ export class Supervisor {
     const word = typeof model === 'string' ? model.trim() : '';
     if (!word || engineOf(engine) !== 'codex') return false;
     if (this._modelRefused?.[this._accountKey('codex', profile)]?.includes(word)) return true;
-    const known = codexKnownSlugs({ home: this._codexProfileHome(profile) });
-    return known.size > 0 && !known.has(word);
+    const home = this._codexProfileHome(profile);
+    const known = codexKnownSlugs({ home });
+    return known.size > 0 && !known.has(word) && codexDefaultModel({ home }) !== word;
   }
 
   /**
@@ -8685,6 +8686,9 @@ export class Supervisor {
     if (!word) return null;
     const known = codexKnownSlugs({ home });
     if (!known.size || known.has(word)) return null;
+    // Her config.toml's model is what Codex runs when none is sent, so it runs
+    // when named too, listed in the cache or not (a provider of her own is not).
+    if (codexDefaultModel({ home }) === word) return null;
     const offered = codexModels({ home }).map((m) => m.id);
     const instead = offered.length ? ` It offers ${offered.join(', ')}.` : '';
     const asked = from === 'workspace'
