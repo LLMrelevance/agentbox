@@ -88,7 +88,7 @@ describe('in the app', () => {
 // Kept from the layout before: a thread's own header, and the summary's side.
 describe('a thread', () => {
   it('keeps its own header, with no height forced on it', () => {
-    expect(app).toContain(': focused ? <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></> : (');
+    expect(app).toContain(': <><div className="workspace-task-header" ref={setTaskHeader} /><div className="workspace-artifact-header" ref={setArtifactHeader} /></>) : (');
     expect(css).not.toMatch(/workspace-task > \.topbar \{[^}]*height/);
   });
   it('folded with S, leaves its summary’s strip on the left, where it was open', () => {

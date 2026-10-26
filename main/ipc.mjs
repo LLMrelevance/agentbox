@@ -118,6 +118,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     throw new Error('registerIpc needs host: { ipcMain, app, dialog }');
   }
   const { ipcMain, app, dialog } = host;
+  // A browser copy hands in its own; outside Electron, the `electron` package has no shell.
+  const shellNow = async () => host.shell ?? (await import('electron')).shell;
   // Coalesced: the supervisor fires onChange per worker stream line, which is
   // every second or two per running session. Each push makes the renderer
   // refetch the whole snapshot, so unthrottled pushes had the UI visibly
@@ -1747,7 +1749,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     const config = cloudAccountConfig(supervisor.appDir, { home });
     if (!config) return null;
     if (!cloudAccount || cloudAccount.config !== JSON.stringify(config)) {
-      const { shell } = await import('electron');
+      const shell = await shellNow();
       cloudAccount = { config: JSON.stringify(config), value: config, session: cloudAccountSession({ config, openExternal: (u) => shell.openExternal(u), log: (l) => console.log(`cloud account: ${l}`) }) };
     }
     return cloudAccount;
@@ -1774,7 +1776,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   const cloudCall = async (name, args = {}) => {
     try {
       const account = await import('./cloud/account.mjs');
-      const { shell } = await import('electron');
+      const shell = await shellNow();
       return await account[name]({ ...args, openExternal: (u) => shell.openExternal(u), home: supervisor.config.home || os.homedir() });
     } catch (err) {
       return { ok: false, error: 'unreachable', message: `The cloud did not answer: ${err?.message || err}` };
@@ -2035,7 +2037,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // 2026-08-19). When it finds nothing it now hands back a sentence she can
   // read, and the renderer shows it.
   ipcMain.handle('zero:open-artifact', async (_e, { product, src, mode }) => {
-    const { shell } = await import('electron');
+    const shell = await shellNow();
     if (typeof src !== 'string' || !src) return { ok: false, error: 'no path' };
     if (/^https?:/.test(src)) { if (mode !== 'resolve') shell.openExternal(src); return { ok: true, opened: src } }
     const found = await resolveArtifact({
