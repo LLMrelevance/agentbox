@@ -63,11 +63,15 @@ export function QueueSummary({ title, context, earlier, steps = false, open, onT
   );
 }
 
-export function QueueAnswer({ text, md }: { text: string; md: (text: string) => ReactNode }) {
+const sameLine = (a: string, b: string) => a.replace(/\s+/g, ' ').trim().toLowerCase() === b.replace(/\s+/g, ' ').trim().toLowerCase();
+
+export function QueueAnswer({ text, md, name = '' }: { text: string; md: (text: string) => ReactNode; name?: string }) {
   const { headline, rest } = splitHeadline(text);
+  // A teammate's thread is named after this same line, so it is not said twice.
+  const shown = headline && !sameLine(headline, name) ? headline : null;
   return (
     <div className="outcome one-answer">
-      {headline && <h1 className="one-q">{headline}</h1>}
+      {shown && <h1 className="one-q">{shown}</h1>}
       {rest.trim() && md(rest)}
     </div>
   );

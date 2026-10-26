@@ -130,7 +130,7 @@ describe('where the app wires it', () => {
     expect(app).toMatch(/const queueSpot = spotIn\(shownInbox, focused\);/);
   });
   it('the thread page takes the queue, and wears no summary panel in it', () => {
-    expect(app).toMatch(/queue=\{queueSpot \?/);
+    expect(app).toMatch(/queue=\{queueSpot && !inChats \?/);
     expect(focus).toMatch(/const summaryOffered = [^\n]*!page/);
   });
   it('the choices go to the foot, apart from the reply box, without their heading', () => {

@@ -4,6 +4,7 @@
 // kept here so a test can reach them.
 import type { AgentEvent, AgentTurn } from './types';
 import type { ItemOutcome } from './item-thread';
+import { optionsFrom } from './format';
 
 export interface Spot { pos: number; total: number; index: number }
 
@@ -78,4 +79,27 @@ export function splitHeadline(text: string): { headline: string | null; rest: st
   const m = /^\s*\*\*([^*\n]+)\*\*[ \t]*(?:\n|$)/.exec(text);
   if (!m) return { headline: null, rest: text };
   return { headline: m[1].trim(), rest: text.slice(m[0].length).replace(/^\s+/, '') };
+}
+
+/**
+ * Which choices a fold holds: one thread's current round of them. Another
+ * thread, or the same thread's next round, opens unfolded.
+ */
+export function foldKey(item: Parameters<typeof optionsFrom>[0] & Keyed): string {
+  return `${item.product}:${item.id}:${item.wrote?.[optionsFrom(item)]?.ts ?? 0}`;
+}
+
+const FOLDS_KEPT = 100;
+
+/** The folds kept on this machine; the old fold-everything setting reads as none. */
+export function foldedKeys(raw: string | null): string[] {
+  try {
+    const list = JSON.parse(raw ?? '[]');
+    return Array.isArray(list) ? list.filter((k): k is string => typeof k === 'string') : [];
+  } catch { return []; }
+}
+
+/** Folds or unfolds one round of choices, keeping the newest hundred folds. */
+export function toggleFold(list: string[], key: string): string[] {
+  return list.includes(key) ? list.filter((k) => k !== key) : [...list, key].slice(-FOLDS_KEPT);
 }

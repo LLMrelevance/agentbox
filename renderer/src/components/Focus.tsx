@@ -132,6 +132,7 @@ import { lookAgainAfter } from '../picture-looks-again';
 import { focusAtEnd } from '../focus-at-end';
 import type { Spot } from '../one-thing-at-a-time';
 import { ChoicesFold, ChoicesShow, QueueFile, QueueNav, readsInPlace } from './OneThingAtATime';
+import { foldKey, foldedKeys, toggleFold } from '../one-thing-at-a-time';
 
 // A relative product path is an artifact, however the worker wrote it:
 // images render inline, other files become links, and .html demos embed
@@ -570,10 +571,10 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 // not the user's, and it is the part that was unnecessary. `filesFromRuns` stays,
 // because App.tsx still reads it to choose the design a card opens itself on.
 
-/** Whether the choices at the foot of a thread's page are folded, kept across threads. */
-const CHOICES_FOLDED = 'one.choicesFolded';
+/** Which threads' choices are folded, kept on this machine. */
+const CHOICES_FOLDED = 'one.choicesFoldedOn';
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null, onePage = false }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null, onePage = false, inChats = false }: {
   /** One thing at a time (w-65bcefb857): this thread's place in Needs you and the arrows that walk it. */
   queue?: { spot: Spot; onStep: (dir: 1 | -1) => void } | null;
   /** Drawn on the one-at-a-time page outside Needs you too: every thread with an agent. */
@@ -614,6 +615,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    *  "Done"), for the thin bar the thread wears while its summary is open
    *  (w-922f66bb06). Absent, the bar is always the full one. */
   crumbFrom?: string;
+  /** Drawn inside Chats beside its list: the bar says its name, as a group's does, with no way back to a list. */
+  inChats?: boolean;
   item: WorkItem;
   // WHAT AGENTS ARE ALLOWED TO DO RIGHT NOW, so the reply footer can print it
   // whether or not this message has changed it. Claude Code prints its own
@@ -903,11 +906,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const [summaryOpen, toggleSummary] = useSummaryOpen(paneWidth);
   // One thing at a time keeps its summary on top of the page, so no panel beside it.
   const page = !!queue || !!onePage;
-  // The choices at the foot fold away from a small arrow, leave a sign on the reply box, and stay folded from thread to thread.
-  const [choicesFolded, setChoicesFolded] = useState(() => { try { return localStorage.getItem(CHOICES_FOLDED) === '1'; } catch { return false; } });
-  const foldChoices = () => setChoicesFolded((was) => {
-    const now = !was;
-    try { localStorage.setItem(CHOICES_FOLDED, now ? '1' : '0'); } catch { /* storage full or off */ }
+  // The choices at the foot fold away from a small arrow and leave a sign on
+  // the reply box. A fold holds this thread's current choices only.
+  const [foldedChoices, setFoldedChoices] = useState(() => { try { return foldedKeys(localStorage.getItem(CHOICES_FOLDED)); } catch { return [] as string[]; } });
+  const choicesFolded = foldedChoices.includes(foldKey(item));
+  const foldChoices = () => setFoldedChoices((was) => {
+    const now = toggleFold(was, foldKey(item));
+    try { localStorage.setItem(CHOICES_FOLDED, JSON.stringify(now)); } catch { /* storage full or off */ }
     return now;
   });
   const summaryOffered = summarised && !openDoc && !page;
@@ -1573,7 +1578,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const rename = named ? undefined
     : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
   // Every thread opened from a list wears it, summary or not, document open or not.
-  const barContent = crumbFrom
+  const barContent = inChats
+    ? <><h1 className="workspace-title gc-head-group cx-person"><span className="rm-one">{threadName}</span></h1>{direct && <ConversationAside item={item} onAddPeople={onAddPeople} />}</>
+    : crumbFrom
     ? <><ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
       {direct && <ConversationAside item={item} onAddPeople={onAddPeople} />}</>
     : <>{backButton}{bandLine}</>;

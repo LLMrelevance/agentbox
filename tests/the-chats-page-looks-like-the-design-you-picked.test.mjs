@@ -32,13 +32,12 @@ describe('a teammate\'s chat', () => {
     expect(rule('.tq-chats .tq-chat .rm-cm.tq-m .h .tq-pic')).toMatch(/border-radius: 6px/);
   });
 
-  it('shows what it sent you as a card with a button to open it', () => {
+  it('shows what it sent you in its own block after its name', () => {
     const chat = page.slice(page.indexOf('function ChatColumn('), page.indexOf('\nfunction ', page.indexOf('function ChatColumn(') + 10));
-    expect(chat).toMatch(/e\.verb === 'sent'[\s\S]{0,200}<SentCard /);
+    // Since 2026-10-26 the card is the thread's own inbox row
+    // (a-thread-a-teammate-sent-you-looks-like-its-row-in-your-inbox).
+    expect(chat).toMatch(/e\.verb === 'sent'[\s\S]{0,300}<SentCard /);
     expect(page).toMatch(/function SentCard\(/);
-    expect(page).toMatch(/className="tq-card"/);
-    expect(page).toMatch(/className="tq-btn pri"[^>]*>Open it</);
-    expect(rule('.tq-card')).toMatch(/border-radius: 6px/);
   });
 
   it('lets you tap an answer on soft-cornered buttons', () => {
