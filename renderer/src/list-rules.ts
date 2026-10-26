@@ -1,6 +1,6 @@
 // Pure rules for what each list shows, and what a click on a row or its select
 // box means.
-import { isCleanRun } from '../../shared/repeats.mjs';
+import { instructionOf, isCleanRun } from '../../shared/repeats.mjs';
 import { teammateIdOf } from '../../shared/teammates.mjs';
 import { answerSettled } from '../../shared/answers.mjs';
 import { saysARunGotNowhere } from '../../shared/spawn-trouble.mjs';
@@ -493,7 +493,7 @@ export function scheduleSubtitle(i: Parameters<typeof rowTitle>[0], count = 1): 
 // (message-split.ts), so the summary starts after it rather than repeating it.
 // When the title is not a prefix of the body, the body is used whole.
 function bodyAfterTitle(i: { body?: string; title?: string }): string {
-  const body = i.body ?? '';
+  const body = instructionOf(i.body ?? '');
   const label = (i.title ?? '').replace(/…$/, '').trim();
   return label && body.startsWith(label) ? body.slice(label.length).trim() : body;
 }
