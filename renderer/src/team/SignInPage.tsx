@@ -215,7 +215,10 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
     : mode === 'reset-sent' ? `We sent a link to ${email}. Open it on this computer.`
     : mode === 'new-password' ? 'You will be signed in with it.'
     : mode === 'check-email' ? checkEmailLede(email, cloud)
-    : cloud ? 'Then your agents run in the cloud.'
+    // NO LINE UNDER THE HEADING ON THE CLOUD'S CARD (2026-10-26): "it just
+    // feels a little cluttered with text". The heading says what the card is
+    // for, and the two tabs keep the same height without it.
+    : cloud ? null
       : purpose === 'phone' ? 'Then your phone can read and reply to your threads, even with this computer closed.'
       : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
       : signedOut ? 'Sign in again to get back to your inbox and your team.'
@@ -230,7 +233,9 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
       <div className="si-card">
         <span className="si-mark"><AppMark size={28} /></span>
         <h1>{heading}</h1>
-        <p className="si-lede">{mode === 'agree' ? <>You&rsquo;re new to {Name} Cloud. Read <TermsLinks />, then agree to finish.</> : lede}</p>
+        {mode === 'agree'
+          ? <p className="si-lede">You&rsquo;re new to {Name} Cloud. Read <TermsLinks />, then agree to finish.</p>
+          : lede && <p className="si-lede">{lede}</p>}
 
         {(mode === 'sign-in' || mode === 'sign-up') && (
           <div className="si-tabs" role="tablist">

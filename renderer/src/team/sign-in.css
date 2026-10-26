@@ -11,6 +11,9 @@
 .si-mark .app-mark { display: block; }
 .si-card h1 { margin: 0 0 8px; font-size: 20px; font-weight: 500; letter-spacing: -.015em; color: var(--text); }
 .si-lede { margin: 0 0 24px; font-size: 13.5px; line-height: 20px; color: var(--text-dim); }
+/* The cloud's card has no line under its heading, so the heading carries the
+   gap the line used to leave (2026-10-26). */
+.si-card:not(:has(.si-lede)) h1 { margin-bottom: 24px; }
 .si-google { width: 100%; height: 40px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; color: var(--text); font: inherit; font-size: 14px; cursor: pointer; transition: background-color .08s ease; }
 .si-google:hover:not(:disabled) { background: var(--wash); }
 .si-google:disabled { opacity: .6; cursor: default; }
