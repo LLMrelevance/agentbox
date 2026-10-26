@@ -161,6 +161,30 @@ export function afterCheck(readiness: Array<Pick<EngineSetupState, 'engine' | 'f
   return readiness.some((r) => r.found) ? { t: 'found' } : { t: 'nothing' };
 }
 
+/* ---------------- AND THE COMPUTER CHANGES WHILE YOU LOOK ----------------- */
+/* The arrival look was the only one, so a login that appeared a minute later
+   was found by reloading the page and by nothing else (F-71).
+
+   WHAT IS WORTH LOOKING AGAIN FOR is everything up to a plan that is signed
+   in. A tool on the disk signed out is the state that changes next; a plan
+   signed in is the end of the question, and no later look could add to it. */
+
+/** Whether another look at the computer could still change this screen. */
+export function worthLookingAgain(
+  readiness: Array<Pick<EngineSetupState, 'found' | 'signedIn'>> | null | undefined,
+): boolean {
+  return needsPlan(readiness ?? []);
+}
+
+/** How often the plan screen looks again while it is up. */
+export const LOOK_AGAIN_MS = 5_000;
+/**
+ * And how long it keeps that clock. NOTHING RETRIES FOR EVER (CLAUDE.md), and
+ *  each look spawns both tools to ask them. After this the screen still looks
+ *  on coming back to the window, which is the move somebody signing in
+ *  somewhere else makes. */
+export const LOOK_AGAIN_FOR_MS = 3 * 60_000;
+
 /* ------------------------- WHAT THE QUESTION OFFERS ----------------------- */
 /**
  * A ROW ON A QUESTION CARD: a mark, a name, a sentence, and whether it belongs
