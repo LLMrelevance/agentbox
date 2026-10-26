@@ -69,6 +69,11 @@ import { loadCloudConfig } from '../main/team/session.mjs';
 
 const repo = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const noSign = process.argv.includes('--no-sign');
+const profile = process.env.APPLE_KEYCHAIN_PROFILE || null;
+const pinned = process.env.AGENTBOX_RELEASE_COMMIT || null;
+const head = () => {
+  try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(); } catch { return null; }
+};
 
 function die(lines) {
   console.error(`\n${lines.join('\n')}\n`);
@@ -190,7 +195,10 @@ if (!noSign) {
     ]);
   }
 
-  const missing = ['APPLE_ID', 'APPLE_TEAM_ID', 'APPLE_APP_SPECIFIC_PASSWORD'].filter((k) => !process.env[k]);
+  // A Keychain profile saved by `xcrun notarytool store-credentials` stands in
+  // for all three: Apple's tool keeps the password and this never sees it.
+  // `npm run deploy` sets one up and passes its name.
+  const missing = profile ? [] : ['APPLE_ID', 'APPLE_TEAM_ID', 'APPLE_APP_SPECIFIC_PASSWORD'].filter((k) => !process.env[k]);
   if (missing.length) {
     die([
       `Missing ${missing.join(', ')}.`,
@@ -207,7 +215,9 @@ if (!noSign) {
   }
   // Before a minute of signing is spent: the right commit, and a free version.
   const refusals = whyNotToRelease({
-    behind: commitsBehindMain(),
+    // `npm run deploy` checks the commit against main as it starts and pins it
+    // here, so main moving during the npm publish does not stop the build.
+    behind: pinned && pinned === head() ? 0 : commitsBehindMain(),
     version: JSON.parse(fs.readFileSync(path.join(repo, 'package.json'), 'utf8')).version,
     released: releasedTags(),
   });
@@ -229,7 +239,7 @@ if (!noSign) {
       'To build without signing, run: npm run pack',
     ]);
   }
-  if (process.env.APPLE_TEAM_ID !== identity.team) {
+  if (!profile && process.env.APPLE_TEAM_ID !== identity.team) {
     die([
       `APPLE_TEAM_ID is "${process.env.APPLE_TEAM_ID}" and the certificate on this Mac belongs to "${identity.team}".`,
       `The certificate is ${identity.name}.`,
@@ -337,9 +347,13 @@ if (!noSign) {
     console.log(`→ sending ${dmg} to Apple (a few minutes)`);
     run('notarytool', 'xcrun', [
       'notarytool', 'submit', dmg,
-      '--apple-id', process.env.APPLE_ID,
-      '--team-id', process.env.APPLE_TEAM_ID,
-      '--password', process.env.APPLE_APP_SPECIFIC_PASSWORD,
+      ...(profile
+        ? ['--keychain-profile', profile]
+        : [
+          '--apple-id', process.env.APPLE_ID,
+          '--team-id', process.env.APPLE_TEAM_ID,
+          '--password', process.env.APPLE_APP_SPECIFIC_PASSWORD,
+        ]),
       '--wait',
     ]);
 
@@ -370,7 +384,9 @@ if (!noSign) {
 // read live, and the one command that changes it. Best effort and quiet about
 // its own failure: a release must not be reported as broken because a laptop
 // was off the network for four seconds.
-if (!noSign && fresh.length) {
+// Inside `npm run deploy` the next step IS the publish, so this ending would
+// call a run that is going fine a failure.
+if (!noSign && fresh.length && !process.env.AGENTBOX_DEPLOY) {
   const shipped = fresh.map((f) => `release/${f}`).join(' ');
   let serving = null;
   // The tag comes back with the assets because the version comparison below
