@@ -14,6 +14,7 @@ import { priorityIdOf, priorityLabelOf, PRIORITIES, type PriorityId } from '../p
 import { Face, TeamContext, firstName, personOf } from '../team/people';
 import { PriorityIcon } from '../components/Priority';
 import { notStarted, rowTitle } from '../list-rules';
+import { emptyInboxHeading } from './composer-rules';
 import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
@@ -467,9 +468,13 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
  *  heading, and under it the New thread box drawn open on the page: App.tsx
  *  puts the one composer into `slot`. What is in progress has its own tab and
  *  is not counted here. */
-export function InboxClear({ slot }: { slot: (el: HTMLDivElement | null) => void }) {
+export function InboxClear({ slot, waiting = 0 }: {
+  slot: (el: HTMLDivElement | null) => void;
+  /** Threads that landed while you were writing in the box (`emptyInboxStays`). */
+  waiting?: number;
+}) {
   return <div className="th-clear th-start">
-    <h2>Nothing needs you</h2>
+    <h2>{emptyInboxHeading(waiting)}</h2>
     <div className="th-clear-compose" ref={slot} />
   </div>;
 }

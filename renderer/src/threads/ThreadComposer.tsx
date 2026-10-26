@@ -94,8 +94,10 @@ export interface ThreadSent {
 type MenuKey = 'to' | 'model' | 'sendAs' | 'dueOn' | 'project' | 'priority' | 'visibility' | 'later';
 
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting,
 }: {
+  /** On the page: whether the keyboard is in the box. */
+  onWriting?: (writing: boolean) => void;
   /** Your teammates, offered in To beside the agents, and Someone new. */
   agentMates?: readonly { id: string; name: string; letter: string; role: string | null }[];
   /** Hands the words to a teammate ('new' makes one from them); an error to show, or null once it is theirs. */
@@ -1048,12 +1050,20 @@ export function ThreadComposer({
   ];
   const headChips = inline ? fields.map((f) => <Fragment key={f.label}>{f.node}</Fragment>) : null;
 
+  // Read after the move lands: focus going from one control to the next blurs
+  // the first, and a window losing focus to another app leaves activeElement
+  // where it was.
+  const writingNow = () => { setTimeout(() => onWriting?.(!!card.current?.contains(document.activeElement)), 0); };
+  useEffect(() => () => onWriting?.(false), []);
+
   const box = (
       <div
         ref={card}
         className={`tc-card${inline ? ' tc-inline' : ''}`}
         role={inline ? 'group' : 'dialog'}
         aria-label="New thread"
+        onFocus={inline ? writingNow : undefined}
+        onBlur={inline ? writingNow : undefined}
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); void send(); return; }

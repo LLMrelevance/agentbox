@@ -91,14 +91,15 @@ describe('the component that draws it', () => {
   it('is what an emptied tab draws, above the unfiltered empty states', () => {
     // The order matters: the filtered test is read FIRST, so a filter can
     // never fall through to "Nothing needs you".
-    const branch = app.slice(app.indexOf('{workspaceNavigation && emptyView'), app.indexOf('{workspaceNavigation && emptyView') + 1400);
+    const branch = app.slice(app.indexOf('(workspaceNavigation && emptyView'), app.indexOf('(workspaceNavigation && emptyView') + 1400);
     expect(branch).toContain('<FilteredEmpty');
     expect(branch.indexOf('<FilteredEmpty')).toBeLessThan(branch.indexOf('<InboxClear'));
     expect(branch).toContain('hiddenNow');
   });
 
   it('leaves "Nothing needs you" for an inbox that really is clear', () => {
-    expect(pages).toContain('<h2>Nothing needs you</h2>');
+    expect(pages).toContain('<h2>{emptyInboxHeading(waiting)}</h2>');
+    expect(src('threads', 'composer-rules.ts')).toContain("if (waiting === 0) return 'Nothing needs you';");
   });
 });
 

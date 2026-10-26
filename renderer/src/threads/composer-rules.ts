@@ -506,6 +506,21 @@ export function keyOnTheNewThreadCard(
 }
 
 /**
+ * Whether the empty inbox, and the New thread box on it, stays on screen. A
+ * thread landing while the keyboard is in the box must not swap the page for
+ * the list under your hands; it gives way once you send or step out. It is
+ * never drawn back over a list that is already showing.
+ */
+export function emptyInboxStays({ waiting, onScreen, writing }: { waiting: number; onScreen: boolean; writing: boolean }): boolean {
+  return waiting === 0 || (onScreen && writing);
+}
+
+export function emptyInboxHeading(waiting: number): string {
+  if (waiting === 0) return 'Nothing needs you';
+  return waiting === 1 ? '1 thread needs you' : `${waiting} threads need you`;
+}
+
+/**
  * Which rows the head draws. To an agent it is still To and Model, untouched.
  * To a person it is To and Send As, and the day appears only once it is a
  * task, because a message has nothing to be due.

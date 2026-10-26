@@ -46,7 +46,7 @@ import { documentCandidates } from './message-artifacts';
 import { filesFromRuns } from './run-files';
 import { Rail } from './components/Rail';
 import { ThreadComposer } from './threads/ThreadComposer';
-import { joinNames, projectsOffered, teammates } from './threads/composer-rules';
+import { emptyInboxStays, joinNames, projectsOffered, teammates } from './threads/composer-rules';
 import { chosenNames, whoSees } from './threads/summary-rules';
 import { shownToPeople } from '../../shared/thread-cards.mjs';
 import { changePathFor } from './code-artifact';
@@ -522,6 +522,7 @@ export default function App() {
   const [modal, setModal] = useState<Modal>(null);
   // Where the empty inbox wants the New thread box drawn, while it is on screen.
   const [clearSlot, setClearSlot] = useState<HTMLDivElement | null>(null);
+  const [clearWriting, setClearWriting] = useState(false);
   // N on the empty inbox goes into the box already on the page.
   const startThread = () => {
     const box = clearSlot?.querySelector('textarea');
@@ -6105,6 +6106,11 @@ export default function App() {
     && !(view === 'snoozed' && repeats.length > 0);
   const bareView = search === null && !focused && !focusedRepeat && list.length === 0
     && !(view === 'snoozed' && repeats.length > 0) && !workspaceNavigation;
+  // Threads that landed in Needs you while you were writing in the box on the
+  // empty inbox: the page stays until you send or step out.
+  const clearWaiting = view === 'inbox' ? list.length + roomsUi.mentions.length : 0;
+  const clearHeld = view === 'inbox' && search === null && !focused && !focusedRepeat && clearWaiting > 0
+    && emptyInboxStays({ waiting: clearWaiting, onScreen: clearSlot !== null, writing: clearWriting });
   // ONE SURFACE ON AN OPENED TASK (design C): no card, hairlines
   // only, and the reading column centred on the window rather than on the pane
   // the panel left over. `flat` is the same condition that used to draw the
@@ -6896,12 +6902,12 @@ export default function App() {
                 )}
                 {roomShown ? roomsUi.page : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
-                {workspaceNavigation && emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length) ? (
+                {clearHeld || (workspaceNavigation && emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
                   // statement about her inbox and the page was saying it about
                   // her own filter, over a tab that still read 13.
-                  hiddenNow > 0
+                  hiddenNow > 0 && !clearHeld
                     ? <FilteredEmpty view={view} hidden={hiddenNow}
                         onClear={() => setInboxDisplay({ ...inboxDisplay, priorities: [], projects: [], updated: 'any', privacy: 'any' })} />
                     // "Nothing needs you" is about you alone; with a teammate
@@ -6910,7 +6916,7 @@ export default function App() {
                       // AND NOT UNDER THE LANDING (2026-10-06), which says the
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
-                      ? run === null && !landing && <InboxClear slot={setClearSlot} />
+                      ? run === null && !landing && <InboxClear slot={setClearSlot} waiting={clearHeld ? clearWaiting : 0} />
                       : <EmptyTab view={view} />
                 ) : <List
                   lead={view === 'inbox' && search === null && roomsUi.mentions.length
@@ -7041,6 +7047,7 @@ export default function App() {
         <ThreadComposer
           key={modal === 'compose' ? 'card' : 'page'}
           inline={modal !== 'compose'}
+          onWriting={setClearWriting}
           agentMates={teammatesUi.live ? snap.teammates?.list.filter((t) => t.status === 'active') : undefined}
           onToTeammate={async (to, text, product) => {
             const r = await api.teammates<{ teammate?: { id: string } }>(to === 'new' ? 'describe' : 'post', to === 'new' ? { text, ...(product ? { product } : {}) } : { text, to: [to], fresh: true });
@@ -7086,6 +7093,8 @@ export default function App() {
           // it will land, so the row arrives in front of her. The tutorial
           // keeps the old order: its beat moves on from the card closing.
           onSending={walkCard ? undefined : (how) => {
+            // Sent from the held page: step out, and the waiting threads show.
+            if (clearHeld) (document.activeElement as HTMLElement | null)?.blur();
             setModal(null);
             setComposeInitial(null);
             setPickProject(null);
