@@ -334,6 +334,22 @@ export function belongsInProgress(
   return i.status === 'open' && i.kind !== 'question' && i.kind !== 'review' && hers(i);
 }
 
+/**
+ * THE IN PROGRESS TAB: what `belongsInProgress` holds, less what Needs you is
+ * holding, so a thread is counted in one tab only.
+ *
+ * The two rules overlap on purpose — a row asking you something is in Needs
+ * you whatever is happening to it, and a session really is on it — which is
+ * right for the rules and wrong for the numbers. Needs you wins here, as
+ * `tabState` in App.tsx already had it for the board, and nothing that reads
+ * the rule itself changes: the row is still stoppable, still says In progress,
+ * still has a worker on it.
+ */
+export function inProgressTab<T extends { id: string }>(progress: readonly T[], inbox: readonly { id: string }[]): T[] {
+  const needsYou = new Set(inbox.map((i) => i.id));
+  return progress.filter((i) => !needsYou.has(i.id));
+}
+
 // Everything In progress can be stopped, so this is the list's own rule rather
 // than a check for a live session. Most tasks wait minutes in the queue before
 // a worker claims them, and those must be stoppable too.
