@@ -98,8 +98,7 @@ describe('the component that draws it', () => {
   });
 
   it('leaves "Nothing needs you" for an inbox that really is clear', () => {
-    expect(pages).toContain('<h2>{emptyInboxHeading(waiting)}</h2>');
-    expect(src('threads', 'composer-rules.ts')).toContain("if (waiting === 0) return 'Nothing needs you';");
+    expect(pages).toContain('<h2>Nothing needs you</h2>');
   });
 });
 

@@ -506,18 +506,12 @@ export function keyOnTheNewThreadCard(
 }
 
 /**
- * Whether the empty inbox, and the New thread box on it, stays on screen. A
- * thread landing while the keyboard is in the box must not swap the page for
- * the list under your hands; it gives way once you send or step out. It is
- * never drawn back over a list that is already showing.
+ * Whether the box on the empty inbox moves into the New thread dialog. A
+ * thread landing in Needs you takes the page away; if you were in the box, or
+ * left words in it, the dialog opens on what it held, over the list.
  */
-export function emptyInboxStays({ waiting, onScreen, writing }: { waiting: number; onScreen: boolean; writing: boolean }): boolean {
-  return waiting === 0 || (onScreen && writing);
-}
-
-export function emptyInboxHeading(waiting: number): string {
-  if (waiting === 0) return 'Nothing needs you';
-  return waiting === 1 ? '1 thread needs you' : `${waiting} threads need you`;
+export function writingMovesToTheDialog({ waiting, onScreen, writing }: { waiting: number; onScreen: boolean; writing: boolean }): boolean {
+  return waiting > 0 && onScreen && writing;
 }
 
 /**

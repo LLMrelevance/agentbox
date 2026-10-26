@@ -31,7 +31,7 @@
 
 import { PriorityIcon } from '../components/Priority';
 import { SEND } from '../this-keyboard';
-import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { PRACTICE_TASK } from '../../../shared/first-run-practice.mjs';
 import type { Product, WorkItem } from '../types';
 import type { Engine } from '../../../shared/engines.mjs';
@@ -93,11 +93,28 @@ export interface ThreadSent {
 
 type MenuKey = 'to' | 'model' | 'sendAs' | 'dueOn' | 'project' | 'priority' | 'visibility' | 'later';
 
+/** What a card opens on. Project, model and priority need no field: the card
+ *  reads them from what was last picked and from the saved draft. */
+export interface ComposeStart {
+  to?: string;
+  also?: string[];
+  body?: string;
+  mate?: string | null;
+  sendAs?: SendAs;
+  due?: string | null;
+  visibility?: Visibility | null;
+  chosen?: string[] | null;
+  /** Where the caret was, as [start, end]. */
+  caret?: [number, number];
+}
+
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver,
 }: {
-  /** On the page: whether the keyboard is in the box. */
+  /** On the page: whether the keyboard is in the box or words are left in it. */
   onWriting?: (writing: boolean) => void;
+  /** On the page: filled with a reading of the box, for the dialog to open on. */
+  handOver?: MutableRefObject<(() => ComposeStart) | null>;
   /** Your teammates, offered in To beside the agents, and Someone new. */
   agentMates?: readonly { id: string; name: string; letter: string; role: string | null }[];
   /** Hands the words to a teammate ('new' makes one from them); an error to show, or null once it is theirs. */
@@ -112,7 +129,7 @@ export function ThreadComposer({
   /** The project on screen, which the card opens on ahead of the one last used. */
   defaultProduct?: string | null;
   /** Who it is to (a teammate's id) and words to start from, for a card opened from somewhere. */
-  initial?: { to?: string; also?: string[]; body?: string } | null;
+  initial?: ComposeStart | null;
   /**
    * THE TUTORIAL'S OWN EXAMPLE TASK, and nothing else ever sets this.
    *
@@ -177,7 +194,7 @@ export function ThreadComposer({
   const [to, setTo] = useState<string>(() => (initial?.to && others.some((p) => p.id === initial.to) ? initial.to : 'agent'));
   const person = to === 'agent' ? null : others.find((p) => p.id === to) ?? null;
   // A teammate in To, or 'new' for Someone new: it takes the words in the team chat.
-  const [mate, setMate] = useState<string | null>(null);
+  const [mate, setMate] = useState<string | null>(() => initial?.mate ?? null);
   const mateRow = mate && mate !== 'new' ? agentMates?.find((t) => t.id === mate) ?? null : null;
   // A teammate who leaves the team while the card is open takes the To with them.
   useEffect(() => { if (to !== 'agent' && !person) setTo('agent'); }, [to, person]);
@@ -201,8 +218,8 @@ export function ThreadComposer({
   // SEND AS: a task or a message (w-c34591721f, approved 2026-10-17). A card
   // addressed to a person starts as a message, which is what it has always
   // made; a task is the thing you now say out loud.
-  const [sendAs, setSendAs] = useState<SendAs>('message');
-  const [due, setDue] = useState<string | null>(null);
+  const [sendAs, setSendAs] = useState<SendAs>(() => initial?.sendAs ?? 'message');
+  const [due, setDue] = useState<string | null>(() => initial?.due ?? null);
   // An agent has no Send As, so going back to one puts both away rather than
   // leaving a day on a card that cannot carry it.
   useEffect(() => { if (!person) { setSendAs('message'); setDue(null); } }, [person]);
@@ -250,9 +267,9 @@ export function ThreadComposer({
   // same picker the To field uses, and the pick stands only while somebody is
   // on the list; with nobody on it the thread is sent Private, because that is
   // who can see it (composer-rules.ts `sharingFields`).
-  const [picked, setPicked] = useState<Visibility | null>(null);
+  const [picked, setPicked] = useState<Visibility | null>(() => initial?.visibility ?? null);
   const visibility: Visibility = picked ?? startingVisibility(product);
-  const [chosenPicked, setChosen] = useState<string[] | null>(null);
+  const [chosenPicked, setChosen] = useState<string[] | null>(() => initial?.chosen ?? null);
   const chosen = chosenPicked ?? (picked ? [] : startingChosen(product));
   const [visPage, setVisPage] = useState<'rows' | 'people'>('rows');
   const pickVisibility = (v: Visibility) => { setPicked(v); };
@@ -411,7 +428,8 @@ export function ThreadComposer({
     const t = textRef.current;
     if (!t) return;
     t.focus();
-    t.setSelectionRange(t.value.length, t.value.length);
+    const [from, to] = initial?.caret ?? [t.value.length, t.value.length];
+    t.setSelectionRange(from, to);
   }, []);
   // On the page the box is one line until the words need more.
   useLayoutEffect(() => {
@@ -1053,8 +1071,20 @@ export function ThreadComposer({
   // Read after the move lands: focus going from one control to the next blurs
   // the first, and a window losing focus to another app leaves activeElement
   // where it was.
-  const writingNow = () => { setTimeout(() => onWriting?.(!!card.current?.contains(document.activeElement)), 0); };
+  const [inBox, setInBox] = useState(false);
+  const writingNow = () => { setTimeout(() => setInBox(!!card.current?.contains(document.activeElement)), 0); };
+  const hasWords = !!text.trim() || attachments.length > 0;
+  useEffect(() => { if (inline) onWriting?.(inBox || hasWords); }, [inline, inBox, hasWords]);
   useEffect(() => () => onWriting?.(false), []);
+  if (handOver && inline) {
+    handOver.current = () => {
+      const t = textRef.current;
+      return {
+        to, also, body: text, mate, sendAs, due, visibility: picked, chosen: chosenPicked,
+        ...(t && document.activeElement === t ? { caret: [t.selectionStart, t.selectionEnd] as [number, number] } : {}),
+      };
+    };
+  }
 
   const box = (
       <div
