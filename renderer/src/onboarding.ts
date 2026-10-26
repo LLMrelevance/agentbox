@@ -2614,10 +2614,9 @@ export const ANCHOR: Partial<Record<Step, string[]>> = {
   // ring follows the press from the button to the menu without the beat having
   // to know which half it is on.
   board: ['.th-pop', '.th-right .th-disp'],
-  // THE PALETTE FIRST, THEN THE KEY THAT OPENS IT. Same order-of-preference
-  // shape as `snooze` and `unblock` above: the thing that is only on the screen
-  // part of the time wins while it is there. Before this the only anchor was
-  // the ⌘ button in the corner, which sits OUTSIDE the palette, so the walk
+  // THE PALETTE. The ⌘ button that stood in the corner after it went with the
+  // layout without the sidebar (w-a1ed0e8b25). Before the palette was here the
+  // only anchor was that button, which sits OUTSIDE the palette, so the walk
   // went silent the moment the palette opened and the beat that teaches ⌘K had
   // no words on the one screen it is for. See `command` in `coach` for the
   // photograph.
@@ -2628,7 +2627,7 @@ export const ANCHOR: Partial<Record<Step, string[]>> = {
   // children is the height of everything in it rather than the height of what
   // is on show. The modal's own children are the field and the list box, both
   // of which end where the screen ends.
-  command: ['.modal.palette', 'button[aria-label="Commands"]'],
+  command: ['.modal.palette'],
 };
 
 /**

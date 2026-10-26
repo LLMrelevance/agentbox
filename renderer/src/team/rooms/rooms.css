@@ -492,9 +492,11 @@
 .workspace-layout.gt-inset[data-artifact-layout="beside"] .focus-dock { padding-left: 44px; }
 .workspace-layout.gt-inset.workspace-task > .topbar > .topbar-right { right: 28px; }
 
-/* WITH GROUPS ON THE SIDEBAR STAYS NARROW (GroupsSidebar.tsx). Pointed at, it
-   opens to the full sidebar and moves the page over until the pointer leaves,
-   will sit. The four things that read the width are eased, not the width
+/* THE SIDEBAR STAYS NARROW, for everyone since w-a1ed0e8b25 though its rules
+   were written here for Groups, and here they stay: they rely on coming after
+   the stylesheets imported before this one. Pointed at, it opens to the full
+   sidebar and moves the page over until the pointer leaves. The four things
+   that read the width are eased, not the width
    itself: every element inherits it, so easing it restyled the whole page
    each frame. Settings' own list does not slide. */
 .app.workspace-layout.gt-rail, .gt-rail.workspace-layout::before, .gt-rail > .panel-marks, .gt-rail .workspace-navigation.gt-rail-nav {
