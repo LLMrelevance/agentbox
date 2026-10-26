@@ -17,6 +17,9 @@ export const onPhone = () => typeof document !== 'undefined' && document.documen
 // The phone with the Mac shut, which reads her rows online rather than her
 // Mac (cloud-bridge.ts): what she sends waits there for her Mac.
 export const onCloudPhone = () => typeof document !== 'undefined' && document.documentElement.dataset.via === 'cloud';
+// The screen phone.css draws its phone layout for.
+export const PHONE_SCREEN = '(max-width: 700px), (max-height: 520px)';
+export const phoneSized = () => typeof matchMedia === 'function' && matchMedia(PHONE_SCREEN).matches;
 
 type HistoryLike = { readonly state: unknown; pushState(state: unknown, title: string): void; replaceState(state: unknown, title: string): void; back(): void };
 type WindowLike = {

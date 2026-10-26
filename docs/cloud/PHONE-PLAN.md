@@ -147,6 +147,14 @@ once), then the address goes in `~/.agentbox/team.config.json` as `phoneSite` an
 the database's allowed sign-in return addresses, and the migration
 `20261014000200_phone_inbox.sql` is applied.
 
+On 2026-10-26 the live site was four days behind, because only a person
+remembering to put it up ever did. Each build now carries the commit it came from
+(`<meta name="agentbox-build">`, shown on the web app's Account page), and
+`npm run ship` puts the site up after its push whenever what the site is built
+from changed since the live build (scripts/lib/web-app-deploy.mjs), on a
+computer with `phoneSite` and a Cloudflare sign-in. A deploy that does not work
+leaves the ship shipped and says so.
+
 ## Step 1 as built, and what Codex's review of it changed
 
 - A copy is built from named fields only, with keys hidden and the home folder

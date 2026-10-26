@@ -95,12 +95,14 @@ export const NO_PROJECT_ACTION = 'Make your first project';
 
 export function noProjectYet(
   product: ComposeTarget | null | undefined,
-  opts: { person?: boolean } = {},
+  opts: { person?: boolean; noComputer?: boolean } = {},
 ): { reason: string; action: string } | null {
   // A message to a teammate is not filed anywhere, so it is never waiting on a
   // project and must never be told that it is.
   if (opts.person) return null;
   if (product) return null;
+  // The web app's projects are a computer's; it cannot make one of its own.
+  if (opts.noComputer) return { reason: 'No computer is connected yet.', action: '' };
   return { reason: NO_PROJECT_REASON, action: NO_PROJECT_ACTION };
 }
 

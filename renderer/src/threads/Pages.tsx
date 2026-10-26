@@ -27,6 +27,7 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { Name } from '../../../shared/product-name.mjs';
 import { FleetContext } from '../fleet';
 import { TeammateLead } from '../teammates/row-lead';
 import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-word';
@@ -277,10 +278,11 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
     goSetUp();
   };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
-    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
-      aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={`Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
+    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${!count && nobodyReady ? ' named' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
+      aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={nobodyReady ? SETUP.inviteGo : `Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
       data-hint="cloud" data-hint-align="center" onClick={() => setOpen((o) => !o)}>
-      <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
+      {/* The word until it is set up: a new user found no other way in, and nothing saying what the icon was (F-97). */}
+      <CloudIcon />{count && <b>{count}</b>}{!count && nobodyReady && <span className="th-cloud-word">Cloud</span>}{!count && (nobodyReady || setup) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
       <span className="th-cloud-invite-ic"><CloudIcon /></span>
@@ -463,6 +465,23 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
 }
 
 /* ------------------------------------------------------------ an empty tab */
+export function ConnectComputer({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
+  const as = email ? <> as <b>{email}</b></> : null;
+  return <div className="th-clear th-start th-connect">
+    <div className="th-connect-group">
+      <h2>Connect your computer</h2>
+      <ol>
+        <li><span>Open {Name} on your computer.</span></li>
+        <li><span>In Settings › Phone, sign in{as}.</span></li>
+        <li><span>Your threads show up here within a minute.</span></li>
+      </ol>
+      <div className="th-clear-acts">
+        <button type="button" className="th-connect-out" onClick={onSignOut}>Use another account</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /** THE EMPTY INBOX IS WHERE THE NEXT THREAD STARTS (w-4e9f957f97). The
  *  heading, and under it the New thread box drawn open on the page: App.tsx
  *  puts the one composer into `slot`. What is in progress has its own tab and
@@ -515,7 +534,7 @@ export function EmptyTab({ view }: { view: TabView }) {
     // persona read as the app losing it.
     done: 'Nothing closed yet. A finished thread waits in Needs you until you close it.',
   };
-  return <div className="th-empty">{words[view] ?? 'Nothing here.'}</div>;
+  return <div className="th-empty"><span>{words[view] ?? 'Nothing here.'}</span></div>;
 }
 
 /* ------------------------------------------------------------ one thread's cells */

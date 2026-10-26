@@ -46,6 +46,7 @@ import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type Pr
 import { composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
 import { practiceRefusal, noProjectYet } from '../compose-says';
+import { onCloudPhone } from '../phone-screen';
 import { defaultModelFor, engineModelLabel, readLastModel, writeLastModel, type ModelChoice } from '../models';
 import { defaultEffortFor, effortChoicesFor, effortPicked, effortShown, readLastEffort, writeLastEffort } from '../effort';
 import { readLastEngine, startingEngine, writeLastEngine } from '../engines';
@@ -175,7 +176,7 @@ export function ThreadComposer({
    * its way, and `onFailed` is how a send that then does not stand comes back.
    * Not given (the tutorial), the card stays up until the answer as it did.
    */
-  onSending?: (p: { kind: ThreadSent['kind']; product?: string; to?: string; toMany?: string[]; runAt?: number; start?: 'later'; threads?: number }) => void;
+  onSending?: (p: { kind: ThreadSent['kind']; product?: string; to?: string; toMany?: string[]; runAt?: number; start?: 'later' }) => void;
   /** A send handed over with `onSending` that did not stand. The words are back in the draft. */
   onFailed?: (reason: string, p: { to?: string; also?: string[] }) => void;
   /** Drawn open on the empty inbox rather than as a dialog: no veil, To and
@@ -505,7 +506,7 @@ export function ThreadComposer({
   // The other reason Send can be off: there is no project to send to at all
   // (w-f8d123be62). It gets a line in the bar rather than a tooltip, because
   // the whole fault was that nothing on screen said anything.
-  const stopper = noProjectYet(product, { person: !!person });
+  const stopper = noProjectYet(product, { person: !!person, noComputer: onCloudPhone() });
   // A task needs somewhere to live whoever it is for, so a task to a person
   // is held to the task's bar, not the message's.
   const asMessage = !!person && sendAs === 'message';
@@ -1197,7 +1198,7 @@ export function ThreadComposer({
             {stopper && (
               <span className="tc-why">
                 {stopper.reason}{' '}
-                {onNewProject
+                {onNewProject && stopper.action
                   ? <button type="button" className="tc-why-do" onClick={onNewProject}>{stopper.action}</button>
                   : stopper.action}
               </span>

@@ -129,7 +129,7 @@ export function planFor(press: Press, item: PressedItem | null, now = Date.now()
       };
     }
     case 'stop':
-      return { steps: [{ door: 'stopSession', payload: on }], toast: 'Stop sent. Your Mac stops the agent when it gets it.' };
+      return { steps: [{ door: 'stopSession', payload: on }], toast: 'Stop sent. Your computer stops the agent when it gets it.' };
     case 'run-now':
       return { steps: [{ door: 'runNow', payload: on }], toast: 'Up next. It starts as soon as an agent is free.' };
     case 'send-back':

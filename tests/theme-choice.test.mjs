@@ -32,11 +32,17 @@ describe('resolveTheme', () => {
     }
   });
 
-  it('leaves no reader of the machine anywhere in the window', () => {
+  it('leaves no reader of the machine\'s colour scheme anywhere in the window', () => {
     // Matching the Mac is a look someone can PICK now, not something that
     // happens to them, and the option to pick it is not built yet. Asserted
-    // over the source because a single reintroduced `matchMedia` in any file
-    // brings the disagreement back and nothing else would fail.
+    // over the source because a single reintroduced reader in any file brings
+    // the disagreement back and nothing else would fail.
+    //
+    // IT IS THE COLOUR SCHEME AND NOT `matchMedia` ITSELF (2026-10-26). The
+    // rule caught the word, so `phoneSized`, a media query about how wide the
+    // window is, turned this red the day it landed. A reader of the mode has
+    // to name `prefers-color-scheme` to ask for it, in a query here or in the
+    // file holding the constant, so naming that is the whole of the rule.
     const src = path.join(root, 'renderer/src');
     const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (
       e.isDirectory() ? walk(path.join(dir, e.name))
@@ -47,7 +53,7 @@ describe('resolveTheme', () => {
       // The corner tag is its own small window, approved to follow the Mac's
       // mode (corner-tag.css, w-dafae58a23). This rule is about the main window.
       if (f.includes(`${path.sep}corner-tag${path.sep}`)) return false;
-      return /prefers-color-scheme|matchMedia/.test(fs.readFileSync(f, 'utf8'));
+      return /prefers-color-scheme/.test(fs.readFileSync(f, 'utf8'));
     });
     expect(guilty.map((f) => path.relative(root, f))).toEqual([]);
   });

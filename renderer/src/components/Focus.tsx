@@ -94,7 +94,7 @@ import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
 import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
-import { SHIP_ASK, SHIP_OFFER, shipOfferLive } from '../ship-offer';
+import { shipOfferFor, shipOfferLive, standingFrom, UNREAD, type Standing } from '../ship-offer';
 import { MOVED_PX, THE_OPTIONS_MOVED, clickLandsOnTheRowYouSaw } from '../pick-settles';
 import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
@@ -588,7 +588,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   pageAsk?: { what: 'summary' | 'people' | 'rename'; at: number } | null;
   onAsked?: () => void;
   /** What this page draws that ⌘K offers rows for. */
-  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean }) => void;
+  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null; ship: ParsedOption[] | null }) => void;
   /** Drawn right above the reply box: where a reply that moved her here went (./SentLine). */
   aboveDock?: ReactNode;
   /**
@@ -677,7 +677,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    * thread's own options stand, and the number keys answer it (App.tsx).
    * `raised` counts each close that raised it, so each one scrolls to it.
    */
-  closeAsk?: { ask: string; options: ParsedOption[]; raised: number; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
+  closeAsk?: { ask: string; options: ParsedOption[]; raised: number; onPick: (n: number) => void; keep?: { label: string; onKeep: () => void } } | null;
   // Said out loud when a file a worker named is not in this product. Nothing
   // else on the card can tell her a chip failed.
   onNotice: (text: string) => void;
@@ -1111,16 +1111,24 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // back before the code she watched being written became pressable. A finished
   // row does not change under her, so it is read once.
   const [figures, setFigures] = useState<ChangeFigures | null>(null);
+  // And where its folder stands, off the same file, because the figures alone
+  // cannot say whether any of this reached a commit (../ship-offer.ts).
+  const [standing, setStanding] = useState<Standing>(UNREAD);
   useEffect(() => {
     let live = true;
     setFigures(null);
+    setStanding(UNREAD);
     // One of her own Claude Code sessions is not one of our runs: nothing wrote
     // a change for it, so there is nothing to ask for.
     if (agent) return () => { live = false; };
     const read = () => {
       api.codeChange({ product: item.product, src: changePathFor(item.id) })
-        .then((r) => { if (live) setFigures(r?.ok ? figuresFrom(r.change) : null); })
-        .catch(() => { if (live) setFigures(null); });
+        .then((r) => {
+          if (!live) return;
+          setFigures(r?.ok ? figuresFrom(r.change) : null);
+          setStanding(r?.ok ? standingFrom(r.change) : UNREAD);
+        })
+        .catch(() => { if (live) { setFigures(null); setStanding(UNREAD); } });
     };
     read();
     if (!session) return () => { live = false; };
@@ -1334,18 +1342,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // AND THE APP'S OWN OFFER IS THE OTHER HALF OF IT (../ship-offer.ts): a run
   // that ended, left a change and asked nothing is asked about here instead.
   // It widens the strip and nothing else, which is what this seam is for.
-  const shipOffer = shipOfferLive(item, { change: !!figures, running: !!session || !!agent });
+  //
+  // AND WHICH WORDS IT ASKS IN COME OFF THE FOLDER, not off a fixed pair:
+  // work with a commit on it is shipped, work nobody committed is committed
+  // first, and work that has been thrown away is not asked about at all.
+  const shipAsk = shipOfferLive(item, { change: !!figures, running: !!session || !!agent }) ? shipOfferFor(standing) : null;
+  const shipOffer = !!shipAsk;
   const stripShown = showOptions || shipOffer;
   // Whatever the pane is leading with, not the ask alone: on a row the user
   // wrote, the ask is the one field a worker cannot answer in (format.ts says
   // why). The agent's own offer wins wherever there is one.
-  const options = showOptions ? itemOptions(item) : shipOffer ? SHIP_OFFER : [];
+  const options = showOptions ? itemOptions(item) : shipAsk ? shipAsk.options : [];
   const peekOption = peek === null ? null : options.find((o) => o.n === peek) ?? null;
   // WHAT THIS PAGE IS DRAWING, for the keys and the ⌘K rows that act on it.
   // The app's own offer goes up with it because only this page knows it is
   // there, and a number has to answer what is on the screen.
   useEffect(() => {
-    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow, ship: shipOffer });
+    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow, ship: shipAsk?.options ?? null });
   }, [item.product, item.id, !!figures, summaryNow, shipOffer]);
   // AND WHERE IT IS DRAWN (w-560647d4db). Almost always in the pane, at the foot
   // of the turn that made the offer, which is the whole of this round: pinned to
@@ -1374,8 +1387,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const askAllLines = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
   // The app's own question is its own sentence. Read off the result it would be
   // whatever the run happened to end on, which answers nothing.
-  const ask = shipOffer ? SHIP_ASK : askLine;
-  const askAll = shipOffer ? SHIP_ASK : askAllLines;
+  const ask = shipAsk ? shipAsk.ask : askLine;
+  const askAll = shipAsk ? shipAsk.ask : askAllLines;
 
   // A ROW THAT JUMPED UNDER THE POINTER DOES NOT TAKE THE NEXT CLICK
   // (../pick-settles.ts says why). Where the strip actually is, read after
@@ -2088,6 +2101,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     <div className="focus-dock">
       <div className="focus-dock-inner">
         {/* Under a full screen page they come up with the box instead, below. */}
+        {/* Bare here because an agent's question is already the page's own
+            headline. The heading comes back for the one offer that says
+            something the page does not: there was nothing over "Ship it
+            (recommended)" saying the change had never been committed (F-79,
+            ../ship-offer.ts). */}
         {page && stripShown && !fullScreenDoc && !closeAsk && (
           <div className={`one-choices${choicesFolded ? ' one-choices-folded' : ''}`}>
             <OptionsOffer
@@ -2097,7 +2115,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
               stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
-              bare
+              bare={!shipAsk?.headed}
             />
             <ChoicesFold onFold={foldChoices} />
           </div>

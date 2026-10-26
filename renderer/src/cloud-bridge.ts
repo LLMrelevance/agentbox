@@ -25,7 +25,7 @@ import { SEND_MAX_BYTES, sendFiles, sentFileName } from './phone-sends-files';
 import { LINK_RENEW_MS, fileOnPhone, linkForFile, linkOfEntry as linkOfName, objectsToSign, phonePage, renewLinks, type Links } from './phone-links';
 import { BUCKET, cloudPlaces, findFile, findFolder, installCloudFiles, type Place } from './cloud-files';
 import {
-  LIVE_FOR_MS, NOT_HERE, PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
+  LIVE_FOR_MS, NOT_HERE, PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneConnectState, phoneHistory, phoneSlug, phoneStatusLine,
   phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
 } from './phone-rows';
 import { phoneSender } from './phone-send';
@@ -51,6 +51,19 @@ const READS = new Set([
   // Where she dragged a row or a project to: kept on this page, not sent.
   'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
 ]);
+// The reads whose callers take a field off the answer: each gets an empty
+// answer of its own shape, not null (tests/the-done-tab-opens-on-the-web-app).
+const ON_COMPUTER = 'This is on your computer.';
+export const EMPTY_READS = {
+  olderItems: async () => ({ items: [], more: false }),
+  commandCatalog: async () => [],
+  codeFile: async () => ({ ok: false, error: ON_COMPUTER }),
+  railNote: async () => ({ ok: false, error: ON_COMPUTER }),
+  agentConversation: async () => ({ ok: false, reason: ON_COMPUTER }),
+  // Settings opens on the pages a browser keeps; the computer's own are not drawn here.
+  settingsRead: async () => ({ ok: true, workspace: null, projects: [] }),
+};
+
 export function readCloudConfig(doc: Document = document): CloudConfig | null {
   const raw = doc.querySelector('meta[name="agentbox-cloud"]')?.getAttribute('content');
   if (!raw) return null;
@@ -58,6 +71,13 @@ export function readCloudConfig(doc: Document = document): CloudConfig | null {
     const c = JSON.parse(raw);
     return typeof c?.url === 'string' && typeof c?.anonKey === 'string' ? { url: c.url, anonKey: c.anonKey } : null;
   } catch { return null; }
+}
+
+/** The commit this site was built from, stamped by scripts/build-phone-site.mjs. */
+export function readBuildStamp(doc: Pick<Document, 'querySelector'> = document): { sha: string; at: number } | null {
+  const m = /^([0-9a-f]{40}) (\S+)$/.exec(doc.querySelector('meta[name="agentbox-build"]')?.getAttribute('content') ?? '');
+  const at = m ? Date.parse(m[2]) : NaN;
+  return m && Number.isFinite(at) ? { sha: m[1].slice(0, 7), at } : null;
 }
 
 // The same server function the Mac's card posts to (main/feedback.mjs), on the
@@ -75,6 +95,7 @@ const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
 export function installCloudBridge(cfg: CloudConfig | null = typeof document === 'undefined' ? null : readCloudConfig()): boolean {
   if (!cfg || typeof window === 'undefined' || (window as any).zero) return false;
   const client: CloudClient = cloudClient(cfg, { storage: localStorage, fetchImpl: (u, i) => fetch(u, i) });
+  const build = readBuildStamp();
   document.documentElement.dataset.door = 'phone';
   document.documentElement.dataset.via = 'cloud';
   document.documentElement.dataset.shell = 'tab';
@@ -201,7 +222,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     };
   }
 
-  Object.assign(bridge, {
+  Object.assign(bridge, EMPTY_READS, {
     async snapshot() {
       await boot;
       const view = phoneView(rows);
@@ -209,7 +230,9 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
         phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) }) : null,
-        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, productOrder: view.products.map((p) => p.slug) },
+        phoneConnect: phoneConnectState({ signedIn: client.signedIn(), started, error, projects: rows.projects, email: client.session()?.user.email }),
+        phoneAccount: client.signedIn() ? { email: client.session()?.user.email ?? null, seenAt: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects), build } : null,
+        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, queued: view.queued, productOrder: view.products.map((p) => p.slug) },
         engines: null, runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };

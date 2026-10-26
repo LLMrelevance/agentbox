@@ -137,7 +137,11 @@ describe('where the app wires it', () => {
     expect(focus).toContain('{offerInPane && (page || closeAsk ? null : (');
     // Under a full screen page they come up with the box instead
     // (tests/a-full-screen-page-in-one-at-a-time-shows-no-options-until-the-box-opens).
-    expect(focus).toMatch(/\{page && stripShown && !fullScreenDoc && !closeAsk && \(\s*<div className=\{`one-choices[^`]*`\}>\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
+    //
+    // The heading comes back for the one offer the app makes that says
+    // something the page does not, which is the change nobody committed
+    // (tests/a-change-nobody-committed-is-not-offered-for-shipping).
+    expect(focus).toMatch(/\{page && stripShown && !fullScreenDoc && !closeAsk && \(\s*<div className=\{`one-choices[^`]*`\}>\s*<OptionsOffer[^/]{0,600}\bbare=\{!shipAsk\?\.headed\}\s*\/>/);
   });
   it('the conversation folds behind the summary', () => {
     expect(thread).toMatch(/<QueueSummary/);

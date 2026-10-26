@@ -153,10 +153,12 @@ describe('the page and the wiring', () => {
 
   // The owner first said the cloud's sign-up needed no name (2026-10-20), then
   // that a third field is what tells sign-up from sign-in (2026-10-23).
+  // The rule moved out of the dimmed button and into what-is-missing.ts
+  // (w-aaedc8f711): an empty name is now said rather than drawn as a dead
+  // button (tests/the-cloud-sign-in-page-says-what-it-waits-on).
   it('creating an account asks a name, for the cloud as for the team', () => {
-    const page = read('renderer/src/team/SignInPage.tsx');
-    expect(page).toContain("{mode === 'sign-up' && (");
-    expect(page).toContain("(mode !== 'sign-up' || !!name.trim())");
+    expect(read('renderer/src/team/SignInPage.tsx')).toContain("{mode === 'sign-up' && (");
+    expect(read('renderer/src/team/what-is-missing.ts')).toContain("mode === 'sign-up' && !name.trim()");
   });
 
   it('the cloud button is drawn on any Mac the cloud is offered to', () => {

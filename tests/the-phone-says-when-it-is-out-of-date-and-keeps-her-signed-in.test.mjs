@@ -28,11 +28,12 @@ describe('the line over her inbox', () => {
     expect(phoneStatusLine({ error: 'Failed to fetch', fetchedAt: 0, macSeen: 0 }, NOW)).toBe('Can\'t reach your inbox online.');
   });
 
-  it('says when her Mac was last online, once it has been away a while', () => {
-    expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: NOW - 3 * 24 * 60 * MIN }, NOW)).toBe('Your Mac was last online 3 days ago. What you send waits for it.');
-    expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: NOW - 40 * MIN }, NOW)).toBe('Your Mac was last online 40 minutes ago. What you send waits for it.');
+  it('says when her computer was last online, once it has been away a while', () => {
+    expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: NOW - 3 * 24 * 60 * MIN }, NOW)).toBe('Your computer was last online 3 days ago. What you send waits for it.');
+    expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: NOW - 40 * MIN }, NOW)).toBe('Your computer was last online 40 minutes ago. What you send waits for it.');
     expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: NOW - 9 * MIN }, NOW)).toBe(null);
-    // No Mac has ever put anything here: the empty inbox says so itself.
+    // No computer has ever put anything here: the inbox asks for one instead
+    // (tests/the-web-app-says-when-no-computer-has-connected.test.mjs).
     expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: 0 }, NOW)).toBe(null);
   });
 
