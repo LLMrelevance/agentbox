@@ -240,9 +240,9 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-sent-bar { display: flex; align-items: center; padding: 6px 20px 0; border-bottom: 1px solid var(--line); }
 /* Its underline sits on the bar's line, as a tab's does over the inbox. */
 .tq-sent-bar .tm-tab { margin-bottom: -1px; }
+/* Its row keeps the inbox's own columns, which give up priority and then
+   project as the chat narrows: columns set here would outrank those steps. */
 .tq-inrows { --text-x: 20px; --row-r: 20px; --gutter: 20px; white-space: normal; }
-/* The chat is narrower than the inbox: status and time keep only the width their words need. */
-.tq-inrows .th-grid { grid-template-columns: minmax(0, 1fr) 104px 84px; column-gap: 16px; }
 .tq-inrows .row:focus-visible { outline: 1px solid var(--line-strong); outline-offset: -1px; }
 .tq-dot-need { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 .tq-pick { position: relative; }
