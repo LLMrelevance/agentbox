@@ -6146,7 +6146,7 @@ export default function App() {
     : evMember.kind === 'chat' && !evMember.team ? <SpaceBar m={evMember} tabs={[]} slot={inTeamChat ? setTaskHeader : undefined} />
     : <SpaceBar m={evMember} onTab={(t) => pickMember(evMember.key, t as 'messages' | 'agents')} slot={inTeamChat ? setTaskHeader : undefined}
       tabs={[{ id: 'messages', label: 'Messages', on: evTab === 'messages' }, { id: 'agents', label: 'Agents', count: evMember.agents ?? undefined, on: evTab === 'agents' }]}
-      right={<>{teammatesShown ? teammatesUi.right : null}<AgentsLine n={evMember.agents} /></>} />;
+      right={<>{teammatesShown ? teammatesUi.right : null}<AgentsLine n={evMember.agents} starting={evMember.starting} /></>} />;
   // The tabs over a chat that is open under the cards, the same row the list draws.
   const needsYouCount = { inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length };
   const evTabsRow = teamTabs ? <StateTabs view={view} counts={needsYouCount}

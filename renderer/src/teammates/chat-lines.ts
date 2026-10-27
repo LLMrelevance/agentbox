@@ -110,10 +110,11 @@ export function workingLine(
   t: Pick<Teammate, 'name' | 'running' | 'now'>,
   session: Pick<RunningSession, 'startedAt' | 'activity'> | null | undefined,
   now = Date.now(),
+  asked: string | null = null,
 ): { state: 'working' | 'waiting'; text: string; aside: string } | null {
   if (!t.running) return null;
   if (!session) return { state: 'waiting', text: 'Waiting for a free agent', aside: '' };
-  const run = t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : 'its next run';
+  const run = asked || (t.now && t.now !== 'Waiting on you' && t.now !== 'Paused' ? t.now : 'its next run');
   const elapsed = Math.max(0, now - session.startedAt);
   return { state: 'working', text: session.activity?.at(-1)?.label?.trim() || run, aside: elapsed < 60_000 ? 'just started' : `${spanLabel(elapsed)} in` };
 }
@@ -131,6 +132,35 @@ export function teamWorkingLine(name: string, line: { state: 'working' | 'waitin
   if (line.state === 'waiting') return { lead: `${name} is waiting for a free agent`, text: '' };
   if (/^[A-Z][a-z]+ing\b/.test(line.text)) return { lead: `${name} is`, text: line.text[0].toLowerCase() + line.text.slice(1) };
   return { lead: `${name} is on`, text: line.text };
+}
+
+// The live line in a teammate's own chat, said of it by name: the step alone
+// reads as an echo of the message above it, not as anyone working.
+export function liveLine(
+  t: Pick<Teammate, 'name' | 'running' | 'now'>,
+  session: Pick<RunningSession, 'startedAt' | 'activity'> | null | undefined,
+  now = Date.now(),
+  asked: string | null = null,
+): { state: 'working' | 'waiting'; lead: string; text: string; aside: string } | null {
+  const line = workingLine(t, session, now, asked);
+  return line && { state: line.state, ...teamWorkingLine(t.name, line), aside: line.aside };
+}
+
+// What you said to a teammate that it has not answered. A message sent while
+// a run is open goes into that run, so this, not the thread's title, is what
+// the run is on.
+export function pendingAsk(entries: readonly ChatEntry[], id: string): string | null {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i];
+    if (e.kind === 'msg') {
+      if (e.from === id) return null;
+      if (e.from === 'you' && toList(e.to).includes(id)) return firstSentence(e.text ?? '') || null;
+    } else if (e.kind === 'run' && e.teammate === id) {
+      if (e.verb === 'answered') return firstSentence(e.text ?? '') || null;
+      if (e.verb === 'sent' || e.verb === 'finished' || e.verb === 'stopped') return null;
+    }
+  }
+  return null;
 }
 
 export function longMessage(text: string): boolean {

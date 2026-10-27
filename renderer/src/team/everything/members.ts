@@ -17,6 +17,8 @@ export interface Member {
   level?: number | null;
   /** Agents running now; null when they keep it to themselves. */
   agents: number | null;
+  /** An AI teammate whose run is up and has no agent yet. */
+  starting?: boolean;
   /** What they are on, or the line that says why nothing is running. */
   now: string | null;
   /** A chat's people, its newest line, and whether it holds something you have not read. */
@@ -31,7 +33,7 @@ export interface Member {
 
 type PersonIn = { id: string; name: string; avatarUrl: string | null };
 type CardIn = { id: string; name: string; me: boolean; avatarUrl: string | null; agents: number | null; level: number | null; workingOn: string | null; workingPrivate: boolean; status: string | null; away?: boolean };
-type MateIn = { id: string; name: string; letter: string; role: string | null; now: string | null; status: string; paused: boolean };
+type MateIn = { id: string; name: string; letter: string; role: string | null; now: string | null; status: string; paused: boolean; running?: { id: string } | null; waiting?: readonly unknown[] };
 type ChatIn = { key: string; name: string; faces: { name: string; url: string | null }[]; last: string; at: number; unread: boolean };
 type ThreadIn = { personId: string; state: string; title: string | null; updatedAt: number };
 
@@ -80,8 +82,10 @@ export function buildMembers({ me, people = [], wall = null, cards = [], teammat
       : { key: `person:${p.id}`, kind: 'person', name: p.name, avatarUrl: p.avatarUrl, level: null, agents: running.length, now: running[0]?.title ?? null });
   }
   for (const t of teammates) {
-    out.push({ key: `mate:${t.id}`, kind: 'mate', name: t.name, letter: t.letter || t.name.slice(0, 1), role: t.role, agents: mateAgents.get(t.id) ?? 0,
-      now: t.paused ? 'Paused' : t.status === 'draft' ? 'Setting up' : t.now });
+    const agents = mateAgents.get(t.id) ?? 0;
+    // A run under way outranks Paused, which stops nothing already going.
+    const now = t.status === 'draft' && !t.waiting?.length ? 'Setting up' : t.paused && !t.running ? 'Paused' : t.now;
+    out.push({ key: `mate:${t.id}`, kind: 'mate', name: t.name, letter: t.letter || t.name.slice(0, 1), role: t.role, agents, starting: !!t.running && !agents, now });
   }
   const teamCard = out.find((m) => m.team);
   if (teamCard) teamCard.agents = out.reduce((n, m) => n + (m.kind === 'person' || m.kind === 'mate' ? m.agents ?? 0 : 0), 0);

@@ -44,7 +44,7 @@ function Card({ m, on, drop, onPick, drag }: { m: Member; on: boolean; drop: 'be
           <span className="rm-ag">{m.unread ? <><i className="ev-new" />New messages</> : 'Chat'}</span></>
         : <><span className={`ev-on rm-one${m.agents ? '' : ' idle'}`}>{m.now ?? ' '}</span>
           {m.agents == null ? <span className="rm-ag"> </span>
-            : <span className="rm-ag"><LiveMark still={!m.agents} />{m.agents ? agentsWords(m.agents).toUpperCase() : 'NOT RUNNING'}</span>}</>}
+            : <span className="rm-ag"><LiveMark still={!m.agents && !m.starting} />{m.agents ? agentsWords(m.agents).toUpperCase() : m.starting ? 'STARTING' : 'NOT RUNNING'}</span>}</>}
     </div>
   </div>;
 }
@@ -97,9 +97,9 @@ export function SpaceBar({ m, tabs, onTab, right, slot }: {
   </div>;
 }
 
-export function AgentsLine({ n, still }: { n: number | null; still?: string }) {
+export function AgentsLine({ n, still, starting = false }: { n: number | null; still?: string; starting?: boolean }) {
   if (n == null) return null;
-  return <><LiveMark still={!n} />{n ? agentsWords(n) : still ?? 'Not running'}</>;
+  return <><LiveMark still={!n && !starting} />{n ? agentsWords(n) : starting ? 'Starting' : still ?? 'Not running'}</>;
 }
 
 /** An AI teammate's threads, the inbox's own rows: open ones first, then today's finished. */
