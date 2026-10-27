@@ -34,7 +34,7 @@ import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-wor
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
-import { menuSetupLine, SETUP } from '../cloud-setup';
+import { brokenAccounts, buttonAsksSignIn, menuSetupLine, readBrokenSeen, seenAfter, SETUP, writeBrokenSeen } from '../cloud-setup';
 import type { Offer, OfferGo } from '../cloud-upgrade';
 import './pages.css';
 
@@ -265,6 +265,18 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
   // The invitation is for a cloud with no account at all, and none on its way.
   const nobodyReady = !accounts.length && !(cloud.signIns || []).length;
   const setup = menuSetupLine(cloud);
+  // A STOPPED ACCOUNT IS SAID IN WORDS until the menu has been opened on it
+  // (../cloud-setup.ts). It counts as seen when the menu closes, so the button
+  // does not shrink under a menu that is open.
+  const [seen, setSeen] = useState(readBrokenSeen);
+  const looked = useRef<string[]>([]);
+  useEffect(() => {
+    if (open) { looked.current = [...new Set([...looked.current, ...brokenAccounts(cloud)])]; return; }
+    const next = seenAfter(cloud, seen, looked.current);
+    looked.current = [];
+    if (next.join() !== seen.join()) { setSeen(next); writeBrokenSeen(next); }
+  }, [open, cloud, seen]);
+  const asks = !nobodyReady && buttonAsksSignIn(cloud, seen);
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
   // TRY AGAIN ON ONE THAT WAS NOT ADDED starts it again and opens the setup on
   // its sign-in, rather than on a list with a second Try again on it.
@@ -278,11 +290,13 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
     goSetUp();
   };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
-    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${!count && nobodyReady ? ' named' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
-      aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={nobodyReady ? SETUP.inviteGo : `Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
+    <button type="button" className={`th-disp th-cloud${count && !asks ? ' count' : ''}${asks || (!count && nobodyReady) ? ' named' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
+      aria-label={asks ? SETUP.menuBroken : count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={asks ? SETUP.menuBroken : nobodyReady ? SETUP.inviteGo : `Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
       data-hint="cloud" data-hint-align="center" onClick={() => setOpen((o) => !o)}>
       {/* The word until it is set up: a new user found no other way in, and nothing saying what the icon was (F-97). */}
-      <CloudIcon />{count && <b>{count}</b>}{!count && nobodyReady && <span className="th-cloud-word">Cloud</span>}{!count && (nobodyReady || setup) && <i />}
+      <CloudIcon />{asks
+        ? <span className="th-cloud-word ask">{SETUP.again}</span>
+        : count ? <b>{count}</b> : nobodyReady && <span className="th-cloud-word">Cloud</span>}{(asks || (!count && (nobodyReady || setup))) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
       <span className="th-cloud-invite-ic"><CloudIcon /></span>
@@ -550,6 +564,16 @@ export function EmptyTab({ view }: { view: TabView }) {
 export function TableHead({ person = false, tab }: { person?: boolean; tab?: string }) {
   return <div className="row th-head"><span className="mark" aria-hidden="true" /><div className={`row-main th-grid${person ? ' with-person' : ''}`}>
     <div>Thread</div><div>Status</div><div className="th-col-proj">Project</div>{person && <div>Person</div>}<div className="th-col-prio">Priority</div><div className="num">{timeHeading(tab)}</div>
+  </div></div>;
+}
+
+/** A section of Your threads (./stack-rules): its name and count where Thread is, a click folds it, and its own time column. */
+export function SectionHead({ label, count, tab, folded, onFold }: { label: string; count: number; tab: string; folded: boolean; onFold: () => void }) {
+  return <div className={`row th-head th-section${folded ? ' folded' : ''}`}><span className="mark" aria-hidden="true" /><div className="row-main th-grid">
+    <div><button type="button" className="th-fold" aria-expanded={!folded} onClick={onFold}>
+      <svg className="th-fold-mark" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
+      {label}<b>{count}</b>
+    </button></div><div /><div className="th-col-proj" /><div className="th-col-prio" /><div className="num">{timeHeading(tab)}</div>
   </div></div>;
 }
 

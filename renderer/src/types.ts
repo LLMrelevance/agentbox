@@ -740,6 +740,9 @@ export interface AgentTurn {
   // Which person wrote it, on a shared project (the team version). A message
   // from a teammate is drawn with their face and name instead of "You".
   by?: string;
+  /** An agent teammate that handed this thread work: drawn as an agent's
+   *  message under that teammate's name, never as yours. */
+  from?: string;
   // THE MESSAGE'S OWN NAME, the uid of the ledger line it was written as. A
   // reaction is stored against it (w-560647d4db), so only a message that has
   // one can wear chips: a message still on its way has not been written down

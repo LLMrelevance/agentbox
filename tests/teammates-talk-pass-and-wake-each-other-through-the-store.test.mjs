@@ -12,7 +12,7 @@ import path from 'node:path';
 import { appHome } from '../main/store/home.mjs';
 import { loadStore } from '../main/store-modules.mjs';
 import { Teammates } from '../main/teammates.mjs';
-import { teammateIdOf, passedFromOf, hopOf } from '../shared/teammates.mjs';
+import { teammateIdOf, passedFromOf, hopOf, runIdFor } from '../shared/teammates.mjs';
 import { isCleanRun } from '../shared/repeats.mjs';
 import { threadEvents } from '../renderer/src/thread-history';
 
@@ -320,13 +320,17 @@ describe('teammates through the store', () => {
     expect(hopOf(run)).toBe(0);
   });
 
+  // Two passes about different work: two from one thread are one piece of
+  // work and share a thread (talk-between-teammates-stays-in-the-thread-it-is-about).
   it('a second pass while the teammate is busy is queued, then released when it is free', async () => {
     const ada = team.create({ starter: 'quality' });
     const felix = team.create({ starter: 'maintainer' });
-    team.post({ text: 'go', to: [ada.id] });
+    const go = team.post({ text: 'go', to: [ada.id] });
+    const also = team.post({ text: 'and this', to: [ada.id], fresh: true });
     await tick(Date.now());
-    onRun(store.listItems().find((i) => teammateIdOf(i) === ada.id).id);
+    onRun(runIdFor(`${go.id}>${ada.id}`));
     core.teamPass({ to: 'Maintainer', title: 'first', details: '' });
+    onRun(runIdFor(`${also.id}>${ada.id}`));
     core.teamPass({ to: 'Maintainer', title: 'second', details: '' });
     await tick(Date.now());
     const runs = store.listItems().filter((i) => teammateIdOf(i) === felix.id).sort((a, b) => a.createdAt - b.createdAt);

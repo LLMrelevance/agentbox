@@ -1,6 +1,6 @@
 // Everything else (w-b5f23cff71): your team as cards over the page, the bar
 // over whichever one is open, and the lists its Agents tab draws.
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { Product, ThreadCard, WorkItem } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from '../rooms/RoomFace';
@@ -30,11 +30,16 @@ export function MemberFace({ m, size }: { m: Member; size: number }) {
 
 const BUBBLE = <svg className="ev-bubble" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>;
 
-function Card({ m, on, drop, onPick, drag }: { m: Member; on: boolean; drop: 'before' | 'after' | null; onPick: () => void; drag: Record<string, unknown> }) {
+function Card({ m, on, drop, onPick, drag, onHide }: {
+  m: Member; on: boolean; drop: 'before' | 'after' | null; onPick: () => void; drag: Record<string, unknown>; onHide?: () => void;
+}) {
   const chat = m.kind === 'chat';
+  const corner = (m.kind === 'chat' || m.kind === 'person') && onHide
+    && <button type="button" className="ev-x" aria-label={`Hide ${m.name}`} title="Hide" onClick={(e) => { e.stopPropagation(); onHide(); }}>×</button>;
   const attrs = { role: 'button', tabIndex: 0, className: `ev-card ${m.kind}${on ? ' on' : ''}${drop ? ` drop-${drop}` : ''}`, 'data-key': m.key, title: m.name,
     onClick: onPick, onKeyDown: (e: { key: string; preventDefault: () => void }) => { if (e.key === 'Enter') { e.preventDefault(); onPick(); } }, ...drag };
   return <div {...attrs}>
+    {corner}
     <MemberFace m={m} size={52} />
     <div className="ev-t">
       <span className="ev-n">{chat && BUBBLE}<span className="rm-one">{m.name}</span>
@@ -50,12 +55,14 @@ function Card({ m, on, drop, onPick, drag }: { m: Member; on: boolean; drop: 'be
 }
 
 /** The cards. A card dropped on another goes before it, or after it on its right half. */
-export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = false }: {
+export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = false, onHide }: {
   members: Member[]; picked: string | null; onPick: (key: string) => void;
   /** The cards' new order after one was dragged. */
   onMove: (keys: string[]) => void;
   /** The last card: a new AI teammate. */
   onAdd?: () => void; adding?: boolean;
+  /** Put a chat or a person away. It is listed under the cards (`HiddenList`), never drawn among them. */
+  onHide?: (m: Member) => void;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<{ key: string; side: 'before' | 'after' } | null>(null);
@@ -67,6 +74,7 @@ export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = fal
   const end = () => { setDragging(null); setOver(null); };
   return <div className="ev-strip" aria-label="Your team">
     {members.map((m) => <Card key={m.key} m={m} on={picked === m.key} onPick={() => onPick(m.key)}
+      onHide={onHide && (() => onHide(m))}
       drop={over?.key === m.key && dragging && dragging !== m.key ? over.side : null}
       drag={{
         draggable: true,
@@ -79,6 +87,30 @@ export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = fal
       <span className="ev-ai" style={{ width: 52, height: 52, fontSize: 18 }} aria-hidden="true">+</span>
       <div className="ev-t"><span className="ev-n">New teammate</span><span className="ev-on idle rm-one">An AI teammate with a job of its own</span></div>
     </button>}
+  </div>;
+}
+
+/** "N hidden" under the cards: a short list of their names, each with Show, over the page rather than in it. */
+export function HiddenList({ hidden, onShow, startOpen = false }: { hidden: Member[]; onShow: (m: Member) => void; startOpen?: boolean }) {
+  const [open, setOpen] = useState(startOpen);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open || hidden.length === 0) return undefined;
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: globalThis.KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    window.addEventListener('mousedown', away);
+    window.addEventListener('keydown', esc, true);
+    return () => { window.removeEventListener('mousedown', away); window.removeEventListener('keydown', esc, true); };
+  }, [open, hidden.length]);
+  if (hidden.length === 0) return null;
+  return <div className="ev-hidden-at" ref={box}>
+    <button type="button" className="ev-hidden" aria-expanded={open} onClick={() => setOpen((was) => !was)}>{hidden.length} hidden</button>
+    {open && <div className="ev-hidden-menu" role="menu">
+      {hidden.map((m) => <div key={m.key} className="ev-hidden-row">
+        <span className="rm-one">{m.name}</span>
+        <button type="button" aria-label={`Show ${m.name}`} onClick={() => { onShow(m); if (hidden.length === 1) setOpen(false); }}>Show</button>
+      </div>)}
+    </div>}
   </div>;
 }
 
@@ -155,5 +187,5 @@ export function CornerFaces({ members, onPick }: { members: Member[]; onPick: (k
     <MemberFace m={m} size={24} />{!!m.agents && <span className="ev-cn">{m.agents}</span>}
   </button>;
   if (people.length + mates.length < 2) return null;
-  return <div className="ev-corner">{people.map(face)}{people.length > 0 && mates.length > 0 && <i className="ev-cgap" />}{mates.map(face)}</div>;
+  return <div className="ev-corner">{people.map(face)}{mates.map(face)}</div>;
 }
