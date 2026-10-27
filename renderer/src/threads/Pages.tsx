@@ -553,6 +553,16 @@ export function TableHead({ person = false, tab }: { person?: boolean; tab?: str
   </div></div>;
 }
 
+/** A section of Your threads (./stack-rules): its name and count where Thread is, a click folds it, and its own time column. */
+export function SectionHead({ label, count, tab, folded, onFold }: { label: string; count: number; tab: string; folded: boolean; onFold: () => void }) {
+  return <div className={`row th-head th-section${folded ? ' folded' : ''}`}><span className="mark" aria-hidden="true" /><div className="row-main th-grid">
+    <div><button type="button" className="th-fold" aria-expanded={!folded} onClick={onFold}>
+      <svg className="th-fold-mark" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
+      {label}<b>{count}</b>
+    </button></div><div /><div className="th-col-proj" /><div className="th-col-prio" /><div className="num">{timeHeading(tab)}</div>
+  </div></div>;
+}
+
 /** Who a message is with, from where you sit: the other person on it. */
 export function otherPerson(item: WorkItem, me: string | null): string | null {
   const people = item.people ?? [];

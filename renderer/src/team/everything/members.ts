@@ -158,3 +158,77 @@ export function readOrder(store: Store = local()): string[] | null {
 export function writeOrder(keys: readonly string[], store: Store = local()) {
   try { store?.setItem(ORDER_KEY, JSON.stringify(keys)); } catch { /* kept for this window only */ }
 }
+
+/** Cards you put away, each with when its chat last moved at the time, so a chat comes back once it moves again. */
+export type Hidden = Record<string, number>;
+const HIDEABLE = new Set<MemberKind>(['chat', 'person']);
+
+export function hideMember(hidden: Hidden, m: Member): Hidden {
+  return HIDEABLE.has(m.kind) ? { ...hidden, [m.key]: m.at ?? 0 } : hidden;
+}
+
+export function unhideMember(hidden: Hidden, key: string): Hidden {
+  const rest = { ...hidden };
+  delete rest[key];
+  return rest;
+}
+
+export function splitHidden<T extends Member>(members: readonly T[], hidden: Hidden): { shown: T[]; hidden: T[] } {
+  const shown: T[] = [];
+  const away: T[] = [];
+  for (const m of members) {
+    const at = hidden[m.key];
+    const still = at !== undefined && HIDEABLE.has(m.kind) && !(m.kind === 'chat' && (m.at ?? 0) > at);
+    (still ? away : shown).push(m);
+  }
+  return { shown, hidden: away };
+}
+
+const HIDDEN_KEY = 'agentbox.everything.hidden';
+
+export function readHidden(store: Store = local()): Hidden {
+  try {
+    const v = JSON.parse(store?.getItem(HIDDEN_KEY) ?? 'null');
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    return Object.fromEntries(Object.entries(v).filter(([, at]) => typeof at === 'number')) as Hidden;
+  } catch { return {}; }
+}
+
+export function writeHidden(hidden: Hidden, store: Store = local()) {
+  try { store?.setItem(HIDDEN_KEY, JSON.stringify(hidden)); } catch { /* kept for this window only */ }
+}
+
+/** Under this a drag folds the cards away entirely rather than leave a sliver of a row. */
+const CARDS_SNAP = 40;
+
+/**
+ * How tall the cards are over an open chat after a drag: a height, 0 for none,
+ * or null for all of them. Given where each row of cards ends, it lands on the
+ * nearest row, so no row is ever cut through.
+ */
+export function cardsHeight(want: number, all: number, rows: readonly number[] = []): number | null {
+  if (rows.length) {
+    const stops = [0, ...rows];
+    const near = stops.reduce((best, h) => (Math.abs(h - want) < Math.abs(best - want) ? h : best), 0);
+    return near >= rows[rows.length - 1] ? null : near;
+  }
+  if (want >= all) return null;
+  return want < CARDS_SNAP ? 0 : Math.round(want);
+}
+
+const CARDS_KEY = 'agentbox.everything.cardsHeight';
+
+export function readCardsHeight(store: Pick<Storage, 'getItem'> | null = local()): number | null {
+  try {
+    const raw = store?.getItem(CARDS_KEY);
+    const n = raw == null ? NaN : Number(raw);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  } catch { return null; }
+}
+
+export function writeCardsHeight(h: number | null, store: (Store & Partial<Pick<Storage, 'removeItem'>>) | null = local()) {
+  try {
+    if (h === null) store?.removeItem?.(CARDS_KEY);
+    else store?.setItem(CARDS_KEY, String(h));
+  } catch { /* kept for this window only */ }
+}

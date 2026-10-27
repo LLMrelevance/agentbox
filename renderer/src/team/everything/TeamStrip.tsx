@@ -1,13 +1,13 @@
 // Everything else (w-b5f23cff71): your team as cards over the page, the bar
 // over whichever one is open, and the lists its Agents tab draws.
-import { useState, type DragEvent, type ReactNode } from 'react';
+import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Product, ThreadCard, WorkItem } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from '../rooms/RoomFace';
 import { RowCells, ThreadCells } from '../../threads/Pages';
 import { STATE_WORD } from '../../threads/summary-rules';
 import type { StatusCell } from '../../status-word';
-import { moveMember, type Member, type TeamRun } from './members';
+import { cardsHeight, moveMember, type Member, type TeamRun } from './members';
 import './everything.css';
 
 const agentsWords = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'} working`;
@@ -30,11 +30,20 @@ export function MemberFace({ m, size }: { m: Member; size: number }) {
 
 const BUBBLE = <svg className="ev-bubble" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>;
 
-function Card({ m, on, drop, onPick, drag }: { m: Member; on: boolean; drop: 'before' | 'after' | null; onPick: () => void; drag: Record<string, unknown> }) {
+function Card({ m, on, drop, onPick, drag, away, onHide, onShow }: {
+  m: Member; on: boolean; drop: 'before' | 'after' | null; onPick: () => void; drag: Record<string, unknown>;
+  /** Hidden, and drawn only because you asked to see the hidden ones. */
+  away: boolean; onHide?: () => void; onShow?: () => void;
+}) {
   const chat = m.kind === 'chat';
-  const attrs = { role: 'button', tabIndex: 0, className: `ev-card ${m.kind}${on ? ' on' : ''}${drop ? ` drop-${drop}` : ''}`, 'data-key': m.key, title: m.name,
+  const hideable = m.kind === 'chat' || m.kind === 'person';
+  const corner = !hideable ? null : away
+    ? onShow && <button type="button" className="ev-x ev-show" aria-label={`Show ${m.name}`} title="Show it again" onClick={(e) => { e.stopPropagation(); onShow(); }}>Show</button>
+    : onHide && <button type="button" className="ev-x" aria-label={`Hide ${m.name}`} title="Hide" onClick={(e) => { e.stopPropagation(); onHide(); }}>×</button>;
+  const attrs = { role: 'button', tabIndex: 0, className: `ev-card ${m.kind}${on ? ' on' : ''}${away ? ' away' : ''}${drop ? ` drop-${drop}` : ''}`, 'data-key': m.key, title: m.name,
     onClick: onPick, onKeyDown: (e: { key: string; preventDefault: () => void }) => { if (e.key === 'Enter') { e.preventDefault(); onPick(); } }, ...drag };
   return <div {...attrs}>
+    {corner}
     <MemberFace m={m} size={52} />
     <div className="ev-t">
       <span className="ev-n">{chat && BUBBLE}<span className="rm-one">{m.name}</span>
@@ -50,12 +59,15 @@ function Card({ m, on, drop, onPick, drag }: { m: Member; on: boolean; drop: 'be
 }
 
 /** The cards. A card dropped on another goes before it, or after it on its right half. */
-export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = false }: {
+export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = false, onHide, away, onShow, hiddenCount = 0, showingHidden = false, onShowHidden }: {
   members: Member[]; picked: string | null; onPick: (key: string) => void;
   /** The cards' new order after one was dragged. */
   onMove: (keys: string[]) => void;
   /** The last card: a new AI teammate. */
   onAdd?: () => void; adding?: boolean;
+  /** Put a chat or a person away, and the ones drawn while you look at what is hidden. */
+  onHide?: (m: Member) => void; away?: ReadonlySet<string>; onShow?: (m: Member) => void;
+  hiddenCount?: number; showingHidden?: boolean; onShowHidden?: () => void;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<{ key: string; side: 'before' | 'after' } | null>(null);
@@ -65,8 +77,9 @@ export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = fal
     return e.clientX > r.left + r.width / 2 ? 'after' : 'before';
   };
   const end = () => { setDragging(null); setOver(null); };
-  return <div className="ev-strip" aria-label="Your team">
+  return <><div className="ev-strip" aria-label="Your team">
     {members.map((m) => <Card key={m.key} m={m} on={picked === m.key} onPick={() => onPick(m.key)}
+      away={!!away?.has(m.key)} onHide={onHide && (() => onHide(m))} onShow={onShow && (() => onShow(m))}
       drop={over?.key === m.key && dragging && dragging !== m.key ? over.side : null}
       drag={{
         draggable: true,
@@ -79,7 +92,49 @@ export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = fal
       <span className="ev-ai" style={{ width: 52, height: 52, fontSize: 18 }} aria-hidden="true">+</span>
       <div className="ev-t"><span className="ev-n">New teammate</span><span className="ev-on idle rm-one">An AI teammate with a job of its own</span></div>
     </button>}
-  </div>;
+  </div>
+  {hiddenCount > 0 && onShowHidden && <button type="button" className="ev-hidden" aria-pressed={showingHidden} onClick={onShowHidden}>
+    {showingHidden ? `Hide ${hiddenCount} again` : `${hiddenCount} hidden`}
+  </button>}
+  </>;
+}
+
+/** Where each row of cards ends inside the cards area, with the strip's padding under it. */
+function rowEnds(box: HTMLElement): number[] {
+  const top = box.getBoundingClientRect().top - box.scrollTop;
+  const pad = 4;
+  return [...new Set([...box.querySelectorAll('.ev-card')].map((c) => Math.round(c.getBoundingClientRect().bottom - top) + pad))].sort((a, b) => a - b);
+}
+
+/** Between the cards and an open chat: drag it up and the cards make room (./members `cardsHeight`). */
+export function CardsGrip({ height, onHeight }: { height: number | null; onHeight: (h: number | null) => void }) {
+  const self = useRef<HTMLDivElement>(null);
+  const cards = () => self.current?.previousElementSibling as HTMLElement | null;
+  const start = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const box = cards();
+    if (!box) return;
+    e.preventDefault();
+    const all = box.scrollHeight;
+    const from = box.clientHeight;
+    const y0 = e.clientY;
+    const rows = rowEnds(box);
+    const move = (ev: PointerEvent) => onHeight(cardsHeight(from + ev.clientY - y0, all, rows));
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const keys = (e: KeyboardEvent<HTMLDivElement>) => {
+    const box = cards();
+    if (!box || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const rows = rowEnds(box);
+    const at = height ?? box.scrollHeight;
+    const next = e.key === 'ArrowUp' ? [...rows].reverse().find((r) => r < at - 1) ?? 0 : rows.find((r) => r > at + 1) ?? box.scrollHeight;
+    onHeight(cardsHeight(next, box.scrollHeight, rows));
+  };
+  return <div ref={self} className="ev-grip" role="separator" aria-orientation="horizontal" aria-label="Drag to make the chat taller"
+    title="Drag to make the chat taller. Double-click for every card." tabIndex={0}
+    onPointerDown={start} onDoubleClick={() => onHeight(null)} onKeyDown={keys} />;
 }
 
 /** Over the open card's space: whose it is, its tabs, and anything it carries on the right. */
@@ -155,5 +210,5 @@ export function CornerFaces({ members, onPick }: { members: Member[]; onPick: (k
     <MemberFace m={m} size={24} />{!!m.agents && <span className="ev-cn">{m.agents}</span>}
   </button>;
   if (people.length + mates.length < 2) return null;
-  return <div className="ev-corner">{people.map(face)}{people.length > 0 && mates.length > 0 && <i className="ev-cgap" />}{mates.map(face)}</div>;
+  return <div className="ev-corner">{people.map(face)}{mates.map(face)}</div>;
 }
