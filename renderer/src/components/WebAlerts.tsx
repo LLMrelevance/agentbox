@@ -6,10 +6,11 @@ import { Name } from '../../../shared/product-name.mjs';
 import { ALERTS_SAY, alertsState, testAlert, turnOffAlerts, turnOnAlerts, type AlertsState } from '../phone-alerts';
 
 const STEPS = ['In Safari, tap Share.', 'Tap Add to Home Screen.', `Open ${Name} from your home screen and turn alerts on here.`];
-// Only while the computer is on and nobody is at it (main/phone-alerts.mjs).
+// Sent by the computer while nobody is at it (main/phone-alerts.mjs), and by
+// the cloud while it is off (cloud/gateway/phone.mjs).
 const SAY: Partial<Record<AlertsState, string>> = {
   off: 'Get an alert when an agent needs you.',
-  on: 'Your computer alerts this phone when an agent needs you while you are away.',
+  on: "You get one when an agent needs you while you're away, even with your computer off.",
 };
 
 export function WebAlertsGroup() {
@@ -47,7 +48,7 @@ export function WebAlertsGroup() {
             </div>
             <div className="set-row-ctl">
               <button type="button" className="set-ghost" disabled={busy} onClick={run(async () => {
-                setTested(await testAlert() ? 'Sent. It arrives in a few seconds, once your computer takes it.' : 'No computer is connected to send it.');
+                setTested(await testAlert() ? 'Sent. With your computer off it can take two minutes.' : 'No computer is connected to send it.');
               }, setTested)}>Send</button>
             </div>
           </div>

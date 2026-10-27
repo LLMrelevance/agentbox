@@ -18,10 +18,18 @@ import { Name } from '../shared/product-name.mjs';
 export const EXPO_PUSH = 'https://exp.host/--/api/v2/push/send';
 // Who signs a Web Push, as the push services ask: the product, never a person.
 const PUSH_SUBJECT = 'https://agentbox.ac';
-const webPushOf = (sub, body, opts) => webpush.sendNotification(sub, body, opts);
+export const webPushOf = (sub, body, opts) => webpush.sendNotification(sub, body, opts);
 // Arrivals this close together are one alert.
 export const FOLD_MS = 3000;
 const DEADLINE_MS = 10_000;
+export const TEST_ALERT = { title: Name, body: 'Alerts reach this phone.' };
+
+/** One alert to the web app on a phone, signed with the keys it made (shared/web-alerts.mjs), from a computer or the cloud. */
+export const sendWebAlert = (web, payload, send = webPushOf) => send(
+  { endpoint: web.endpoint, keys: web.keys },
+  JSON.stringify({ tag: 'agentbox', ...payload }),
+  { vapidDetails: { subject: PUSH_SUBJECT, publicKey: web.vapid.publicKey, privateKey: web.vapid.privateKey }, TTL: 6 * 3600, urgency: 'high', timeout: DEADLINE_MS },
+);
 const ALERTED_KEPT_MS = 30 * 24 * 3600_000;
 
 // renderer/src/phone-rows.ts phoneSlug, which the phone opens a thread by.
@@ -59,10 +67,7 @@ export function createPhoneAlerts({ backend, owner, device, state, save, now, lo
   /** One alert to one web app; false when its push service has forgotten it, which forgets it here. */
   async function pushWeb(web, payload) {
     try {
-      await sendWebPush({ endpoint: web.endpoint, keys: web.keys }, JSON.stringify({ tag: 'agentbox', ...payload }), {
-        vapidDetails: { subject: PUSH_SUBJECT, publicKey: web.vapid.publicKey, privateKey: web.vapid.privateKey },
-        TTL: 6 * 3600, urgency: 'high', timeout: DEADLINE_MS,
-      });
+      await sendWebAlert(web, payload, sendWebPush);
       return true;
     } catch (err) {
       if (err?.statusCode === 404 || err?.statusCode === 410) {
@@ -80,7 +85,7 @@ export function createPhoneAlerts({ backend, owner, device, state, save, now, lo
     if (p.key === WEB_ALERTS_TEST_KEY) {
       const web = state.webAlerts[v.endpoint];
       if (!web) throw new Error('alerts are not on for this phone on this computer');
-      if (!(await pushWeb(web, { title: Name, body: 'Alerts reach this phone.' }))) throw new Error('the phone\'s push service did not take the alert');
+      if (!(await pushWeb(web, TEST_ALERT))) throw new Error('the phone\'s push service did not take the alert');
       return { ok: true };
     }
     if (v.on) state.webAlerts[v.endpoint] = { endpoint: v.endpoint, keys: v.keys, vapid: v.vapid, at: now() };

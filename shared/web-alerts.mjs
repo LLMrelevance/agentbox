@@ -23,6 +23,21 @@ export function webAlertsOk(v) {
 
 export const webAlertsTestOk = (v) => !!v && typeof v === 'object' && endpointOk(v.endpoint);
 
+/**
+ * The phones with alerts on, from the setting commands the web app left for
+ * its computers (`{ payload, created_at }`): the latest for each phone decides,
+ * whichever computer it was left for. The cloud reads them with every computer off.
+ */
+export function webAlertsOn(commands) {
+  const latest = new Map();
+  const inOrder = [...commands].sort((a, b) => String(a?.created_at).localeCompare(String(b?.created_at)));
+  for (const c of inOrder) {
+    const v = c?.payload?.key === WEB_ALERTS_KEY ? c.payload.value : null;
+    if (webAlertsOk(v)) latest.set(v.endpoint, v);
+  }
+  return [...latest.values()].filter((v) => v.on === true);
+}
+
 const toB64url = (data) => {
   let s = '';
   for (const b of data) s += String.fromCharCode(b);
