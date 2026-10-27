@@ -185,15 +185,19 @@ export function cloudAccountFrom(env = process.env, engine = 'claude') {
 // subscriptions to get past their limits, which is what the Mac stopped doing
 // in `Supervisor#_theOneAccount` and what the cloud stops doing here.
 //
-// The account is the one this Mac runs on (`prefer`), when it is signed in to
-// the cloud, so picking an account in Settings moves the cloud too; otherwise
+// The account is the one this Mac runs on (`prefer`), so picking an account
+// in Settings moves the cloud too. If that account has no working sign-in in
+// the cloud, the cloud runs nothing rather than another account (2026-10-26:
+// the cloud went on with the account she had just switched away from, at its
+// limit). `follow` says the Mac's account is known and is not in the cloud.
+// With neither, as in a copy that cannot yet tell whose a sign-in is, it is
 // the first one signed in. A usage limit is never a reason to reach for
 // another: `mayRunOn` turns a limited account down, and the cloud runs nothing
 // and the menu says until when (renderer/src/cloud-menu.ts).
 //
 // `only` (emails or keys) narrows it for a copy of the app under test, which
 // shares this list with the person's own app.
-function accountInUse(all, engine, { now, only, prefer }) {
+function accountInUse(all, engine, { now, only, prefer, follow = false }) {
   const dup = duplicatesIn(Object.values(all).filter((r) => r?.engine === engine));
   const named = (r) => !only || [r.email, r.key ?? r.dir].some((n) => n && only.includes(String(n).toLowerCase()));
   // A login that was never finished or has stopped working is not an account
@@ -203,19 +207,21 @@ function accountInUse(all, engine, { now, only, prefer }) {
     .filter(([, r]) => r?.engine === engine && !dup.has(r.key ?? r.dir) && named(r))
     .filter(([, r]) => !['none', 'broken'].includes(cloudLoginState(r, { now })))
     .sort(([, a], [, b]) => (a.savedAt || 0) - (b.savedAt || 0));
-  return (prefer && accounts.find(([, r]) => (r.key ?? r.dir) === prefer)) || accounts[0] || null;
+  // A test copy's `only` list outranks the person's own account.
+  if (prefer && named({ key: prefer })) return accounts.find(([, r]) => (r.key ?? r.dir) === prefer) || null;
+  return follow ? null : accounts[0] || null;
 }
 
 /** The account a run would take now, whether or not it can run. Null with none. */
-export function cloudLoginInUse(engine, { home = os.homedir(), now = Date.now(), only = null, prefer = null } = {}) {
-  const hit = accountInUse(readCloudLogins({ home }), engine, { now, only, prefer });
+export function cloudLoginInUse(engine, { home = os.homedir(), now = Date.now(), only = null, prefer = null, follow = false } = {}) {
+  const hit = accountInUse(readCloudLogins({ home }), engine, { now, only, prefer, follow });
   return hit ? { ...hit[1], key: hit[1].key ?? hit[1].dir } : null;
 }
 
-export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now(), only = null, prefer = null } = {}) {
+export function pickCloudLogin(engine, { home = os.homedir(), now = Date.now(), only = null, prefer = null, follow = false } = {}) {
   return withLock(home, () => {
     const all = readCloudLogins({ home });
-    const hit = accountInUse(all, engine, { now, only, prefer });
+    const hit = accountInUse(all, engine, { now, only, prefer, follow });
     if (!hit || !mayRunOn(cloudLoginState(hit[1], { now }))) return null;
     const [k, r] = hit;
     all[k] = { ...r, lastUsedAt: now };
