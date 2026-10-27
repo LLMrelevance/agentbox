@@ -70,8 +70,8 @@ export interface CloudStatus {
   running: number;
   month: CloudMonth;
   accounts?: CloudAccount[];
-  /** The cloud's Claude account is at its limit: true when threads wait for it, false when they run on this Mac's account instead. */
-  limitHolds?: boolean | null;
+  /** Engines whose account on this Mac has no working sign-in in the cloud, so their threads run here. */
+  notInCloud?: Array<'claude' | 'codex'>;
   signIns?: CloudSignIn[];
   /** 'resting' after runs failed in a row before their agent started, until `restingUntil`. */
   health?: 'ok' | 'failing' | 'resting';
@@ -167,6 +167,9 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   }
   const gap = cloud.versionGap;
   if (gap?.blocks) return `${rebuildLine(gap)}. ${gap.engine === 'codex' ? 'Codex' : 'Claude'} threads run on this Mac until then.`;
+  if (cloudIsOn(cloud) && cloud.notInCloud?.includes('claude')) {
+    return 'The Claude account this Mac uses is not signed in to the cloud, so threads run on this Mac. Sign it in to run them there.';
+  }
   // ONE ACCOUNT RUNS IN THE CLOUD (w-dac993a554). This used to wait until
   // EVERY account was at its limit, which was right while runs rotated over
   // all of them and is silence now: the cloud starts nothing the moment the
@@ -174,8 +177,7 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   const inUse = cloudAccountInUse(cloud.accounts || [], 'claude');
   const until = inUse?.limitedUntil && inUse.limitedUntil > now ? inUse.limitedUntil : null;
   if (cloudIsOn(cloud) && until) {
-    const wait = cloud.mode === 'all' && cloud.limitHolds !== false;
-    return `Your cloud account is at its usage limit until ${clock(until)}. ${wait ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
+    return `Your cloud account is at its usage limit until ${clock(until)}. Threads run on this Mac until then.`;
   }
   if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';

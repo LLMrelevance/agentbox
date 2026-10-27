@@ -443,6 +443,14 @@ export class Store {
     return workItemsDisk.updateWorkItem(this.productDir(slug), id, { label: clean }, { source: 'agent' });
   }
 
+  // Who a thread sent to Auto went to (shared/auto-route.mjs). On system
+  // authority, so it never locks her labels against a later write, the `ship`
+  // an agent adds among them.
+  routeItem(slug, id, patch) {
+    const { workItemsDisk } = this.modules;
+    return workItemsDisk.updateWorkItem(this.productDir(slug), id, patch, { source: 'system' });
+  }
+
   // How urgent a teammate's message is, as the sorter judged it
   // (main/message-priority.mjs). On agent authority, so a level the person set
   // by hand stays theirs.

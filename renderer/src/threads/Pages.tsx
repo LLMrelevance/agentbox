@@ -410,8 +410,12 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
  */
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
+/** With a team on the page (w-b5f23cff71): two tabs, Needs you and Everything else, and the team's faces at the end. */
+export type TeamTabs = { on: boolean; onNeeds: () => void; onEverything: () => void; corner?: ReactNode };
+export const EVERYTHING_ELSE = 'Everything else';
+
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, into = null }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, into = null, team = null }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
@@ -421,20 +425,25 @@ export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, 
   after?: ReactNode; dim?: boolean;
   /** Drawn here instead of in place: the top bar, where the page's title was. */
   into?: HTMLElement | null;
+  team?: TeamTabs | null;
 }) {
-  const row = <StateTabsRow view={view} counts={counts} onView={onView} needs={needs} onSearch={onSearch} lit={lit} after={after} dim={dim} />;
+  const row = <StateTabsRow view={view} counts={counts} onView={onView} needs={needs} onSearch={onSearch} lit={lit} after={after} dim={dim} team={team} />;
   return into ? createPortal(row, into) : row;
 }
 
-function StateTabsRow({ view, counts, onView, needs, onSearch, lit = false, after, dim = false }: {
+function StateTabsRow({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, team = null }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
-  onSearch?: () => void; lit?: boolean; after?: ReactNode; dim?: boolean;
+  onSearch?: () => void; lit?: boolean; after?: ReactNode; dim?: boolean; team?: TeamTabs | null;
 }) {
+  // In progress, Later and Done are your own card's tabs on Everything else.
+  const tabs = team ? INBOX_TABS.filter((t) => t.view === 'inbox') : INBOX_TABS;
+  const on = (t: TabView) => (team ? t === 'inbox' && !team.on : view === t && !dim);
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view && !dim ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {tabs.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${on(t.view) ? ' on' : ''}${!team && t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}${team?.on && t.view === 'inbox' && lit ? ' fresh' : ''}`} onClick={() => (team ? team.onNeeds() : onView(t.view))}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {team && <button type="button" data-hint="state-tab" className={`tm-tab${team.on ? ' on' : ''}`} onClick={team.onEverything}>{EVERYTHING_ELSE}</button>}
     {after}
-  </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
+  </div>{team?.corner}{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
 /* ------------------------------------------------------------ whose threads */

@@ -34,6 +34,7 @@ export const REQUEST_CHANNELS = {
   answer: 'zero:answer',
   sendNow: 'zero:send-now',
   compose: 'zero:compose',
+  routeThread: 'zero:route-thread',
   schedule: 'zero:schedule',
   snooze: 'zero:snooze',
   // Feedback to the Agentbox team, from the sidebar's Feedback card.

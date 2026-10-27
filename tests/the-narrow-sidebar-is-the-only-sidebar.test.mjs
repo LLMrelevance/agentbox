@@ -63,7 +63,8 @@ describe('without Groups it holds Threads, Feedback and Settings', () => {
   });
 
   it('puts no Groups row under Threads unless Groups is on, and Chats only for teammates', () => {
-    expect(app).toContain('groups={roomsUi.live ? roomsUi.sidebarGroups(');
+    // And none at all once either is on: their chats open under Everything else (w-b5f23cff71).
+    expect(app).toContain('groups={teamMode ? null : roomsUi.live ? roomsUi.sidebarGroups(');
     expect(app).toContain(': teammatesUi.rail(teammatesShown)} />');
   });
 
