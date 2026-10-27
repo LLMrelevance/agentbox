@@ -21,11 +21,12 @@
 // DONE CAME BACK OUT OF THE MENU (w-bca8a6466f, 2026-10-26). Her words: "We
 // need a button in the top right to be able to easily mark threads as done;
 // currently it's very non-discoverable for such a key feature." Of six corners
-// drawn she picked the one where Done and the dots are one control: the left
-// half marks the thread done, the right half opens the rest. So `done` stays in
+// drawn she first picked Done joined to the dots, then asked the same night for
+// "the one that was separate instead": Done in a box of its own, with the
+// double tick and the word, just left of the dots. So `done` stays in
 // threadMenuRows as the one place its words and key are said, and the button
-// draws it as that left half rather than as a row. A conversation with a person
-// gets Done alone; a finished thread gets the dots alone.
+// draws it rather than a row. A conversation with a person gets Done alone; a
+// finished thread gets the dots alone.
 //
 // THE APP'S OWN POPOVER, not a new one: `.th-menu` and `.row-i` from pages.css,
 // the dark card with square corners whose rows light on hover. summary.css
@@ -247,7 +248,7 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
       {done && (
         <button
           type="button"
-          className={rows.length ? 'ts-done ts-done-joined' : 'ts-done'}
+          className="ts-done"
           data-hint="done"
           data-hint-align="right"
           aria-label={`${done.label} (${done.key})`}

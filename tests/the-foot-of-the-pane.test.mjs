@@ -296,8 +296,8 @@ describe('the corner carries the task on a task and the app on a list', () => {
 // THE MARK HUNG A PLATE UNTIL IT BECAME A ROW (w-e731ca9376, 2026-10-01). A
 // row in the thread's menu prints its key beside its words, and a component
 // that already shows its key carries no plate, so the plate's line went too.
-// AND IT IS A BUTTON AGAIN (w-bca8a6466f, 2026-10-26), the left half of the
-// control the dots are the right half of. It prints only its word, so it wears
+// AND IT IS A BUTTON AGAIN (w-bca8a6466f, 2026-10-26), in its own box just
+// left of the thread's dots. It prints only its word, so it wears
 // the plate again, and Mark done is no longer a row in the menu.
 describe('the Done button says its key the way its plate did', () => {
   const plate = fs.readFileSync(path.join(root, 'renderer', 'src', 'hint-plate.ts'), 'utf8');
