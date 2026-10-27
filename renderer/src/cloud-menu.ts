@@ -172,7 +172,7 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   const inUse = cloudAccountInUse(cloud.accounts || [], 'claude');
   const until = inUse?.limitedUntil && inUse.limitedUntil > now ? inUse.limitedUntil : null;
   if (cloudIsOn(cloud) && until) {
-    return `Your cloud account is at its usage limit until ${clock(until)}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
+    return `Your cloud account is at its usage limit until ${clock(until)}. Threads run on this Mac until then.`;
   }
   if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';

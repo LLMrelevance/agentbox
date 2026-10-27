@@ -4917,9 +4917,26 @@ export class Supervisor {
   // cloud sign-in at all, or turned off, runs here. Read by `_roomFor` (so
   // neither the tick nor the sweep that resumes interrupted rows starts it, or
   // takes a slot from another row for it) and by `_whereToRun`.
+  // EXCEPT while the cloud's account is at its limit (2026-10-26): she
+  // switches this Mac to another account and expects work to go on, and that
+  // account is usually not the cloud's, so waiting meant nothing ran for the
+  // hour. This Mac's own cap still bounds what starts here.
   _waitsForCloud(item, engine) {
     return this._cloudFirst() && !!item?.id && this._cloudUsable(engine) && this._cloudSignedInAtAll(engine)
-      && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
+      && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine)
+      && this._cloudInUseState(engine) !== 'limited';
+  }
+
+  // The state of the one cloud account a run would take (`_cloudLoginRunnable`),
+  // read at most every five seconds: every waiting row asks it on every tick.
+  _cloudInUseState(engine, now = Date.now()) {
+    const which = engineOf(engine);
+    const had = (this._cloudInUseSeen ??= new Map()).get(which);
+    if (had && now - had.at < 5_000) return had.state;
+    const inUse = cloudLoginInUse(which, this._cloudAccountAsk(which, now));
+    const state = inUse ? cloudLoginState(inUse, { now }) : 'none';
+    this._cloudInUseSeen.set(which, { at: now, state });
+    return state;
   }
 
   // A Codex reply to a thread this Mac's app-server has open runs here and
