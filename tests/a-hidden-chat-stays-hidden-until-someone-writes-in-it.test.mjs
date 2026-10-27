@@ -6,13 +6,22 @@
 // David" beside the people), with no way to put one away. Now a chat or a
 // person's card can be hidden. A hidden chat comes back by itself when it
 // moves again, the way an archived conversation does; a person stays hidden
-// until you show them. "N hidden" under the cards shows them all again.
+// until you show them. "N hidden" under the cards opens a list of their names,
+// each with Show.
+//
+// AND A HIDDEN CARD NEVER COMES BACK INTO THE GRID GREYED OUT. The first build
+// drew them faded among the others when "N hidden" was pressed: "when I say
+// 'hide,' I want to hide certain threads so they don't take up space. When you
+// just gray them out, it defeats the purpose."
+//
+// The list hangs under "N hidden" outside the cards' own scroll box: drawn
+// inside it on the first try, it opened clipped to nothing (built app, shot i).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { splitHidden, hideMember, readHidden, writeHidden } from '../renderer/src/team/everything/members.ts';
-import { TeamStrip } from '../renderer/src/team/everything/TeamStrip.tsx';
+import { HiddenList, TeamStrip } from '../renderer/src/team/everything/TeamStrip.tsx';
 
 const me = { key: 'me', kind: 'me', name: 'You', agents: 1, now: null };
 const team = { key: 'room:r-team', kind: 'chat', team: true, name: 'Team chat', faces: [], agents: 3, now: null, at: 50 };
@@ -61,9 +70,24 @@ describe('the cards', () => {
     expect(html.match(/aria-label="Hide [^"]+"/g)).toEqual(['aria-label="Hide Team chat"', 'aria-label="Hide Riley Test"']);
   });
 
-  it('say how many are hidden under them, and show them on a press', () => {
-    expect(strip({ hiddenCount: 3, onShowHidden() {} })).toMatch(/class="ev-hidden"[^>]*>3 hidden</);
-    expect(strip()).not.toContain('ev-hidden');
+  it('never draw a hidden one among them, faded or otherwise', () => {
+    const html = strip({ members: [me, team, ada] });
+    expect(html).not.toContain('data-key="room:r-co"');
+    expect(html).not.toContain('data-key="person:p-riley"');
+    expect(html).not.toMatch(/ev-card[^"]*away/);
+  });
+
+  it('say how many are hidden, and nothing when none is', () => {
+    expect(renderToStaticMarkup(h(HiddenList, { hidden: [coworking, riley], onShow() {} }))).toMatch(/class="ev-hidden"[^>]*>2 hidden</);
+    expect(renderToStaticMarkup(h(HiddenList, { hidden: [], onShow() {} }))).toBe('');
+  });
+
+  it('list the hidden ones by name when opened, each with Show', () => {
+    const html = renderToStaticMarkup(h(HiddenList, { hidden: [coworking, riley], onShow() {}, startOpen: true }));
+    expect(html).toContain('Coworking');
+    expect(html).toContain('Riley Test');
+    expect(html.match(/aria-label="Show [^"]+"/g)).toEqual(['aria-label="Show Coworking"', 'aria-label="Show Riley Test"']);
+    expect(html).not.toContain('ev-card');
   });
 });
 
@@ -71,7 +95,9 @@ describe('in the app', () => {
   const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
   it('draws only the cards not hidden, and hiding the open one goes back to your threads', () => {
     expect(app).toContain('const evSplit = splitHidden(members, evHidden);');
-    expect(app).toContain('<TeamStrip members={showHidden ? members : evSplit.shown}');
+    expect(app).toContain('<TeamStrip members={evSplit.shown}');
+    expect(app).toMatch(/<\/div>\s*<HiddenList hidden=\{evSplit\.hidden\} onShow=\{showCard\} \/>/);
+    expect(app).not.toContain('showHidden');
     expect(app).toMatch(/if \(evKey === m\.key\) pickMember\('me'\);/);
   });
 });

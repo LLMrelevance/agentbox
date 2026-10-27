@@ -79,8 +79,14 @@
 .ev-x { position: absolute; top: 6px; right: 6px; display: none; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border: 0; border-radius: 0; background: none; color: var(--text-faint); font: inherit; font-size: 15px; line-height: 20px; cursor: pointer; }
 .ev-card:hover .ev-x, .ev-x:focus-visible { display: block; }
 .ev-x:hover { color: var(--text); background: var(--wash-strong); }
-.ev-x.ev-show { display: block; font-size: 12px; color: var(--text-dim); }
-.ev-card.away { opacity: .55; }
-.ev-hidden { display: block; margin: 8px var(--row-r, 24px) 0 var(--text-x, 32px); padding: 0; border: 0; background: none; color: var(--text-faint); font: inherit; font-size: 12.5px; line-height: 18px; cursor: pointer; }
-.ev-hidden:hover { color: var(--text-dim); }
+.ev-hidden-at { position: relative; flex: none; width: max-content; margin: 8px 0 0 var(--text-x, 32px); }
+.ev-hidden { padding: 0; border: 0; background: none; color: var(--text-faint); font: inherit; font-size: 12.5px; line-height: 18px; cursor: pointer; }
+.ev-hidden:hover, .ev-hidden[aria-expanded="true"] { color: var(--text-dim); }
+/* Over the page, so looking at what is hidden takes no room from anything. Drawn as the chat's more menu is. */
+.ev-hidden-menu { position: absolute; z-index: 20; top: 24px; left: 0; box-sizing: border-box; width: 240px; max-height: 280px; overflow-y: auto; padding: 4px 0; border: 1px solid var(--line-strong); background: var(--skin-solid, var(--surface)); box-shadow: 0 8px 28px #0006; }
+.ev-hidden-row { display: flex; align-items: center; gap: 12px; height: 30px; padding: 0 6px 0 12px; font-size: 13px; color: var(--text-dim); }
+.ev-hidden-row:hover { background: var(--wash); color: var(--text); }
+.ev-hidden-row .rm-one { flex: 1; min-width: 0; }
+.ev-hidden-row button { padding: 2px 6px; border: 0; background: none; color: var(--text-faint); font: inherit; font-size: 12.5px; cursor: pointer; }
+.ev-hidden-row button:hover { color: var(--text); }
 

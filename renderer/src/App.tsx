@@ -114,7 +114,7 @@ import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
-import { AgentsLine, CardsGrip, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
+import { AgentsLine, CardsGrip, CornerFaces, HiddenList, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
 import { buildMembers, hideMember, mateRunsOf, orderMembers, personCardsOf, readCardsHeight, readHidden, readOrder, splitHidden, teamRunsOf, unhideMember, writeCardsHeight, writeHidden, writeOrder, type Hidden, type Member } from './team/everything/members';
 import { readFolded, stackRows, toggleFolded, type StackKey } from './threads/stack-rules';
 import { FeedbackCard } from './components/FeedbackCard';
@@ -3656,7 +3656,6 @@ export default function App() {
   const reorderMembers = (keys: string[]) => { setEvOrder(keys); writeOrder(keys); };
   // Cards put away (./team/everything/members `splitHidden`), and how tall the cards are over an open chat.
   const [evHidden, setEvHidden] = useState<Hidden>(() => readHidden());
-  const [showHidden, setShowHidden] = useState(false);
   const evSplit = splitHidden(members, evHidden);
   const keepHidden = (next: Hidden) => { setEvHidden(next); writeHidden(next); };
   const [evCardsH, setEvCardsH] = useState<number | null>(() => readCardsHeight());
@@ -6182,11 +6181,11 @@ export default function App() {
     needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
   const evTop = evOn ? <>
     <div className="ev-cards" style={evFill && evCardsH !== null ? { maxHeight: evCardsH } : undefined}>
-      <TeamStrip members={showHidden ? members : evSplit.shown} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
+      <TeamStrip members={evSplit.shown} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
         onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'}
-        onHide={hideCard} away={showHidden ? new Set(evSplit.hidden.map((m) => m.key)) : undefined} onShow={showCard}
-        hiddenCount={evSplit.hidden.length} showingHidden={showHidden} onShowHidden={() => setShowHidden((was) => !was)} />
+        onHide={hideCard} />
     </div>
+    <HiddenList hidden={evSplit.hidden} onShow={showCard} />
     {evFill && <CardsGrip height={evCardsH} onHeight={setEvCards} />}
     {evBar}
   </> : null;

@@ -67,4 +67,11 @@ describe('in the app', () => {
     expect(css).toMatch(/\.ev-cards \{[^}]*overflow-y: auto/);
     expect(css).toMatch(/\.ev-grip \{[^}]*cursor: row-resize/);
   });
+
+  // "N hidden" sits between the cards and the grip; a grip that took the
+  // element above it for the cards would measure that line instead.
+  it('finds the cards by name, not by what happens to sit above it', () => {
+    expect(strip).toContain("parentElement?.querySelector<HTMLElement>(':scope > .ev-cards')");
+    expect(strip).not.toContain('previousElementSibling');
+  });
 });
