@@ -18,11 +18,21 @@
 // terminal, so its menu is Mark done alone, and with nothing left to offer
 // (a finished conversation) no dots are drawn at all.
 //
+// DONE CAME BACK OUT OF THE MENU (w-bca8a6466f, 2026-10-26). Her words: "We
+// need a button in the top right to be able to easily mark threads as done;
+// currently it's very non-discoverable for such a key feature." Of six corners
+// drawn she picked the one where Done and the dots are one control: the left
+// half marks the thread done, the right half opens the rest. So `done` stays in
+// threadMenuRows as the one place its words and key are said, and the button
+// draws it as that left half rather than as a row. A conversation with a person
+// gets Done alone; a finished thread gets the dots alone.
+//
 // THE APP'S OWN POPOVER, not a new one: `.th-menu` and `.row-i` from pages.css,
 // the dark card with square corners whose rows light on hover. summary.css
 // only places it under the dots.
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { chord } from '../this-keyboard';
+import { DONE } from '../done-word';
 
 export type ThreadMenuRowId = 'place' | 'run' | 'code' | 'terminal' | 'pin' | 'done';
 
@@ -71,6 +81,11 @@ export function threadMenuRows({ change, terminal, finish, runNow = false, pin =
   if (pin) rows.push({ id: 'pin', label: pin === 'pinned' ? 'Unpin thread' : 'Pin thread', key: null });
   if (finish) rows.push({ id: 'done', label: 'Mark done', key: 'E' });
   return rows;
+}
+
+/** Done, which the corner draws as its own half, and the rows left for the menu. */
+export function splitDone(rows: ThreadMenuRow[]): { done: ThreadMenuRow | null; menu: ThreadMenuRow[] } {
+  return { done: rows.find((r) => r.id === 'done') ?? null, menu: rows.filter((r) => r.id !== 'done') };
 }
 
 /* ------------------------------------------------------------------ marks */
@@ -156,7 +171,7 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
   /** True keeps it on this Mac (moving it here if it is in the cloud). */
   onPlace?: (keep: boolean) => void;
 }) {
-  const rows = threadMenuRows({ change: !!change, terminal, finish: !!onFinish, runNow: !!onRunNow, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', place: onPlace ? place : null });
+  const { done, menu: rows } = splitDone(threadMenuRows({ change: !!change, terminal, finish: !!onFinish, runNow: !!onRunNow, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', place: onPlace ? place : null }));
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -226,10 +241,23 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
     else onFinish?.();
   };
 
-  if (!rows.length) return null;
+  if (!rows.length && !done) return null;
   return (
     <span className="ts-more-wrap" ref={wrap}>
-      <button
+      {done && (
+        <button
+          type="button"
+          className={rows.length ? 'ts-done ts-done-joined' : 'ts-done'}
+          data-hint="done"
+          data-hint-align="right"
+          aria-label={`${done.label} (${done.key})`}
+          onClick={() => onFinish?.()}
+        >
+          <DoneMark />
+          <span>{DONE.short}</span>
+        </button>
+      )}
+      {rows.length > 0 && <button
         ref={button}
         type="button"
         className="ts-more"
@@ -241,8 +269,8 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
         onKeyDown={openFromKeys}
       >
         <Dots />
-      </button>
-      {open && <ThreadMenuList rows={rows} change={change} onPick={pick} place={place} />}
+      </button>}
+      {open &&<ThreadMenuList rows={rows} change={change} onPick={pick} place={place} />}
     </span>
   );
 }

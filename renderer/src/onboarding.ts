@@ -1764,9 +1764,8 @@ export function coach(
     // task ending one of two ways IS closing it or replying to it.
     // AND THE REPLY HALF NAMES THE BOX (2026-10-01). "Reply to it" is a thing
     // to do and not a thing to click, and the ring is round the box, so the
-    // card now points at it in words. CLOSING HAS NO BUTTON ON THIS SCREEN and
-    // the card does not invent one: Mark done is a row inside the menu beside
-    // Summary, which is two clicks behind a three-dot button, and naming it
+    // card now points at it in words. Closing has a button on this screen since
+    // w-bca8a6466f (Done, beside the dots in the top right), but naming it
     // would make this the longest line in the walk. The mouse route on this
     // beat is replying, which is the half somebody is here to learn.
     // AND A REPLY IS ANSWERED NOW (2026-10-06), so the card says what to reply

@@ -130,6 +130,10 @@ export const HINTS: Record<string, HintLine[]> = {
   // done, in the thread's menu, which prints E beside its words. A component
   // that already shows its key carries no plate, so its line went with it.
   terminal: [{ key: '⌘J', what: 'Show or hide the terminal' }],
+  // AND IT IS A BUTTON AGAIN (w-bca8a6466f): the left half of the control the
+  // dots are the right half of. It prints only its word, so E goes here, in
+  // the row plate's own wording.
+  done: [{ key: 'E', what: 'Mark done' }],
   // The Summary button printed its S on its face until w-5984544441; the key
   // is said here now, the same as every other button in the corner. Since
   // w-a3482b8c2c it hangs from the summary's rail and the icon that closes it.
