@@ -2265,7 +2265,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // read fresh: the renderer owns what they mean, this owns getting them across.
   ipcMain.handle('zero:item-history', async (_e, { product, id, before }) => {
     try {
-      return { ok: true, lines: store.readHistory(product, id, { before }) };
+      return { ok: true, lines: store.readHistory(product, id, { before, max: Number.MAX_SAFE_INTEGER }) };
     } catch (err) {
       return { ok: false, error: err.message, lines: [] };
     }
