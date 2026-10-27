@@ -162,6 +162,14 @@
       "node_modules/node-pty/**",
       "main/native/**/*.node"
     ],
+    "protocols": [
+      {
+        "name": "Agentbox",
+        "schemes": [
+          "agentbox"
+        ]
+      }
+    ],
     "mac": {
       "extendInfo": {
         "NSDesktopFolderUsageDescription": "Agentbox needs this to let your agents work in a project you keep on the Desktop.",

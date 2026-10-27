@@ -14,7 +14,7 @@ import path from 'node:path';
 import { cloudRun, IMPORT_FAILED, LOGIN_TROUBLE } from './run.mjs';
 import { NEW_THREAD, NEW_THREAD_CODEX } from '../../shared/cloud-kit.mjs';
 import { cloudClients } from './clients.mjs';
-import { readCloudConfig, readCloudKey, imageCaps, noteImageCaps } from './config.mjs';
+import { readCloudConfig, readCloudKey, imageCapsToTry, noteImageCaps } from './config.mjs';
 import { pickCloudLogin, markCloudLogin, loginObjectKey, cloudAccountsFrom, cloudAccountFrom, cloudLoginInUse, noCloudAccountSentence } from './logins.mjs';
 
 // SIGNED AS THE CLOUD RUNS' OWN USER AND NOBODY ELSE. AWS's libraries read
@@ -104,7 +104,7 @@ export async function cloudRunFromArgs({ args, env, cwd, stdin, stdout, stderr, 
     // An account at its usage limit sits out until it resets; the next run
     // takes another cloud account, or this Mac.
     onLimit: ({ until }) => { if (rec) markCloudLogin(engine, dir, rec.id, { limitedUntil: until }); },
-    imageCaps: imageCaps(config),
+    imageCaps: imageCapsToTry(config),
     onCaps: (caps) => noteImageCaps(config, caps),
     remoteCommand: codex ? 'codex' : 'claude',
     argv: importOnly ? [] : args.slice((codex ? 1 : 0) + (kitOnly ? 1 : 0)),

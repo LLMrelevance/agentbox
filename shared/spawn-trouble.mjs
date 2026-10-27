@@ -118,7 +118,17 @@ const SIGNED_OUT = [
   /invalid api key/i,
   /unauthoriz/i,
   /subscription access/i,
+  // Claude Code 2.1.310's other refusals, which fell to 'unknown'
+  // (tests/every-way-claude-code-says-its-login-ran-out-reads-as-signed-out).
+  /login expired/i,
+  /session has expired/i,
+  /sign in again to continue/i,
+  /\brun \/login\b/i,
 ];
+
+// ANOTHER CLAUDE CODE REFRESHING THE SAME LOGIN, which the CLI calls
+// transient. Before SIGNED_OUT, whose /oauth/ would bench the account for it.
+const LOGIN_BUSY = [/another claude code process is refreshing/i];
 
 const AT_LIMIT = [
   /usage limit/i,
@@ -276,6 +286,7 @@ export function troubleCause(raw) {
   if (MODEL_NOT_ON_PLAN.some((re) => re.test(text))) return 'model-not-on-plan';
   if (LEVEL_NOT_OFFERED.some((re) => re.test(text))) return 'level-not-offered';
   if (OPEN_ELSEWHERE.some((re) => re.test(text))) return 'open-elsewhere';
+  if (LOGIN_BUSY.some((re) => re.test(text))) return 'interrupted';
   if (SIGNED_OUT.some((re) => re.test(text))) return 'signed-out';
   if (AT_LIMIT.some((re) => re.test(text))) return 'at-limit';
   // BEFORE WORKSPACE, whose /untrusted/ would read a certificate as a folder,
