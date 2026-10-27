@@ -44,6 +44,8 @@ const pages = read('renderer/src/threads/Pages.tsx');
 const summary = read('renderer/src/threads/Summary.tsx');
 // The up and down arrows on a thread in Needs you (w-65bcefb857).
 const queue = read('renderer/src/components/OneThingAtATime.tsx');
+// The Done half beside the thread's dots (w-bca8a6466f).
+const threadMenu = read('renderer/src/threads/ThreadMenu.tsx');
 
 // The list's own key switch, which is the only place the row keys are run.
 // Everything above it belongs to modals, chords and full-screen reading.
@@ -203,7 +205,7 @@ describe('Tab walks the tabs the Inbox draws', () => {
 describe('only a component that does not already show its key carries a hint', () => {
   it('wears a data-hint for every id the list knows, and knows every id worn', () => {
     const worn = new Set();
-    for (const file of [app, list, nav1, terminal, focus, pages, summary, queue]) {
+    for (const file of [app, list, nav1, terminal, focus, pages, summary, queue, threadMenu]) {
       // The row writes its own as a spread, because it is only worn in the
       // inbox and only off an ordinary row.
       for (const m of file.matchAll(/data-hint(?:="|': ')([a-z-]+)/g)) worn.add(m[1]);

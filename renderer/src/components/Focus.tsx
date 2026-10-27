@@ -26,7 +26,7 @@ import { providerCommand } from '../../../shared/provider-commands.mjs';
 // One typographic system throughout (markdown, no cards, no stripes). Reply is
 // a docked composer, never a modal over the text.
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
 import { TeamContext, firstName } from '../team/people';
 import {
   allModels, joinNames, moreCount, recentModels, type Harness, type ModelPick,
@@ -63,7 +63,8 @@ import { ReplyModel } from './ReplyModel';
 import type { ModelChoice } from '../models';
 import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/repeats.mjs';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
-import { pictureUrl } from '../picture';
+import { onPictureLinks, pictureLinksVersion, pictureUrl, sentPictureLink } from '../picture';
+import { Listening, MicButton, useWebDictation } from './WebDictation';
 import { playerShelf } from '../player-shelf';
 import { handleCopyOut, blockCopyText } from '../copy-out';
 import { diagramSource } from '../diagram-fence';
@@ -213,6 +214,7 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   // message names it.
   const [broken, setBroken] = useState(false);
   const [tries, setTries] = useState(0);
+  useSyncExternalStore(onPictureLinks, pictureLinksVersion, pictureLinksVersion);
   useEffect(() => {
     if (!broken) return;
     const wait = lookAgainAfter(tries);
@@ -263,6 +265,11 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
       >{picture}</button>
     )
     : picture);
+  // A picture sent from the web app holds its place until its link comes,
+  // rather than trying addresses that cannot answer and saying it is missing.
+  const sent = sentPictureLink(src);
+  if (sent === null) return <span className="inline-image arriving" aria-hidden="true" />;
+  if (sent) return door(src, <img src={sent} alt={alt ?? ''} className="inline-image" />);
   if (/^https?:/.test(src)) return door(src, <img src={src} alt={alt ?? ''} className="inline-image" />);
   // A worker that wrote the whole path, either bare or as a file:// url, said
   // exactly which picture it meant, so there is nothing to guess: it goes
@@ -2925,6 +2932,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     if (mode !== null && exactClear(q)) { pickMode(null); return; }
     setText(next);
   };
+  const talk = useWebDictation({ text, setText }, () => void send());
   // Clicking away folds the composer, on EXACTLY the rule Escape already
   // follows: a draft holds it open. The modals already did this; the dock is
   // the one composer that is not a modal, so it never had a way out except a
@@ -3085,6 +3093,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         onSelect={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onScroll={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onClick={(e) => { chat.click(e.currentTarget); named.track(e.currentTarget); }}
+        onFocus={() => { if (talk.on) talk.stop(); }}
         /* * ONE CLEAR SENTENCE. The old placeholder was unclear about what it even meant,
            and a reply box needs one simple sentence.
 
@@ -3155,10 +3164,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           every note here is one: a sentence that grows a clause when something
           changes is a sentence that moves under her. */}
       {freshNote && <div className="compose-note">{freshNote}</div>}
+      {!talk.on && talk.problem && <div className="compose-note">{talk.problem}</div>}
       {/* ONE text run, ONE size, ONE baseline, and the app's own send button:
           the new-task card's footer, on the reply box, because they are the same
           act. See the note at the top of this file for the measurements. */}
       <div className="compose-sentence">
+        {talk.on ? <Listening talk={talk} /> : <>
         {/* NO PRIORITY AND NO REPEAT ON A MESSAGE TO AN AGENT. Both are
             work-item fields with nowhere to be written, and "Urgent priority.
             Runs once." under a message going into somebody's terminal is a
@@ -3180,6 +3191,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8" /></svg>
           </button>
         ) : null}
+        {!talkTo?.length && talk.allowed && <MicButton talk={talk} />}
         <span className="compose-clauses">
           {/* NOTHING ABOUT WHERE IT GOES (w-140ac855b1, 2026-10-13). This
               slot read "Goes to Maya's inbox.", put there so the corner was
@@ -3354,6 +3366,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           title={chat.block ?? `Send · ${SEND}`}
         >{saving ? 'Sending…' : <>Send <kbd>{SEND}</kbd></>}</button>
         )}
+        </>}
       </div>
     </>
   );

@@ -158,7 +158,8 @@
      · Docs 8") and not its icons, which read as "incomprehensible"
      (2026-10-11). Sentence case with the count after the word, the picked one
      underlined, scrolling sideways when they do not fit. */
-  :root:root:root .app.workspace-layout { --phone-tabs: 48px; }
+  /* The alerts offer is on the body, outside the app, and sits above the tabs too. */
+  :root:root:root .app.workspace-layout, :root:root:root:has(.app.workspace-layout) #phone-alerts-ask { --phone-tabs: 48px; }
   :root:root:root .list-pane > .th-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     height: calc(var(--phone-tabs) + var(--phone-foot));
@@ -341,6 +342,9 @@
     flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0 4px 0 -6px;
     border: 0; background: none; color: var(--text-dim); box-shadow: none;
   }
+  /* The microphone beside it (WebDictation.tsx), the phone app's size. */
+  :root:root:root .dictate-mic { width: 36px; height: 36px; margin: 0 0 0 -14px; }
+  :root:root:root .compose-sentence > .dictate-row { min-height: 36px; }
 
   /* The hint plates teach keys a phone does not have. */
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
@@ -417,6 +421,9 @@
   :root:root:root .settings-screen .set-pane { flex: 1; min-height: 0; padding: 0; }
   :root:root:root .settings-screen .set-inner:not(.instructions-page) { padding: 20px 16px 120px; max-width: none; }
   :root:root:root .settings-screen .set-phone-qr { flex-direction: column; align-items: flex-start; }
+  /* A control too wide to leave its row's words a readable column goes under them. */
+  :root:root:root .settings-screen .set-plate > .set-row { flex-wrap: wrap; row-gap: 12px; }
+  :root:root:root .settings-screen .set-plate > .set-row > .set-row-text { flex: 1 1 180px; }
 
   /* The display menu: across the screen under the top bar, scrolling if it
      is taller than the screen, instead of 470px hung off the right edge. */
@@ -488,6 +495,14 @@
     display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 15px;
   }
   :root:root:root .tc-card > .tc-bar > .tc-icon::after { content: 'Attach a file or picture'; }
+  /* The microphone at the end of that row, and the Listening row in its place
+     while it listens, as in the phone app. */
+  :root:root:root .tc-card > .tc-bar > .dictate-mic {
+    position: absolute; z-index: 1; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(8px + var(--phone-foot)); margin: 0;
+  }
+  :root:root:root .tc-card > .tc-bar > .dictate-row {
+    order: 3; flex: none; height: calc(52px + var(--phone-foot)); padding: 0 12px var(--phone-foot) 16px; border-top: 1px solid var(--line);
+  }
   /* Send is the orange box, square, 16px in from the edge and centred on the
      top bar: at 12px from the edge it sat "touching the top corner of the
      app" (2026-10-11). */
@@ -602,6 +617,8 @@
   :root:root:root #phone-alerts-ask > span { flex: 1 0 100%; }
   :root:root:root #phone-alerts-ask button { font: inherit; height: 36px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--wash-strong); color: var(--text); }
   :root:root:root #phone-alerts-ask button.quiet { background: none; color: var(--text-dim); }
+  /* Both sit at the foot; the agent's question comes first and the offer waits. */
+  :root:root:root body:has(.approvals) #phone-alerts-ask { display: none; }
 }
 
 /* A picture's placeholder while it loads is in styles.css: every window has it. */

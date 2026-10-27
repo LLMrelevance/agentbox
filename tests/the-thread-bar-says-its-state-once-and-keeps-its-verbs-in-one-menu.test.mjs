@@ -171,10 +171,15 @@ describe('the right side is the dots', () => {
     expect(threadMenuRows({ change: true, terminal: 'closed', finish: false }).map((r) => r.id)).toEqual(['code', 'terminal']);
   });
 
-  it('offers a conversation with a person only Mark done, and draws no dots once that is gone', () => {
+  // Since w-bca8a6466f Done is its own half beside the dots, so a conversation
+  // with a person, whose only verb is Done, draws Done and no dots at all.
+  it('offers a conversation with a person only Mark done, and draws nothing once that is gone', () => {
     expect(threadMenuRows({ change: false, terminal: null, finish: true }).map((r) => r.id)).toEqual(['done']);
     expect(draw(React.createElement(ThreadMenu, { terminal: null, onFinish: null }))).toBe('');
-    const dots = draw(React.createElement(ThreadMenu, { terminal: null, onFinish: () => {} }));
+    const alone = draw(React.createElement(ThreadMenu, { terminal: null, onFinish: () => {} }));
+    expect(alone).toContain('class="ts-done"');
+    expect(alone).not.toContain('class="ts-more"');
+    const dots = draw(React.createElement(ThreadMenu, { terminal: 'closed', onFinish: () => {} }));
     expect(dots).toContain('aria-haspopup="menu"');
     expect(dots).toContain('aria-expanded="false"');
     expect(dots).toContain('class="ts-more"');

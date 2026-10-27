@@ -5314,6 +5314,9 @@ export class Supervisor {
 
   /** The plan the cloud server says this Mac is on; a paid one ends a wait for a plan. */
   cloudPlanSeen(plan) {
+    // The last plan read, for the web app's settings copy (shared/phone-settings.mjs); a failed read keeps it.
+    if (plan?.signedIn === false) this.cloudPlan = null;
+    else if (typeof plan?.plan === 'string') this.cloudPlan = plan.plan;
     if (this._cloudNoRoom?.error === 'plan' && plan?.plan && plan.plan !== 'none') {
       this._cloudNoRoom = null;
       this.onChange?.();
@@ -5395,6 +5398,7 @@ export class Supervisor {
     const noRoom = this._cloudNoRoomNow();
     if (noRoom) return { why: 'cloud-no-room', detail: noRoom.error };
     if (this._cloudVersionGaps().some((g) => g.engine === engineOf(engine) && g.blocks)) return { why: 'version', detail: engineOf(engine) };
+    if (this._cloudInUseState(engine) === 'limited') return { why: 'cloud-account-limited' };
     return { why: 'other' };
   }
 
