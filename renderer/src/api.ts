@@ -490,6 +490,15 @@ export const api = {
         if (params.has('cloudlimit') && base.cloud) {
           base.cloud.running = 0;
           base.cloud.accounts = (base.cloud.accounts ?? []).map((a) => ({ ...a, ready: false, state: 'limited' as const, limitedUntil: Date.now() + 2 * 3600_000 }));
+          // With Everything, the account in use is the one picked here, so two
+          // threads wait for it and say so (Supervisor#_waitingOnLimit).
+          if (cloud === 'all') {
+            base.cloud.limitHolds = true;
+            const held = base.items.filter((i) => /^(Can the welcome email|Bring back a list)/.test(i.title)).map((i) => i.id);
+            const until = base.cloud.accounts[0]?.limitedUntil ?? 0;
+            base.supervisor.queued = held;
+            base.supervisor.atLimit = Object.fromEntries(held.map((id) => [id, { tool: 'Claude Code in the cloud', until }]));
+          }
         }
         // &dup draws the second cloud account as the same account as the first.
         const accounts = base.cloud?.accounts;

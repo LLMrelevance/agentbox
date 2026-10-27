@@ -79,6 +79,7 @@ import { approvalReads } from './approval-card';
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
 import { sentLine, sendingLine } from './compose-says';
+import { resumedLine, resumedStoppedLine } from './resume-says';
 import { wearJustMade, type JustMade } from './just-made';
 import { belongsInInbox, belongsInProgress, belongsOnTheRail, byRunningOrder, clipToSentence, hiddenUntil, inProgressTab, isProposal, notStarted, parkedByAgent, replyClearsSchedule, replyKeyWorksIn, rowTitle, statusForReply, stillAsksYou, stoppable, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd, withdrawReply } from './list-rules';
 import { agentKey, agentRow, asksSomething, byRecency, listed as agentIsListed, onTheRail, railLine, reachesInbox, progressAfterReply, replyReaches, whereItRuns } from '../../shared/agents.mjs';
@@ -4948,9 +4949,7 @@ export default function App() {
   const resumeAgents = useCallback(async (ids: string[] | null) => {
     const r = await (window.zero as any)?.resumeAgents?.(ids ? { ids } : undefined);
     setMultiSel(new Set());
-    showToast(r?.cleared
-      ? `Resuming: ${r.cleared} interrupted ${r.cleared === 1 ? 'agent' : 'agents'} respawning`
-      : 'Nothing stranded. Anything waiting respawns on its own');
+    showToast(resumedStoppedLine(r, ids));
     await refresh();
   }, [refresh, showToast]);
 
@@ -4963,16 +4962,11 @@ export default function App() {
     setMultiSel(new Set());
     const started = r?.resumed ?? 0;
     const queued = r?.queued ?? 0;
-    // Say which of the three things happened, because "resumed" over a row
-    // that did nothing is the failure this command was built to end.
-    showToast(started || queued
-      ? [started ? `${started} resumed` : '', queued ? `${queued} waiting for a slot` : '']
-        .filter(Boolean).join(', ')
-      : r?.working
-        ? 'Already working on it'
-        : 'Nothing to resume',
+    // Say which of the things happened, because "resumed" over a row that did
+    // nothing is the failure this command was built to end.
     // One thread put back on names it for O; several have no one place to go.
-    list.length === 1 && (started || queued) ? { product: list[0].product, id: list[0].id } : undefined);
+    const opens = list.length === 1 && (started || queued) ? { product: list[0].product, id: list[0].id } : undefined;
+    showToast(resumedLine(r, Date.now(), { titled: !!opens }), opens);
     // PUTTING A WORKER BACK ON IT IS A WAY OUT OF HER INBOX TOO, and it was the
     // fifth. ⌘K offers "Resume This Agent" on a row she is reading, a worker
     // claims it, and the row moves to In progress — the same emptying as

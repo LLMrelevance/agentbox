@@ -70,6 +70,8 @@ export interface CloudStatus {
   running: number;
   month: CloudMonth;
   accounts?: CloudAccount[];
+  /** The cloud's Claude account is at its limit: true when threads wait for it, false when they run on this Mac's account instead. */
+  limitHolds?: boolean | null;
   signIns?: CloudSignIn[];
   /** 'resting' after runs failed in a row before their agent started, until `restingUntil`. */
   health?: 'ok' | 'failing' | 'resting';
@@ -172,7 +174,8 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   const inUse = cloudAccountInUse(cloud.accounts || [], 'claude');
   const until = inUse?.limitedUntil && inUse.limitedUntil > now ? inUse.limitedUntil : null;
   if (cloudIsOn(cloud) && until) {
-    return `Your cloud account is at its usage limit until ${clock(until)}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
+    const wait = cloud.mode === 'all' && cloud.limitHolds !== false;
+    return `Your cloud account is at its usage limit until ${clock(until)}. ${wait ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
   }
   if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
