@@ -1,7 +1,8 @@
 // DICTATION INTO A MESSAGE: what you say is written after what is already in
 // the box, as you say it. Stop leaves the words to edit or add to; Send waits
-// for the last words and lets the message go. The listening is the phone's own
-// (platform/speech.ts), on the phone itself whenever the phone can do it there.
+// for the last words and lets the message go. The phone app listens with the
+// phone's own models (mobile/src/platform/speech.ts), the web app with the
+// browser's (web-speech.ts).
 
 export interface SpeechEvents {
   start(): void;
@@ -23,6 +24,8 @@ export interface Speech {
   /** Ends now. */
   abort(): void;
   listen(on: SpeechEvents): () => void;
+  /** How long a start may take before it is given up on; START_MS unless said. */
+  startMs?: number;
 }
 
 export type Phase = 'idle' | 'asking' | 'starting' | 'listening' | 'finishing';
@@ -164,7 +167,7 @@ export function dictation({ speech, box, changed, timers = globalThis as unknown
       live = '';
       off = speech.listen(events);
       set({ phase: 'starting' });
-      timer = timers.setTimeout(() => { speech.abort(); end('Dictation did not start. Try again.'); }, START_MS);
+      timer = timers.setTimeout(() => { speech.abort(); end('Dictation did not start. Try again.'); }, speech.startMs ?? START_MS);
       try { speech.start(onDevice); } catch (err) { speech.abort(); end(`Dictation stopped: ${String((err as Error)?.message ?? err)}`); }
     },
     /** Stops listening; resolves once the last words are in the box. */

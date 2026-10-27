@@ -18,6 +18,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { teamConfigFile } from './phone-site-config.mjs';
+import { Name } from '../shared/product-name.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -72,6 +73,8 @@ export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out
   const index = path.join(out, 'index.html');
   fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('<head>', `<head>\n    ${meta}${built}\n    <link rel="manifest" href="/manifest.webmanifest">`));
   fs.copyFileSync(icon, path.join(out, 'phone-icon.png'));
+  // The worker that shows an alert while the app is closed (renderer/src/phone-alerts.ts registers it).
+  fs.writeFileSync(path.join(out, 'phone-sw.js'), fs.readFileSync(path.join(root, 'main', 'phone-sw.js'), 'utf8').replaceAll('__APP_NAME__', Name));
   fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
     name: 'Agentbox', short_name: 'Agentbox', start_url: '/', scope: '/', display: 'standalone',
     background_color: '#1e1b1a', theme_color: '#1e1b1a',
@@ -103,7 +106,8 @@ export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out
     '  Referrer-Policy: no-referrer',
     '  X-Content-Type-Options: nosniff',
     '  X-Frame-Options: SAMEORIGIN',
-    '  Permissions-Policy: camera=(), microphone=(), geolocation=()',
+    // The microphone for dictation, on the page itself and nothing it frames.
+    '  Permissions-Policy: camera=(), microphone=(self), geolocation=()',
     '',
   ].join('\n'));
   return { out, csp, legal: publishLegal(legal, out, given, log) };

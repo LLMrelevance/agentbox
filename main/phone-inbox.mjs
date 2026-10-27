@@ -98,6 +98,8 @@ export function createPhoneInbox({
   idleMs = null,
   // How an alert reaches Expo; a test stands in for it.
   sendPush,
+  // And how a Web Push reaches the web app; a test stands in for it too.
+  sendWebPush,
   // THE PHONE WITH THE LID SHUT (shared/cloud-kit.mjs). Told which projects
   // are on her phone each pass; asked whether this computer leaves its
   // threads ready for the cloud (said on the project); and handed each run
@@ -136,7 +138,7 @@ export function createPhoneInbox({
   const still = () => { if (!alive()) throw new SignedOut('signed out'); };
   // The files threads name, when this cloud can hold them (main/phone-uploads.mjs).
   const uploads = backend.putPhoneFile ? createPhoneUploads({ backend, owner, device, alive, state, save, home, now, log }) : null;
-  const alerts = idleMs && backend.pushDevices ? createPhoneAlerts({ backend, owner, device, state, save, now, log, idleMs, send: sendPush, still }) : null;
+  const alerts = idleMs && backend.pushDevices ? createPhoneAlerts({ backend, owner, device, state, save, now, log, idleMs, send: sendPush, sendWebPush, still }) : null;
   let swept = 0;
   const homeWritten = (p) => (p && home && (p === home || p.startsWith(`${home}/`)) ? `~${p.slice(home.length)}` : p ?? null);
 
@@ -394,9 +396,10 @@ export function createPhoneInbox({
             }
             if (ready) {
               try {
-                const out = await apply(ready);
+                const ownAlerts = cmd.kind === 'setting' && !!alerts?.takesSetting(ready.payload);
+                const out = ownAlerts ? await alerts.setting(ready.payload) : await apply(ready);
                 if (cmd.kind === 'new' && typeof out?.id === 'string') state.made[madeHere(cmd.id)] = { id: out.id, at: now() };
-                if (cmd.kind === 'setting') changedSettings = true;
+                if (cmd.kind === 'setting' && !ownAlerts) changedSettings = true;
                 outcome = 'done';
               } catch (err) {
                 outcome = `refused: ${String(err?.message || err).slice(0, 200)}`;
@@ -611,9 +614,9 @@ function readState(file) {
     const s = JSON.parse(fs.readFileSync(file, 'utf8'));
     const made = {};
     for (const [k, v] of Object.entries(s.made || {})) made[k] = typeof v === 'string' ? { id: v, at: Date.now() } : v;
-    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {}, alerted: s.alerted && typeof s.alerted === 'object' ? s.alerted : {}, adopted: s.adopted && typeof s.adopted === 'object' ? s.adopted : {} };
+    return { device: typeof s.device === 'string' && /^[0-9a-f]{12}$/.test(s.device) ? s.device : null, forDevice: s.forDevice ?? null, sent: s.sent || {}, failed: s.failed || {}, done: s.done || {}, doing: s.doing || {}, made, uploaded: s.uploaded && typeof s.uploaded === 'object' ? s.uploaded : {}, alerted: s.alerted && typeof s.alerted === 'object' ? s.alerted : {}, adopted: s.adopted && typeof s.adopted === 'object' ? s.adopted : {}, webAlerts: s.webAlerts && typeof s.webAlerts === 'object' ? s.webAlerts : {} };
   } catch {
-    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {}, alerted: {}, adopted: {} };
+    return { device: null, forDevice: null, sent: {}, failed: {}, done: {}, doing: {}, made: {}, uploaded: {}, alerted: {}, adopted: {}, webAlerts: {} };
   }
 }
 

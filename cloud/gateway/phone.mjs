@@ -34,6 +34,8 @@ import { PHONE_FILES_MAX, PHONE_FILE_MAX_BYTES, phoneFilesIn, phoneAttachmentRel
 import { isOurSlug } from '../../shared/product-name.mjs';
 import { codexApprovalCard, fileChangeCard, isMcpToolCall, elicitationServer, REMEMBERED_CHANGES } from '../../main/codex-approvals.mjs';
 import { yesTo, refusalTo } from '../../main/codex-app-server.mjs';
+import { sendWebAlert, webPushOf, TEST_ALERT } from '../../main/phone-alerts.mjs';
+import { WEB_ALERTS_KEY, WEB_ALERTS_TEST_KEY, webAlertsOn } from '../../shared/web-alerts.mjs';
 
 export const PHONE_TRIES = 3;
 // A start the cloud refused is tried again no sooner than this.
@@ -57,6 +59,8 @@ export const NO_ANSWER = 'The run in Agentbox Cloud ended without an answer.';
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 // A file from the phone is read through to the end at most this long.
 const FILE_MS = 60_000;
+// A test alert this old is not sent: whoever asked has stopped looking.
+const WEB_TEST_KEPT_MS = 10 * 60_000;
 
 const iso = (t) => new Date(t).toISOString();
 
@@ -116,6 +120,9 @@ export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = D
       return { sha256: hash.digest('hex'), bytes };
     },
     pushDevices: (owner) => call('GET', `push_devices?select=token&owner=eq.${q(owner)}`),
+    // The web app's alerts are in the settings it left for its computers (shared/web-alerts.mjs).
+    webAlerts: (owner) => call('GET', `phone_commands?select=payload,created_at&owner=eq.${q(owner)}&kind=eq.setting&payload->>key=eq.${WEB_ALERTS_KEY}&order=created_at.desc&limit=200`),
+    waitingWebTests: ({ after, before, limit }) => call('GET', `phone_commands?select=id,owner,device,payload,created_at&kind=eq.setting&payload->>key=eq.${WEB_ALERTS_TEST_KEY}&taken_at=is.null&claimed_at=is.null&created_at=gt.${q(iso(after))}&created_at=lt.${q(iso(before))}&order=created_at.asc&limit=${limit}`),
     dropPushDevice: (owner, token) => call('DELETE', `push_devices?owner=eq.${q(owner)}&token=eq.${q(token)}`),
   };
 }
@@ -125,7 +132,7 @@ export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = D
  * `input(...)` are the gateway's own invoke; `room(person)` says whether a
  * run could start now, without taking a place.
  */
-export function createPhoneCarry({ db, runFiles, links, objects, start, input, stop, room, scopedKey, now, log, sendPush }) {
+export function createPhoneCarry({ db, runFiles, links, objects, start, input, stop, room, scopedKey, now, log, sendPush, sendWebPush = webPushOf }) {
   const said = new Set();
   const once = (kind, line) => { if (!said.has(kind)) log(line); said.add(kind); };
   const tryKey = (person, id) => `ledger/phone/tries/${person}/${id}.json`;
@@ -203,10 +210,11 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   };
 
   async function alert(rec, title, over = null) {
+    const say = over ?? phoneBanner([{ kind: 'item', title }]);
+    await alertWeb(rec.owner, { title: say.title, body: say.body, open: rec.item });
     let phones;
     try { phones = await db.pushDevices(rec.owner); } catch (err) { once('push-read', `phone: could not read the phones to alert: ${err?.message || err}`); return; }
     if (!phones?.length) return;
-    const say = over ?? phoneBanner([{ kind: 'item', title }]);
     const messages = phones.map((p) => ({ to: p.token, title: say.title, body: say.body, sound: 'default', priority: 'high', channelId: 'default', data: { product: `${rec.project}@${rec.device}`, id: rec.item } }));
     let tickets;
     try { tickets = await sendPush(messages); } catch (err) { once('push-send', `phone: could not send an alert: ${err?.message || err}`); return; }
@@ -216,6 +224,29 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
       if (why === 'DeviceNotRegistered') await db.dropPushDevice(rec.owner, messages[i].to).catch((err) => once('push-drop', `phone: could not forget a phone: ${err?.message || err}`));
       else once(`push:${why}`, `phone: Expo did not take an alert: ${why}`);
     }
+  }
+
+  const webAlertsOf = async (owner) => webAlertsOn((await db.webAlerts?.(owner)) ?? []);
+
+  async function alertWeb(owner, payload) {
+    let webs;
+    try { webs = await webAlertsOf(owner); } catch (err) { once('web-read', `phone: could not read the web app's alerts: ${err?.message || err}`); return; }
+    for (const web of webs) {
+      try { await sendWebAlert(web, payload, sendWebPush); } catch (err) { once(`web:${err?.statusCode ?? err?.message}`, `phone: could not send an alert to the web app: ${err?.message || err}`); }
+    }
+  }
+
+  // A test from the web app that no computer took: every computer may be off.
+  async function webTest(cmd) {
+    // Claimed with no name: a computer brings every `cloud:<run>` claim home as a run.
+    if (!(await db.claim(cmd.id, null, iso(now())))) return;
+    const web = (await webAlertsOf(cmd.owner)).find((w) => w.endpoint === cmd.payload?.value?.endpoint);
+    let outcome = 'done';
+    if (!web) outcome = 'refused: alerts are not on for this phone';
+    else {
+      try { await sendWebAlert(web, TEST_ALERT, sendWebPush); } catch (err) { outcome = `refused: the phone's push service did not take the alert (${err?.statusCode ?? err?.message})`; }
+    }
+    await db.taken(cmd.id, outcome, iso(now()));
   }
 
   // One finished turn: into the phone's copy, the command taken, one alert.
@@ -770,6 +801,13 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
     }
     for (const cmd of answers) {
       try { await answerCard(cmd, open); } catch (err) { log(`phone: answer ${cmd?.id} was passed: ${err?.message || err}`); }
+    }
+    let tests = [];
+    try { tests = await db.waitingWebTests?.({ after: t - WEB_TEST_KEPT_MS, before: t - CLOUD_TAKES_AFTER_MS, limit: PER_SWEEP }) ?? []; } catch (err) {
+      once(`tests:${err?.message}`, `phone: could not read the web app's test alerts: ${err?.message || err}`);
+    }
+    for (const cmd of tests) {
+      try { await webTest(cmd); } catch (err) { log(`phone: test alert ${cmd?.id} was passed: ${err?.message || err}`); }
     }
     for (const rec of new Set(open.values())) {
       try {
