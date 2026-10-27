@@ -10,7 +10,7 @@ import {
   teamDir, readTeammates, readChat, writeTeammate, writeChat, newMemoryId,
   readPlaybooks, writePlaybook, newPlaybookId, newLessonId, newDutyId,
 } from '../../main/store/teammates-files.mjs';
-import { teammateIdOf, hopOf, mentionsIn, isWorks, letterFor, cleanDuty, dutyStart, YOU } from '../../shared/teammates.mjs';
+import { teammateIdOf, hopOf, workOf, mentionsIn, isWorks, letterFor, cleanDuty, dutyStart, YOU } from '../../shared/teammates.mjs';
 import { periodKey } from '../../shared/repeats.mjs';
 import { resolveProduct, resolveAccount } from './account.mjs';
 
@@ -43,8 +43,10 @@ export function teammateContext({ env = process.env, now = Date.now(), outsider 
   if (!tid) return { dir, me: null, team, item, project, hop: 0, writtenIn: { via: item.id, viaProduct: project.id } };
   const me = team.find((t) => t.id === tid);
   if (!me) throw new Error(`the teammate behind ${itemId} is no longer on the team`);
-  // The run is what says which work its words are about (`workOf`).
-  return { dir, me, team, item, project, hop: hopOf(item), writtenIn: { run: item.id } };
+  // The run and the work it is on route its hand-offs (`planWakes`). Hand-offs
+  // count up without you, and your reply on the run starts the count again.
+  const hop = item.wrote?.answer?.source === 'founder' ? 0 : hopOf(item);
+  return { dir, me, team, item, project, hop, writtenIn: { run: item.id, work: workOf(item) } };
 }
 
 function idsFor(names, team, me) {
@@ -66,7 +68,10 @@ export function teamPost({ text, to = [], options } = {}, ctx = {}) {
   const ids = new Set([...idsFor(to, team, me), ...mentionsIn(words, team).filter((x) => x !== me?.id)]);
   const opts = me && Array.isArray(options) ? options.map(plain).filter(Boolean).slice(0, 4) : null;
   const m = writeChat(dir, { kind: 'msg', from: me?.id ?? YOU, to: [...ids], text: words.slice(0, 4000), hop, ...writtenIn, ...(opts?.length ? { options: opts } : {}) }, ctx.now);
-  return { posted: m.id, to: [...ids].map((x) => team.find((t) => t.id === x)?.name), note: ids.size ? 'The teammates named will read it, in the thread they already have on this work if they have one.' : 'Posted. Nobody was named, so nobody is woken by it.' };
+  const note = !ids.size ? 'Posted. Nobody was named, so nobody is woken by it.'
+    : me ? 'Posted. The teammates named read it on their next turn; it wakes nobody. To have one act on it, hand it over with team_pass.'
+      : 'Posted. The teammates named will wake to read it.';
+  return { posted: m.id, to: [...ids].map((x) => team.find((t) => t.id === x)?.name), note };
 }
 
 export function teamPass({ to, title, details, project: named } = {}, ctx = {}) {
@@ -79,7 +84,14 @@ export function teamPass({ to, title, details, project: named } = {}, ctx = {}) 
   const what = plain(title);
   if (!what) throw new Error('give the work a short title');
   const m = writeChat(dir, { kind: 'pass', from: me?.id ?? YOU, to: target, title: what.slice(0, 200), details: String(details ?? '').slice(0, 6000), hop, ...writtenIn, ...(where ? { product: where } : {}) }, ctx.now);
-  return { passed: m.id, to: team.find((t) => t.id === target)?.name };
+  const them = team.find((t) => t.id === target);
+  const held = me && them?.handoffsNeedYes;
+  return {
+    passed: m.id, to: them?.name,
+    note: held
+      ? `${them.name} takes work from teammates only with the person's yes, so this waits in their inbox until they reply. Say so in your answer.`
+      : `It goes to the thread ${them?.name ?? 'they'} already has on this work, or starts one, and wakes them.`,
+  };
 }
 
 export function teamRemember({ text } = {}, ctx = {}) {
@@ -112,6 +124,7 @@ function answeredSince(dir, id) {
 const SAID = {
   name: 'its name', role: 'its role', job: 'its job', goal: 'its goal', counted: 'how it counts its goal',
   asksFirst: 'what needs your yes first', works: 'when it works', duties: 'what it does on its own',
+  handoffsNeedYes: 'whether work from teammates waits for your yes',
 };
 
 // Duties keep their id, and what they have served, when one with the same
@@ -132,7 +145,7 @@ function dutiesFrom(list, me, now) {
   return { duties: out, served };
 }
 
-export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, duties, runsOn, ready } = {}, ctx = {}) {
+export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at, on, duties, runsOn, handoffsNeedYes, ready } = {}, ctx = {}) {
   const { dir, me, team, item } = teammateContext(ctx);
   const now = ctx.now ?? Date.now();
   if (typeof asksFirst === 'string' && /\?\s*$/.test(asksFirst)) {
@@ -166,6 +179,10 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
     if (runsOn !== 'claude' && runsOn !== 'codex') throw new Error('runsOn is claude or codex');
     patch.engine = runsOn;
   }
+  if (handoffsNeedYes !== undefined) {
+    if (typeof handoffsNeedYes !== 'boolean') throw new Error('handoffsNeedYes is true or false');
+    patch.handoffsNeedYes = handoffsNeedYes;
+  }
   // A new teammate asks before it starts, so ready waits for the person's
   // own words to it after the ask that made it.
   if (ready === true && me.status === 'draft' && !answeredSince(dir, me.id) && !answeredInThread(item)) {
@@ -180,7 +197,7 @@ export function teamSetup({ name, role, job, goal, counted, asksFirst, every, at
     writeChat(dir, { kind: 'act', from: me.id, verb: 'updated', text: `Updated ${parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts.at(-1)}` : parts[0]}` }, now);
   }
   const after = readTeammates(dir, now).find((t) => t.id === me.id);
-  return { teammate: { name: after.name, role: after.role, job: after.job, goal: after.goal, counted: after.counted, asksFirst: after.asksFirst, works: after.works, duties: after.duties, runsOn: after.engine ?? 'your default', status: after.status } };
+  return { teammate: { name: after.name, role: after.role, job: after.job, goal: after.goal, counted: after.counted, asksFirst: after.asksFirst, works: after.works, duties: after.duties, runsOn: after.engine ?? 'your default', handoffsNeedYes: !!after.handoffsNeedYes, status: after.status } };
 }
 
 // A lesson about how the person likes a kind of work done, kept in the

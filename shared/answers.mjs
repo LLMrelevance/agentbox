@@ -85,8 +85,25 @@ export function answerTs(item) {
 // is not one of those, though a kill hands it back to the queue: that is how a
 // stopped run came straight back ten seconds later (2026-10-01).
 // tests/a-stopped-agent-stays-stopped-until-she-resumes-it.test.mjs
+// A teammate's reply after the stop is not her speaking, so it never lifts it.
 export function stoppedByHer(item) {
   const status = item?.wrote?.status;
   return item?.status === 'blocked' && status?.source === 'founder'
+    && (answerTs(item) <= (status.ts ?? 0) || !!toldBy(item));
+}
+
+// The teammate whose words are this row's newest reply, or null when the
+// newest reply is the person's own.
+export function toldBy(item) {
+  const a = item?.wrote?.answer;
+  return a?.source === 'system' && a.from ? { name: a.from, teammate: a.teammate ?? null } : null;
+}
+
+// HELD FOR HER YES: a teammate's words are on the row, and the app blocked it
+// after them so nothing runs on them until she replies. Her reply is newer
+// than the hold and releases it, as it releases her own stop.
+export function heldForHer(item) {
+  const status = item?.wrote?.status;
+  return item?.status === 'blocked' && status?.source === 'system' && !!toldBy(item)
     && answerTs(item) <= (status.ts ?? 0);
 }
