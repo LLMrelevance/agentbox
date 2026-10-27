@@ -34,7 +34,7 @@ import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-wor
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
 import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
-import { menuSetupLine, SETUP } from '../cloud-setup';
+import { brokenAccounts, buttonAsksSignIn, menuSetupLine, readBrokenSeen, seenAfter, SETUP, writeBrokenSeen } from '../cloud-setup';
 import type { Offer, OfferGo } from '../cloud-upgrade';
 import './pages.css';
 
@@ -265,6 +265,18 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
   // The invitation is for a cloud with no account at all, and none on its way.
   const nobodyReady = !accounts.length && !(cloud.signIns || []).length;
   const setup = menuSetupLine(cloud);
+  // A STOPPED ACCOUNT IS SAID IN WORDS until the menu has been opened on it
+  // (../cloud-setup.ts). It counts as seen when the menu closes, so the button
+  // does not shrink under a menu that is open.
+  const [seen, setSeen] = useState(readBrokenSeen);
+  const looked = useRef<string[]>([]);
+  useEffect(() => {
+    if (open) { looked.current = [...new Set([...looked.current, ...brokenAccounts(cloud)])]; return; }
+    const next = seenAfter(cloud, seen, looked.current);
+    looked.current = [];
+    if (next.join() !== seen.join()) { setSeen(next); writeBrokenSeen(next); }
+  }, [open, cloud, seen]);
+  const asks = !nobodyReady && buttonAsksSignIn(cloud, seen);
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
   // TRY AGAIN ON ONE THAT WAS NOT ADDED starts it again and opens the setup on
   // its sign-in, rather than on a list with a second Try again on it.
@@ -278,11 +290,13 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
     goSetUp();
   };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
-    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${!count && nobodyReady ? ' named' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
-      aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={nobodyReady ? SETUP.inviteGo : `Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
+    <button type="button" className={`th-disp th-cloud${count && !asks ? ' count' : ''}${asks || (!count && nobodyReady) ? ' named' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
+      aria-label={asks ? SETUP.menuBroken : count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={asks ? SETUP.menuBroken : nobodyReady ? SETUP.inviteGo : `Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
       data-hint="cloud" data-hint-align="center" onClick={() => setOpen((o) => !o)}>
       {/* The word until it is set up: a new user found no other way in, and nothing saying what the icon was (F-97). */}
-      <CloudIcon />{count && <b>{count}</b>}{!count && nobodyReady && <span className="th-cloud-word">Cloud</span>}{!count && (nobodyReady || setup) && <i />}
+      <CloudIcon />{asks
+        ? <span className="th-cloud-word ask">{SETUP.again}</span>
+        : count ? <b>{count}</b> : nobodyReady && <span className="th-cloud-word">Cloud</span>}{(asks || (!count && (nobodyReady || setup))) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
       <span className="th-cloud-invite-ic"><CloudIcon /></span>

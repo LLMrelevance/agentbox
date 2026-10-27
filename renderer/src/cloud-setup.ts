@@ -80,6 +80,39 @@ export function menuSetupLine(status: CloudStatus): { say: string; go: string | 
   return null;
 }
 
+// THE BUTTON SAYS "Sign in again" while an account has stopped working and the
+// menu that says so has not been opened since. Opening it is seeing it, so an
+// account someone meant to let go does not ask for ever. Seen accounts are
+// kept as engine:key.
+export const BROKEN_SEEN_KEY = 'zero.cloudBrokenSeen';
+
+export const brokenAccounts = (status: CloudStatus): string[] =>
+  (status.accounts || []).filter((a) => a.state === 'broken').map((a) => `${a.engine}:${a.key}`);
+
+export const buttonAsksSignIn = (status: CloudStatus, seen: string[]): boolean =>
+  brokenAccounts(status).some((k) => !seen.includes(k));
+
+// What was seen, with what the menu showed (`looked`). An account that works
+// again or is gone drops out, so it asks again if it stops later. With no
+// accounts known yet, nothing is dropped.
+export function seenAfter(status: CloudStatus, seen: string[], looked: string[]): string[] {
+  const all = [...new Set([...seen, ...looked])];
+  if (!status.accounts?.length) return all;
+  const broken = brokenAccounts(status);
+  return all.filter((k) => broken.includes(k));
+}
+
+export function readBrokenSeen(): string[] {
+  try {
+    const kept = JSON.parse(localStorage.getItem(BROKEN_SEEN_KEY) ?? '[]');
+    return Array.isArray(kept) ? kept.filter((k) => typeof k === 'string') : [];
+  } catch { return []; }
+}
+
+export function writeBrokenSeen(seen: string[]): void {
+  try { localStorage.setItem(BROKEN_SEEN_KEY, JSON.stringify(seen)); } catch { /* private mode */ }
+}
+
 // HER PART OF A SIGN-IN HOLDS THE SCREEN, AND NOTHING ELSE DOES (2026-10-15:
 // "anything over 3 seconds is too long ... doing it in the background"). Once
 // she has pasted Claude's code or approved on OpenAI's page, the cloud's
