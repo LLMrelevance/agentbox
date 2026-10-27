@@ -235,6 +235,14 @@ export function installPhoneScreen() {
   vv?.addEventListener('scroll', fit);
   installPictureZoom();
 
+  // What Safari 26 takes the colour behind the clock from (phone.css).
+  if (!document.querySelector('.phone-edge-top')) {
+    const edge = document.createElement('div');
+    edge.className = 'phone-edge-top';
+    edge.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(edge);
+  }
+
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (!meta) {
     meta = document.createElement('meta');
