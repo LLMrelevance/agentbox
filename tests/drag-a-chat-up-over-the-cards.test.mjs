@@ -2,7 +2,7 @@
 //
 // "When I'm in the chats, I find myself really wanting to expand it upward and
 // drag this chat to give me more view space." With three rows of cards over
-// it (her screenshot, a chat with Margarette Pineda), an open chat had about
+// it (the screenshot, a chat with one person), an open chat had about
 // half the window. Now a grip sits between the cards and the chat: drag it up
 // and the cards area gets shorter and scrolls, down to nothing at all; drag
 // it down for all of them. The height is remembered, and a double click puts

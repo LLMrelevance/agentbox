@@ -1,7 +1,7 @@
 // THE FACES IN THE CORNER SIT EVENLY (w-b5f23cff71).
 //
 // "The spacing of these components looks pretty wacky. It's weirdly wide and
-// uneven." Her screenshot of the faces on Needs you's row, measured off it at
+// uneven." The screenshot of the faces on Needs you's row, measured off it at
 // 2x: four people 88 apart, then 136 to the first AI teammate, 88 to the
 // next, and 136 again to Search. The CSS said why: a 16px gap, a 6px spacer
 // between people and AI teammates (so 38 there), and a margin before Search.
@@ -16,7 +16,7 @@ import { CornerFaces } from '../renderer/src/team/everything/TeamStrip.tsx';
 const css = fs.readFileSync(new URL('../renderer/src/team/everything/everything.css', import.meta.url), 'utf8');
 const members = [
   { key: 'me', kind: 'me', name: 'You', agents: 6, now: null },
-  { key: 'person:p-m', kind: 'person', name: 'Margarette Pineda', agents: null, now: null },
+  { key: 'person:p-m', kind: 'person', name: 'Sam Ortiz', agents: null, now: null },
   { key: 'mate:t-g', kind: 'mate', name: 'Growth marketer', letter: 'G', agents: 0, now: null },
   { key: 'mate:t-v', kind: 'mate', name: 'Video producer', letter: 'V', agents: 1, now: null },
 ];
