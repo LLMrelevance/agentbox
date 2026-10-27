@@ -254,17 +254,17 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     // does, because they asked. Which comes from the run, never an argument.
     {
       name: 'team_post',
-      description: 'Say something in the team chat: as the teammate this run belongs to, or, on any other thread, for the person when they ask you to tell a teammate something. The person and every teammate read it, so say "you" to the person, never "the person". Naming a teammate in `to` or with @Name in the text wakes them to read it, so name someone only when they need to act. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
+      description: 'Say something in the team chat: as the teammate this run belongs to, or, on any other thread, for the person when they ask you to tell a teammate something. The person and every teammate read it, so say "you" to the person, never "the person". From a teammate, naming another in `to` or with @Name tells them: they read it on their next turn, and it wakes nobody. To have a teammate act, use team_pass. For the person, naming a teammate wakes them. Keep it short and plain. Add up to four short `options` when asking the person something they can answer in a tap.',
       schema: {
         text: z.string().describe('what to say, one to three sentences'),
-        to: z.array(z.string()).optional().describe('names of teammates who need to act on it'),
+        to: z.array(z.string()).optional().describe('names of teammates it is for'),
         options: z.array(z.string()).optional().describe('short answers the person can tap, when asking them a question'),
       },
       run: ({ text: words, to, options }) => json(teamPost({ text: words, to, options })),
     },
     {
       name: 'team_pass',
-      description: 'Hand a piece of work to a teammate whose job it is. They get it as a run of their own, with your title and details as its brief, and it shows in the team chat. On a thread that is not a teammate\'s run, use it when the person asks you to give something to one of their teammates (call team_roster first to see who is on the team). Put everything they need in the details: steps, files, links, what done looks like.',
+      description: 'Hand a piece of work to a teammate whose job it is, or hand an answer back to a teammate waiting on you. It goes to the thread they already have on this work, or starts one, wakes them, and shows in the team chat. A teammate set to need the person\'s yes for hand-offs gets it only after the person replies. On a thread that is not a teammate\'s run, use it when the person asks you to give something to one of their teammates (call team_roster first to see who is on the team). Put everything they need in the details: steps, files, links, what done looks like.',
       schema: {
         to: z.string().describe('the teammate\'s name'),
         title: z.string().describe('the work, in a short line'),
@@ -290,7 +290,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
     },
     {
       name: 'team_setup',
-      description: 'Set or change who you are as a teammate: your name (your role, like Marketing lead), role, job (as long as it needs, in plain words to yourself), goal, how the goal is counted, what needs the person\'s yes first (a statement, never a question), what you do on your own (duties: a list, each { what, every: day|weekday|week, at: ["09:00", "15:00"], on: 0-6 for weekly } or { what, after: "ship", most: runs a week }, with tell: when to bring the person in; the list you send replaces the old one), and which coding agent runs you when the person said (runsOn: claude or codex). A new teammate calls it to set itself up, and with ready true when it is set.',
+      description: 'Set or change who you are as a teammate: your name (your role, like Marketing lead), role, job (as long as it needs, in plain words to yourself), goal, how the goal is counted, what needs the person\'s yes first (a statement, never a question), what you do on your own (duties: a list, each { what, every: day|weekday|week, at: ["09:00", "15:00"], on: 0-6 for weekly } or { what, after: "ship", most: runs a week }, with tell: when to bring the person in; the list you send replaces the old one), which coding agent runs you when the person said (runsOn: claude or codex), and whether work other teammates hand you waits for the person\'s yes (handoffsNeedYes). A new teammate calls it to set itself up, and with ready true when it is set.',
       schema: {
         name: z.string().optional(),
         role: z.string().optional(),
@@ -308,6 +308,7 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
           tell: z.string().optional(),
         })).optional(),
         runsOn: z.enum(['claude', 'codex']).optional(),
+        handoffsNeedYes: z.boolean().optional(),
         ready: z.boolean().optional(),
       },
       run: (args) => json(teamSetup(args)),

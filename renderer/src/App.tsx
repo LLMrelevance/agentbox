@@ -22,7 +22,7 @@ import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRu
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
-import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
+import { advanceAfter, advanceLandsHere, replyMovesOn, opensIntoNeedsYou, nextAfterAdvance, type Advance } from './advance';
 import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
@@ -5812,6 +5812,22 @@ export default function App() {
     const at = onBoard ? list.findIndex((i) => i.id === next.item.id && i.product === next.item.product) : next.index;
     setSelected(at >= 0 ? at : 0);
   }, [shownInbox, view, onBoard, list, focused, markSeen]);
+
+  // A thread opened while it waits in Needs you puts you in Needs you
+  // (./advance). Asked once per thread opened, not again as it changes tabs.
+  const openedKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = focused ? keyOf(focused) : null;
+    if (key === openedKey.current) return;
+    openedKey.current = key;
+    if (!focused) return;
+    if (opensIntoNeedsYou({
+      view, onBoard, searching: search !== null,
+      index: shownInbox.findIndex((i) => i.id === focused.id && i.product === focused.product),
+      conversation: directSlugs.has(focused.product), interrupted: !!heldByUrgent, walking: !!run,
+    })) setView('inbox');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, view, onBoard, search, shownInbox, directSlugs, heldByUrgent, run]);
 
   // A SEND THAT MOVED HER ON IS SAID ABOVE THE REPLY BOX of the thread it moved
   // her to (./components/SentLine). The line keeps its own clock, which stops
