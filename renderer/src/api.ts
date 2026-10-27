@@ -899,6 +899,12 @@ export const api = {
     return window.zero!.compose(p);
   },
 
+  /** Who takes a thread sent to Auto: 'agent' or a teammate as 'mate:<id>' (shared/auto-route.mjs). */
+  async routeThread(p: { product: string; id: string; to: string }): Promise<void> {
+    if (useFixtures || !window.zero?.routeThread) return;
+    await window.zero.routeThread(p);
+  },
+
   /* ------------------------------ the first run ---------------------------- */
   // THE WALK'S EXAMPLE TASK IS ANSWERED BY THE APP.Main reads the readme in the
   // folder chosen two screens earlier and writes the result on the real row;

@@ -16,7 +16,7 @@
 // permission wording and the privacy policy.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
-import { dictation, joinWords, languageFor, levelOf, START_MS, FINISH_MS } from '../mobile/src/lib/dictation';
+import { dictation, joinWords, languageFor, levelOf, START_MS, FINISH_MS } from '../renderer/src/dictation';
 
 const src = (rel) => fs.readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8');
 

@@ -39,9 +39,12 @@ import { ENGINES } from '../../../shared/engines.mjs';
 import { api } from '../api';
 import { TeamContext, Face, firstName } from '../team/people';
 import { AgentFace } from '../components/AgentFace';
+import { AutoFace } from '../components/AutoFace';
+import { AUTO_LABEL } from '../../../shared/auto-route.mjs';
 import { conversationWith } from './page-rules';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { AttachRow } from '../components/AttachRow';
+import { Listening, MicButton, useWebDictation } from '../components/WebDictation';
 import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type PriorityId } from '../priority';
 import { composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
@@ -56,7 +59,7 @@ import { fitMenu } from '../keep-in-window';
 import { ModelMenu } from './ModelMenu';
 import { useThreadMentions } from '../components/ThreadMentions';
 import {
-  agentChoices, agentWordFor,
+  agentChoices, agentWordFor, autoOffered,
   allModels, findPeople, harnessFields, laterHint, momentFromWords, mondayMorning, moreCount,
   joinNames, placeholderFor, projectsOffered, projectSwatch, recentModels,
   sharingFields, startingProject, startingVisibility, startingChosen, teammates, threadMessage, tomorrowMorning, chosenWords, VISIBILITY_ROWS,
@@ -112,7 +115,7 @@ export function ThreadComposer({
   /** On the page: filled with a reading of the box, for the dialog to open on. */
   handOver?: MutableRefObject<(() => ComposeStart) | null>;
   /** Your teammates, offered in To beside the agents, and Someone new. */
-  agentMates?: readonly { id: string; name: string; letter: string; role: string | null }[];
+  agentMates?: readonly { id: string; name: string; letter: string; role: string | null; paused?: boolean }[];
   /** Hands the words to a teammate ('new' makes one from them); an error to show, or null once it is theirs. */
   onToTeammate?: (to: string, text: string, product: string | null) => Promise<string | null>;
   products: Product[];
@@ -192,6 +195,11 @@ export function ThreadComposer({
   // A teammate in To, or 'new' for Someone new: it takes the words in the team chat.
   const [mate, setMate] = useState<string | null>(() => initial?.mate ?? null);
   const mateRow = mate && mate !== 'new' ? agentMates?.find((t) => t.id === mate) ?? null : null;
+  // AUTO: with AI teammates to give it to, a thread starts out going to
+  // whoever's work it is (shared/auto-route.mjs). Picking anyone in To leaves it.
+  const autoHere = autoOffered(agentMates, !!onToTeammate);
+  const [auto, setAuto] = useState(() => !initial?.to && !initial?.mate);
+  const onAuto = auto && autoHere && to === 'agent' && !mate;
   // A teammate who leaves the team while the card is open takes the To with them.
   useEffect(() => { if (to !== 'agent' && !person) setTo('agent'); }, [to, person]);
   const [query, setQuery] = useState('');
@@ -568,6 +576,7 @@ export function ThreadComposer({
           ...harness,
           ...(given ?? {}),
           ...(team ? sharingFields(visibility, chosenHere) : {}),
+          ...(onAuto ? { labels: [AUTO_LABEL] } : {}),
           // The tutorial's own task, and only ever that one. See `scripted`.
           ...(scripted ? { labels: scripted.labels } : {}),
         });
@@ -648,6 +657,7 @@ export function ThreadComposer({
     else { dropComposeDraft(taken); setText(''); onClose(); }
   };
   const send = () => (person && sendAs === 'message' ? sendMessage() : sendTask());
+  const talk = useWebDictation({ text, setText }, () => void send());
   // ⌘↵ SENDS WHEREVER THE CURSOR IS while the card is open (w-9f6975906c).
   // It used to be heard only inside the card, so once a menu or a click had
   // taken focus out of it the key did nothing: "Command+Enter in the tutorial
@@ -683,24 +693,31 @@ export function ThreadComposer({
     }
     setAdding(false);
     setMate(null);
+    setAuto(false);
     setTo(id); setAlso([]); setError(null); close('text');
   };
-  const chooseMate = (id: string) => { setAdding(false); setTo('agent'); setAlso([]); setMate(id); setError(null); close('text'); };
+  const chooseMate = (id: string) => { setAdding(false); setAuto(false); setTo('agent'); setAlso([]); setMate(id); setError(null); close('text'); };
+  const chooseAuto = () => { setAdding(false); setMate(null); setTo('agent'); setAlso([]); setAuto(true); setError(null); close('text'); };
 
   const toMenu = (
     <div className="tc-menu tc-drop tc-to-menu" role="listbox" aria-label="To" onKeyDown={menuKeys}>
+      {!adding && autoHere && (
+        <button type="button" data-item className={`tc-row ${onAuto ? 'on' : ''}`} onPointerEnter={hover} onClick={chooseAuto}>
+          <AutoFace /><span className="tc-row-label">Auto</span><small className="tc-row-aside">picks who when you send</small>
+        </button>
+      )}
       {/* ONE ROW PER AGENT WHERE THIS MAC HAS TWO, and the one row it has
           always drawn where it has one. Picking an agent is picking where the
           task runs, so it moves the model with it (`chooseAgent`). */}
       {!adding && (agents.length
         ? agents.map((a) => (
-          <button key={a.id} type="button" data-item className={`tc-row ${!person && !mate && pick.engine === a.id ? 'on' : ''}`}
+          <button key={a.id} type="button" data-item className={`tc-row ${!person && !mate && !onAuto && pick.engine === a.id ? 'on' : ''}`}
             onPointerEnter={hover} onClick={() => { chooseAgent(a.id); chooseTo('agent'); }}>
             <AgentFace /><span className="tc-row-label">{a.label}</span>
           </button>
         ))
         : (
-          <button type="button" data-item className={`tc-row ${person || mate ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
+          <button type="button" data-item className={`tc-row ${person || mate || onAuto ? '' : 'on'}`} onPointerEnter={hover} onClick={() => chooseTo('agent')}>
             <AgentFace /><span className="tc-row-label">Agent</span>
           </button>
         ))}
@@ -985,8 +1002,8 @@ export function ThreadComposer({
       <span className="tc-anchor" ref={anchor('to')}>
         <button type="button" data-trigger className={trigger('to')} aria-haspopup="listbox" aria-expanded={open === 'to'}
           onClick={() => toggle('to')} onKeyDown={triggerKeys('to')}>
-          {mate ? (mateRow ? <TeammateMark t={mateRow} /> : <i className="tq tq-sm tq-hash" aria-hidden="true">+</i>) : person ? <Face person={person} /> : inline ? null : <AgentFace />}
-          <span className="tc-word-text">{mate ? mateRow?.name ?? 'Someone new' : person ? person.name : agentWordFor(engineRows, pick.engine)}</span>
+          {mate ? (mateRow ? <TeammateMark t={mateRow} /> : <i className="tq tq-sm tq-hash" aria-hidden="true">+</i>) : person ? <Face person={person} /> : inline ? null : onAuto ? <AutoFace /> : <AgentFace />}
+          <span className="tc-word-text">{mate ? mateRow?.name ?? 'Someone new' : person ? person.name : onAuto ? 'Auto' : agentWordFor(engineRows, pick.engine)}</span>
         </button>
         {extra.map((p) => (
           <span key={p.id} className="tc-also">
@@ -1096,6 +1113,7 @@ export function ThreadComposer({
           onChange={(e) => { setText(e.target.value); named.track(e.target); }}
           onSelect={(e) => named.track(e.currentTarget)}
           onScroll={(e) => named.track(e.currentTarget)}
+          onFocus={() => { if (talk.on) talk.stop(); }}
           onKeyDown={(e) => { named.keyDown(e); }}
           placeholder={mate === 'new' ? 'What should they do? They set themselves up from it and ask what they need' : mateRow ? `What should ${mateRow.name} do?` : person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {
@@ -1124,6 +1142,7 @@ export function ThreadComposer({
             may not exist until the message makes it; the send hands them over
             and main/team/index.mjs saves them once it knows where. */}
         {error && <div className="tc-note tc-error" role="alert">{error}</div>}
+        {!talk.on && talk.problem && <div className="tc-note">{talk.problem}</div>}
 
         {person && sendAs === 'message' ? (
           <div className="tc-bar">
@@ -1187,9 +1206,12 @@ export function ThreadComposer({
                 {open === 'visibility' && visibilityMenu}
               </span>
             )}
+            {talk.on ? <Listening talk={talk} /> : (
             <button type="button" className="tc-icon" title="Attach files" aria-label="Attach files" onClick={() => fileRef.current?.click()}>
               <ClipIcon />
             </button>
+            )}
+            {talk.allowed && !talk.on && <MicButton talk={talk} />}
             <input ref={fileRef} type="file" multiple hidden onChange={async (e) => { await addFiles(e.target.files); e.target.value = ''; }} />
             {/* WHY SEND IS OFF, WHEN IT IS OFF FOR WANT OF A PROJECT. My
                 Workspace is made for everybody at boot, so this should never

@@ -19,7 +19,8 @@
 //
 // Now the cloud runs on the same account as this Mac whenever that account is
 // signed in to the cloud, the check and the run ask one rule, and a run that
-// finds its account at its limit says so.
+// finds its account at its limit says so. (Since 2026-10-26, when it is not
+// signed in there, the cloud runs nothing rather than another account.)
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -59,8 +60,10 @@ describe('the cloud account a run takes', () => {
     expect(picks).toEqual(['acct-work', 'acct-work', 'acct-work']);
   });
 
-  it('is the first one signed in when this Mac\'s account is not in the cloud', () => {
-    expect(pickCloudLogin('claude', { home, now, prefer: 'acct-elsewhere' })?.key).toBe('acct-me');
+  // Since 2026-10-26 the cloud runs on no other account than this Mac's
+  // (switching-to-an-account-not-in-the-cloud-runs-nothing-there-on-another).
+  it('is none when this Mac\'s account is not in the cloud, and the first one signed in when nothing names this Mac\'s', () => {
+    expect(pickCloudLogin('claude', { home, now, prefer: 'acct-elsewhere' })).toBe(null);
     expect(pickCloudLogin('claude', { home, now })?.key).toBe('acct-me');
   });
 
@@ -78,9 +81,9 @@ describe('the cloud account a run takes', () => {
     expect(pickCloudLogin('claude', { home, now })).toBe(null);
   });
 
-  it('passes over the account you are on when its cloud sign-in has stopped working, as for any other', () => {
+  it('takes no other account when the cloud sign-in of the one you are on has stopped working', () => {
     markCloudLogin('claude', 'acct-work', 'id-work', { broken: 'signed out' }, { home });
-    expect(pickCloudLogin('claude', { home, now, prefer: 'acct-work' })?.key).toBe('acct-me');
+    expect(pickCloudLogin('claude', { home, now, prefer: 'acct-work' })).toBe(null);
   });
 
   it('is narrowed by a test copy\'s list before anything is preferred', () => {

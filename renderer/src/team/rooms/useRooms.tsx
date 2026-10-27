@@ -35,7 +35,7 @@ type Direct = Conversation & { people: string[] };
 /** A named group's name, or the people in a chat. */
 const nameOf = (r: Room) => (r.kind === 'group' ? r.wall.filter((c) => !c.me).map(cardName).join(', ') || r.name : r.name);
 
-export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team = [], directs = [], now, toast, onOpenDirect, onTeamMessage, onLeavePage, renderBoard }: {
+export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team = [], directs = [], now, toast, onOpenDirect, onTeamMessage, onLeavePage, renderBoard, inline = false }: {
   rooms: RoomsState | null | undefined; on: boolean; meId: string | null; myName: string; fullName?: string; hasTeam: boolean;
   /** Everyone on your team, for a teammate in a direct record who is not on Groups yet. */
   team?: Person[];
@@ -50,6 +50,8 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
   onLeavePage: () => void;
   /** The room's board, for these people's threads. */
   renderBoard?: (people: string[], opts: { later: boolean }) => ReactNode;
+  /** Drawn under Everything else's cards (w-b5f23cff71), which list the groups and the team instead. */
+  inline?: boolean;
 }) {
   const live = on && !!rooms?.on;
   const all = live ? rooms!.rooms : [];
@@ -286,15 +288,16 @@ export function useRooms({ rooms, on, meId, myName, fullName = '', hasTeam, team
       <div className="gr-none-acts"><button type="button" className="rm-btn go" onClick={() => setDialog({ kind: 'start' })}>{I.plus()}New group</button>
         <button type="button" className="rm-btn" onClick={find}>{I.search()}Find groups to join</button></div></div>;
   } else if (open && rooms && onChat) {
-    page = <GroupPage key={open.id}
+    page = <GroupPage key={open.id} inline={inline}
       notice={rooms.me && noticeShown(open, answered) ? <OpenGroupNotice me={rooms.me}
         onLeave={() => void groupAction(open, 'leave', new DOMRect())}
         onHide={() => void call('saveProfile', { show_working: 'team' })} onOk={() => answerNotice(open.id)} /> : null}
       chat={<RoomChat room={open} messages={rooms.messages[open.id] ?? []} people={withMe(chatPeople(open, meId), meInChat)} meId={meId} now={now}
         full hang head={<></>} onSend={send(open.id)} onRead={read(open)} {...chatCalls(open)} />}
-      people={<PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />}
+      people={inline && (open.teamId || open.members <= 2) ? null : <PeoplePanel room={open} onPerson={(id) => setPane(`person:${id}`)} />}
       list={<GroupsColumn rows={rows} current={`room:${open.id}`} now={now} onOpen={pickGroup} />} />;
     heading = { title: <GroupsHead current={currentRow} onFind={() => setFinderOpen(true)} /> };
+    if (inline) heading = null;
   } else if (open && rooms) {
     heading = { title: backTitle(nameOf(open)) };
     page = <RoomPage room={open} rooms={list} ranks={rooms.ranks ?? {}} me={rooms.me} now={now}

@@ -112,7 +112,15 @@
      its own grey, (19, 20, 22), against a bar of (26, 24, 23) to (34, 29, 26)
      sampled off a screenshot (2026-10-12). A flat bar gives it one colour to
      match, and the glow starts under the bar's line. */
-  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); background: var(--bg); }
+  :root:root:root .workspace-layout > .topbar { padding: 0 48px 0 16px; height: var(--phone-top); min-height: var(--phone-top); flex-basis: var(--phone-top); background: var(--bg); border-bottom: 0; }
+  /* SAFARI 26 COLOURS THE BAND BEHIND THE CLOCK from what touches the top of
+     the page, and ignores theme-color. The page is one fixed body, so nothing
+     short touched it and Safari drew its own grey there. This strip, in the
+     page's ground, is what it takes the colour from (phone-screen.ts). */
+  :root:root:root .phone-edge-top {
+    display: block; position: fixed; z-index: 60; top: 0; left: 0; right: 0; height: max(12px, env(safe-area-inset-top, 0px));
+    background: var(--bg); pointer-events: none;
+  }
   /* The title at the desktop's 400 weight and tight spacing read thin and
      stretched at phone size ("the threads title looks a little weird",
      2026-10-11): a phone's bar title is smaller and a step heavier. */
@@ -150,7 +158,8 @@
      · Docs 8") and not its icons, which read as "incomprehensible"
      (2026-10-11). Sentence case with the count after the word, the picked one
      underlined, scrolling sideways when they do not fit. */
-  :root:root:root .app.workspace-layout { --phone-tabs: 48px; }
+  /* The alerts offer is on the body, outside the app, and sits above the tabs too. */
+  :root:root:root .app.workspace-layout, :root:root:root:has(.app.workspace-layout) #phone-alerts-ask { --phone-tabs: 48px; }
   :root:root:root .list-pane > .th-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     height: calc(var(--phone-tabs) + var(--phone-foot));
@@ -160,7 +169,7 @@
        as the list. The list is the wall now, with no card wash over it, so
        this is the wall's own colour (it was the wash over the base while the
        list wore the wash; "a tad bit different" was the two disagreeing). */
-    background: var(--bg); border-top: 1px solid var(--line);
+    background: var(--bg); border-top: 0;
   }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
   /* SEARCH GOES UP INTO THE TOP BAR, left of the gear. At the end of the
@@ -207,8 +216,11 @@
      are the desktop's too. */
   :root:root:root .row.selected .subject { text-decoration: none; box-shadow: none; border-bottom-color: transparent; }
   :root:root:root .row.selected { background: transparent; box-shadow: none; }
-  :root:root:root .row.selected::before, :root:root:root .row.selected::after { display: none; }
+  :root:root:root .row.selected:not(.unread)::before, :root:root:root .row.selected::after { display: none; }
   :root:root:root .row .mark { display: none; }
+  /* The unread dot in the margin, level with the title's first line: the
+     desktop's gutter spot is inside the words here, on a wrapped title's second line. */
+  :root:root:root .th-table .row.unread::before { left: 5px; top: 22px; }
   /* NOTHING ON A ROW WAITS FOR A HOVER. A tap leaves :hover on the row it
      touched, so the desktop's Share or Unshare stayed on screen, hid that
      row's age and underlined its title ("the unshare button just stays
@@ -330,6 +342,9 @@
     flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0 4px 0 -6px;
     border: 0; background: none; color: var(--text-dim); box-shadow: none;
   }
+  /* The microphone beside it (WebDictation.tsx), the phone app's size. */
+  :root:root:root .dictate-mic { width: 36px; height: 36px; margin: 0 0 0 -14px; }
+  :root:root:root .compose-sentence > .dictate-row { min-height: 36px; }
 
   /* The hint plates teach keys a phone does not have. */
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
@@ -406,6 +421,9 @@
   :root:root:root .settings-screen .set-pane { flex: 1; min-height: 0; padding: 0; }
   :root:root:root .settings-screen .set-inner:not(.instructions-page) { padding: 20px 16px 120px; max-width: none; }
   :root:root:root .settings-screen .set-phone-qr { flex-direction: column; align-items: flex-start; }
+  /* A control too wide to leave its row's words a readable column goes under them. */
+  :root:root:root .settings-screen .set-plate > .set-row { flex-wrap: wrap; row-gap: 12px; }
+  :root:root:root .settings-screen .set-plate > .set-row > .set-row-text { flex: 1 1 180px; }
 
   /* The display menu: across the screen under the top bar, scrolling if it
      is taller than the screen, instead of 470px hung off the right edge. */
@@ -477,6 +495,14 @@
     display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 15px;
   }
   :root:root:root .tc-card > .tc-bar > .tc-icon::after { content: 'Attach a file or picture'; }
+  /* The microphone at the end of that row, and the Listening row in its place
+     while it listens, as in the phone app. */
+  :root:root:root .tc-card > .tc-bar > .dictate-mic {
+    position: absolute; z-index: 1; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(8px + var(--phone-foot)); margin: 0;
+  }
+  :root:root:root .tc-card > .tc-bar > .dictate-row {
+    order: 3; flex: none; height: calc(52px + var(--phone-foot)); padding: 0 12px var(--phone-foot) 16px; border-top: 1px solid var(--line);
+  }
   /* Send is the orange box, square, 16px in from the edge and centred on the
      top bar: at 12px from the edge it sat "touching the top corner of the
      app" (2026-10-11). */
@@ -591,7 +617,12 @@
   :root:root:root #phone-alerts-ask > span { flex: 1 0 100%; }
   :root:root:root #phone-alerts-ask button { font: inherit; height: 36px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--wash-strong); color: var(--text); }
   :root:root:root #phone-alerts-ask button.quiet { background: none; color: var(--text-dim); }
+  /* Both sit at the foot; the agent's question comes first and the offer waits. */
+  :root:root:root body:has(.approvals) #phone-alerts-ask { display: none; }
 }
 
 /* A picture's placeholder while it loads is in styles.css: every window has it. */
+
+/* Only a phone-sized screen has the strip Safari takes its top colour from. */
+:root[data-door="phone"] .phone-edge-top { display: none; }
 

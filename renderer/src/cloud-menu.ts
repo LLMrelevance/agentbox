@@ -70,6 +70,8 @@ export interface CloudStatus {
   running: number;
   month: CloudMonth;
   accounts?: CloudAccount[];
+  /** Engines whose account on this Mac has no working sign-in in the cloud, so their threads run here. */
+  notInCloud?: Array<'claude' | 'codex'>;
   signIns?: CloudSignIn[];
   /** 'resting' after runs failed in a row before their agent started, until `restingUntil`. */
   health?: 'ok' | 'failing' | 'resting';
@@ -165,6 +167,9 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   }
   const gap = cloud.versionGap;
   if (gap?.blocks) return `${rebuildLine(gap)}. ${gap.engine === 'codex' ? 'Codex' : 'Claude'} threads run on this Mac until then.`;
+  if (cloudIsOn(cloud) && cloud.notInCloud?.includes('claude')) {
+    return 'The Claude account this Mac uses is not signed in to the cloud, so threads run on this Mac. Sign it in to run them there.';
+  }
   // ONE ACCOUNT RUNS IN THE CLOUD (w-dac993a554). This used to wait until
   // EVERY account was at its limit, which was right while runs rotated over
   // all of them and is silence now: the cloud starts nothing the moment the

@@ -491,6 +491,8 @@ body:has([data-sorting]) .hint-plate { display: none !important; }
 .th-cloud.named { width: auto; display: inline-flex; align-items: center; gap: 7px; padding: 0 14px 0 9px; font: inherit; font-size: 13px; }
 .th-cloud-word { color: var(--text-dim); }
 .th-cloud.named:hover .th-cloud-word, .th-cloud.named.open .th-cloud-word { color: var(--text); }
+/* "Sign in again" asks for something, so it reads as brightly as New thread. */
+.th-cloud-word.ask { color: var(--text); }
 /* Picked is a soft grey here, not an orange box: one small dot beside On is
    the menu's only orange (picked 2026-10-16 as calmer). */
 .th-cloud-pop .opts > button.picked, .th-cloud-pop .opts > button.picked:hover { border-color: var(--line-strong); background: color-mix(in srgb, var(--text) 10%, transparent); color: var(--text); }

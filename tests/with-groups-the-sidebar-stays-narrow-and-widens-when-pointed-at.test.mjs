@@ -84,7 +84,8 @@ describe('in the app', () => {
     expect(hook).not.toContain('GroupBar');
   });
   it('a direct message lights Groups, and its trail says it came from there when opened over a group', () => {
-    expect(app).toMatch(/onGroupsPage=\{roomShown \|\| directOpen\}/);
+    // With a team on there is no Groups row to light: a group opens under Everything else, inside the inbox (w-b5f23cff71).
+    expect(app).toMatch(/onGroupsPage=\{\(roomShown \|\| directOpen\) && !teamMode\}/);
     expect(app).toContain("directOpen && roomsUi.openId ? 'Groups'");
   });
 });
