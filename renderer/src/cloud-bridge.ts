@@ -29,6 +29,8 @@ import {
   phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
 } from './phone-rows';
 import { phoneSender } from './phone-send';
+import { setIconCount, startPhoneAlerts } from './phone-alerts';
+import { cloudAlertsVia } from './cloud-alerts';
 
 export {
   NOT_HERE, UNDONE, approvalCommand, closeToTakeBack, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
@@ -104,6 +106,11 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   try { localStorage.setItem('zero.firstRun.done', '1'); } catch { /* private mode */ }
 
   let rows: PhoneRows = EMPTY_ROWS;
+  // This phone's alerts go to every computer of the account, newest first (cloud-alerts.ts).
+  const computers = () => [...rows.projects]
+    .sort((a, b) => (Date.parse(b.updated_at ?? '') || 0) - (Date.parse(a.updated_at ?? '') || 0))
+    .map((p) => p.device).filter((d, i, all) => all.indexOf(d) === i);
+  const alertsVia = cloudAlertsVia({ computers, send: (cmd) => client.insertCommand(cmd), storage: localStorage, subtle: crypto.subtle });
   let started = false;
   // The screen ids of threads that share an id with another computer's.
   let aliases: Aliases = {};
@@ -159,6 +166,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       places = cloudPlaces(threads, phoneSlug);
       error = null;
       fetchedAt = Date.now();
+      void alertsVia.catchUp().catch(() => { /* tried again at the next read */ });
       // Links before the screens draw, so a picture is pointed at its file the moment it is drawn.
       await signLinks().catch(() => { /* the pictures say missing, the words still read */ });
     } catch (err) {
@@ -253,7 +261,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     // What a press leaves for her Mac, the same doors the phone app sends through (phone-send.ts).
     ...sender,
     sendFeedback: (p: { text: string; files: FeedbackFiles }) => sendPhoneFeedback(cfg, p),
-    badge: async () => null,
+    badge: async (count: unknown) => { setIconCount(Number(count) || 0); return null; },
     notify: async () => null,
     track: async () => null,
     crash: async () => null,
@@ -332,5 +340,12 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   });
 
   (window as any).zero = bridge;
+  // A tapped alert opens its thread, as on the desktop.
+  startPhoneAlerts(alertsVia, (id) => {
+    const set = listeners.get(PUSH_CHANNELS.onOpenItem);
+    if (!set?.size) return false;
+    for (const fn of set) { try { fn({ id }); } catch { /* its own fault */ } }
+    return true;
+  });
   return true;
 }

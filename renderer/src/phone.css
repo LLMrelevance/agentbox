@@ -158,7 +158,8 @@
      · Docs 8") and not its icons, which read as "incomprehensible"
      (2026-10-11). Sentence case with the count after the word, the picked one
      underlined, scrolling sideways when they do not fit. */
-  :root:root:root .app.workspace-layout { --phone-tabs: 48px; }
+  /* The alerts offer is on the body, outside the app, and sits above the tabs too. */
+  :root:root:root .app.workspace-layout, :root:root:root:has(.app.workspace-layout) #phone-alerts-ask { --phone-tabs: 48px; }
   :root:root:root .list-pane > .th-bar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
     height: calc(var(--phone-tabs) + var(--phone-foot));
@@ -602,6 +603,8 @@
   :root:root:root #phone-alerts-ask > span { flex: 1 0 100%; }
   :root:root:root #phone-alerts-ask button { font: inherit; height: 36px; padding: 0 14px; border-radius: var(--radius); border: 1px solid var(--line-strong); background: var(--wash-strong); color: var(--text); }
   :root:root:root #phone-alerts-ask button.quiet { background: none; color: var(--text-dim); }
+  /* Both sit at the foot; the agent's question comes first and the offer waits. */
+  :root:root:root body:has(.approvals) #phone-alerts-ask { display: none; }
 }
 
 /* A picture's placeholder while it loads is in styles.css: every window has it. */

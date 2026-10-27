@@ -91,6 +91,9 @@
 .settings-screen[data-pane] .set-plate:not(.set-keys) > .set-row + .set-row { border-top: 1px solid var(--line); }
 .settings-screen[data-pane] .set-row-label { font-size: 13.5px; font-weight: 500; letter-spacing: -0.003em; }
 .settings-screen[data-pane] .set-row-desc { margin-top: 3px; font-size: 12.5px; line-height: 1.5; }
+.set-steps { margin: 6px 0 0; padding-left: 18px; }
+.set-steps li + li { margin-top: 3px; }
+.set-steps li::marker { color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .settings-screen[data-pane] .set-row-ctl { padding-top: 0; }
 
 /* A dropdown at the end of a row opens leftward, into the card, rather than

@@ -5,6 +5,7 @@
 import { CLAUDE_PERMISSION_MODES } from './work-items.mjs';
 import { CODEX_MODE_ORDER } from './codex-modes.mjs';
 import { AGENT_MODES } from './agents.mjs';
+import { WEB_ALERTS_KEY, WEB_ALERTS_TEST_KEY, webAlertsOk, webAlertsTestOk } from './web-alerts.mjs';
 
 export const SETTINGS_VERSION = 1;
 
@@ -35,6 +36,9 @@ const WORKSPACE = {
   codexMode: oneOf(CODEX_MODE_ORDER),
   phoneProjects: (v) => !!v && bool(v.all) && Array.isArray(v.except) && v.except.length <= 500 && v.except.every((s) => typeof s === 'string' && SLUG.test(s)),
   activeAccount: (v) => !!v && oneOf(['claude', 'codex'])(v.engine) && (v.account === null || accountId(v.account)),
+  // The web app's alerts: kept by the phone pass itself (main/phone-alerts.mjs), never the window's.
+  [WEB_ALERTS_KEY]: webAlertsOk,
+  [WEB_ALERTS_TEST_KEY]: webAlertsTestOk,
 };
 const PROJECT = {
   autonomous: bool,

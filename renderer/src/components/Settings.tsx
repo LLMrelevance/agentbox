@@ -30,6 +30,7 @@ import type { ReactNode } from 'react';
 import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
 import { onCloudPhone, onPhone, phoneSized } from '../phone-screen';
 import { computerSays } from '../phone-rows';
+import { WebAlertsGroup } from './WebAlerts';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
@@ -812,6 +813,7 @@ function WebAccountPage({ web, feedback }: { web: PhoneWeb; feedback: ReactNode 
       <Group id="computer" label="Your computer">
         <Row label={computer.label} desc={computer.desc} />
       </Group>
+      <WebAlertsGroup />
       {feedback}
       {web.build && (
         <Group id="updates" label="Updates">
