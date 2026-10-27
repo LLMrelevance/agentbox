@@ -114,8 +114,9 @@ import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
-import { AgentsLine, CardsGrip, CornerFaces, HiddenList, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
-import { buildMembers, hideMember, mateRunsOf, orderMembers, personCardsOf, readCardsHeight, readHidden, readOrder, splitHidden, teamRunsOf, unhideMember, writeCardsHeight, writeHidden, writeOrder, type Hidden, type Member } from './team/everything/members';
+import { AgentsLine, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
+import { buildMembers, hideMember, mateRunsOf, orderMembers, personCardsOf, readCardRows, readHidden, readOrder, splitHidden, teamRunsOf, unhideMember, writeCardRows, writeHidden, writeOrder, type CardRows, type Hidden, type Member } from './team/everything/members';
+import { CardsArea } from './team/everything/CardsArea';
 import { readFolded, stackRows, toggleFolded, type StackKey } from './threads/stack-rules';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.mjs';
@@ -3658,8 +3659,8 @@ export default function App() {
   const [evHidden, setEvHidden] = useState<Hidden>(() => readHidden());
   const evSplit = splitHidden(members, evHidden);
   const keepHidden = (next: Hidden) => { setEvHidden(next); writeHidden(next); };
-  const [evCardsH, setEvCardsH] = useState<number | null>(() => readCardsHeight());
-  const setEvCards = (h: number | null) => { setEvCardsH(h); writeCardsHeight(h); };
+  const [evRows, setEvRowsNow] = useState<CardRows>(() => readCardRows());
+  const setEvRows = (rows: CardRows) => { setEvRowsNow(rows); writeCardRows(rows); };
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -6180,13 +6181,11 @@ export default function App() {
   const evTabsRow = teamTabs ? <StateTabs view={view} counts={needsYouCount}
     needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
   const evTop = evOn ? <>
-    <div className="ev-cards" style={evFill && evCardsH !== null ? { maxHeight: evCardsH } : undefined}>
+    <CardsArea rows={evRows} onRows={setEvRows} picked={evKey} grip={evFill} hidden={evSplit.hidden} onShow={showCard}>
       <TeamStrip members={evSplit.shown} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
         onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'}
         onHide={hideCard} />
-    </div>
-    <HiddenList hidden={evSplit.hidden} onShow={showCard} />
-    {evFill && <CardsGrip height={evCardsH} onHeight={setEvCards} />}
+    </CardsArea>
     {evBar}
   </> : null;
   // A person or an AI teammate that has no page of its own to open: its threads, or the way to start talking.

@@ -1,13 +1,13 @@
 // Everything else (w-b5f23cff71): your team as cards over the page, the bar
 // over whichever one is open, and the lists its Agents tab draws.
-import { useEffect, useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react';
 import type { Product, ThreadCard, WorkItem } from '../../types';
 import { LiveMark } from '../../components/LiveMark';
 import { RoomFace } from '../rooms/RoomFace';
 import { RowCells, ThreadCells } from '../../threads/Pages';
 import { STATE_WORD } from '../../threads/summary-rules';
 import type { StatusCell } from '../../status-word';
-import { cardsHeight, moveMember, type Member, type TeamRun } from './members';
+import { moveMember, type Member, type TeamRun } from './members';
 import './everything.css';
 
 const agentsWords = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'} working`;
@@ -112,44 +112,6 @@ export function HiddenList({ hidden, onShow, startOpen = false }: { hidden: Memb
       </div>)}
     </div>}
   </div>;
-}
-
-/** Where each row of cards ends inside the cards area, with the strip's padding under it. */
-function rowEnds(box: HTMLElement): number[] {
-  const top = box.getBoundingClientRect().top - box.scrollTop;
-  const pad = 4;
-  return [...new Set([...box.querySelectorAll('.ev-card')].map((c) => Math.round(c.getBoundingClientRect().bottom - top) + pad))].sort((a, b) => a - b);
-}
-
-/** Between the cards and an open chat: drag it up and the cards make room (./members `cardsHeight`). */
-export function CardsGrip({ height, onHeight }: { height: number | null; onHeight: (h: number | null) => void }) {
-  const self = useRef<HTMLDivElement>(null);
-  const cards = () => self.current?.parentElement?.querySelector<HTMLElement>(':scope > .ev-cards') ?? null;
-  const start = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const box = cards();
-    if (!box) return;
-    e.preventDefault();
-    const all = box.scrollHeight;
-    const from = box.clientHeight;
-    const y0 = e.clientY;
-    const rows = rowEnds(box);
-    const move = (ev: PointerEvent) => onHeight(cardsHeight(from + ev.clientY - y0, all, rows));
-    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
-  };
-  const keys = (e: KeyboardEvent<HTMLDivElement>) => {
-    const box = cards();
-    if (!box || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
-    e.preventDefault();
-    const rows = rowEnds(box);
-    const at = height ?? box.scrollHeight;
-    const next = e.key === 'ArrowUp' ? [...rows].reverse().find((r) => r < at - 1) ?? 0 : rows.find((r) => r > at + 1) ?? box.scrollHeight;
-    onHeight(cardsHeight(next, box.scrollHeight, rows));
-  };
-  return <div ref={self} className="ev-grip" role="separator" aria-orientation="horizontal" aria-label="Drag to make the chat taller"
-    title="Drag to make the chat taller. Double-click for every card." tabIndex={0}
-    onPointerDown={start} onDoubleClick={() => onHeight(null)} onKeyDown={keys} />;
 }
 
 /** Over the open card's space: whose it is, its tabs, and anything it carries on the right. */

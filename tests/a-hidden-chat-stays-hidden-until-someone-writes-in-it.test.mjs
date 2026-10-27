@@ -96,7 +96,8 @@ describe('in the app', () => {
   it('draws only the cards not hidden, and hiding the open one goes back to your threads', () => {
     expect(app).toContain('const evSplit = splitHidden(members, evHidden);');
     expect(app).toContain('<TeamStrip members={evSplit.shown}');
-    expect(app).toMatch(/<\/div>\s*<HiddenList hidden=\{evSplit\.hidden\} onShow=\{showCard\} \/>/);
+    expect(app).toMatch(/<CardsArea [^>]*hidden=\{evSplit\.hidden\} onShow=\{showCard\}>/);
+    expect(fs.readFileSync(new URL('../renderer/src/team/everything/CardsArea.tsx', import.meta.url), 'utf8')).toContain('<HiddenList hidden={hidden} onShow={onShow} />');
     expect(app).not.toContain('showHidden');
     expect(app).toMatch(/if \(evKey === m\.key\) pickMember\('me'\);/);
   });

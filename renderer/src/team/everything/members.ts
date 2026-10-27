@@ -198,37 +198,41 @@ export function writeHidden(hidden: Hidden, store: Store = local()) {
   try { store?.setItem(HIDDEN_KEY, JSON.stringify(hidden)); } catch { /* kept for this window only */ }
 }
 
-/** Under this a drag folds the cards away entirely rather than leave a sliver of a row. */
-const CARDS_SNAP = 40;
+/** How many rows of cards show: a count the grip left, every row, or null for the usual two. */
+export type CardRows = number | 'all' | null;
+const USUAL_ROWS = 2;
 
-/**
- * How tall the cards are over an open chat after a drag: a height, 0 for none,
- * or null for all of them. Given where each row of cards ends, it lands on the
- * nearest row, so no row is ever cut through.
- */
-export function cardsHeight(want: number, all: number, rows: readonly number[] = []): number | null {
-  if (rows.length) {
-    const stops = [0, ...rows];
-    const near = stops.reduce((best, h) => (Math.abs(h - want) < Math.abs(best - want) ? h : best), 0);
-    return near >= rows[rows.length - 1] ? null : near;
-  }
-  if (want >= all) return null;
-  return want < CARDS_SNAP ? 0 : Math.round(want);
+export function rowsShown(choice: CardRows, total: number): number {
+  return choice === 'all' ? total : Math.min(choice ?? USUAL_ROWS, total);
 }
 
-const CARDS_KEY = 'agentbox.everything.cardsHeight';
+/** The nearest whole row to a drag, given where each row ends, so no row is cut through. */
+export function rowsAfterDrag(want: number, ends: readonly number[]): CardRows {
+  const stops = [0, ...ends];
+  const near = stops.reduce((best, h, i) => (Math.abs(h - want) < Math.abs(stops[best] - want) ? i : best), 0);
+  return near >= ends.length ? 'all' : near;
+}
 
-export function readCardsHeight(store: Pick<Storage, 'getItem'> | null = local()): number | null {
+/** The line under the cards, given the rows shown, the rows there are, and the members in the rows not shown. */
+export function moreLine(shown: number, total: number, more: number): { words: string; next: CardRows } | null {
+  if (shown === 0 && total > 0) return { words: 'Show the cards', next: null };
+  if (shown < total) return { words: more ? `Show ${more} more` : 'Show all', next: 'all' };
+  return total > USUAL_ROWS ? { words: 'Show fewer', next: null } : null;
+}
+
+const ROWS_KEY = 'agentbox.everything.cardRows';
+
+export function readCardRows(store: Pick<Storage, 'getItem'> | null = local()): CardRows {
   try {
-    const raw = store?.getItem(CARDS_KEY);
-    const n = raw == null ? NaN : Number(raw);
-    return Number.isFinite(n) && n >= 0 ? n : null;
+    const raw = store?.getItem(ROWS_KEY);
+    if (raw === 'all') return 'all';
+    return raw && /^\d+$/.test(raw) ? Number(raw) : null;
   } catch { return null; }
 }
 
-export function writeCardsHeight(h: number | null, store: (Store & Partial<Pick<Storage, 'removeItem'>>) | null = local()) {
+export function writeCardRows(rows: CardRows, store: (Store & Partial<Pick<Storage, 'removeItem'>>) | null = local()) {
   try {
-    if (h === null) store?.removeItem?.(CARDS_KEY);
-    else store?.setItem(CARDS_KEY, String(h));
+    if (rows === null) store?.removeItem?.(ROWS_KEY);
+    else store?.setItem(ROWS_KEY, String(rows));
   } catch { /* kept for this window only */ }
 }
