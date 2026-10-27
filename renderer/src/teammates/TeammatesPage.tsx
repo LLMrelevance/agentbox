@@ -11,7 +11,7 @@ import { GREETING, MAX_HOPS, STARTERS, TEAMMATE_EFFORT, starterAsks, yesFirst } 
 import { ModelPicker } from '../components/Model';
 import type { ModelChoice } from '../models';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatWith, clockOf, dayOf, firstSentence, sentTab, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, startWord, titleAside, liveLine, pendingAsk, type ChatEntry } from './chat-lines';
+import { answerTo, chatEntries, chatWith, clockOf, dayOf, firstSentence, sentTab, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, startWord, titleAside, liveLine, pendingAsk, type ChatEntry } from './chat-lines';
 import { ChatsColumn } from './ChatsColumn';
 import { nowLine, TeammateMark } from './TeammatesRail';
 import { AskBeforeDeleting } from '../team/MessageMore';
@@ -226,7 +226,7 @@ function ChatColumn({ view, items, products, team, t, me, mePic, call, sessions,
   return <div className="gr-chat tq-chat">
     <div className="tq-lines" ref={scroller}>
       {rows.length ? rows : <p className="tq-empty">Nothing yet. Say hello to {t.name}.</p>}
-      {t.running && <LiveRow t={t} session={sessions.get(t.running.id)} asked={pendingAsk(entries, t.id)} onOpen={() => onOpenThread(t.running!.product, t.running!.id)} />}
+      {t.running && <LiveRow t={t} session={sessions.get(t.running.id)} asked={pendingAsk(chatEntries(view, t.id), t.id)} onOpen={() => onOpenThread(t.running!.product, t.running!.id)} />}
     </div>
     {error && <p className="tq-error" role="alert">{error}</p>}
     {!error && (view?.trouble || view?.error) && <p className="tq-error" role="status">{view?.trouble ?? `Teammates could not be read: ${view?.error}`}</p>}

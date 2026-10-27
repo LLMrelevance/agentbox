@@ -50,7 +50,8 @@ describe('the line under your message while it works', () => {
 
   it('is the line the chat draws', () => {
     expect(read('renderer/src/teammates/TeammatesPage.tsx')).toMatch(/const line = liveLine\(t, session, now, asked\);/);
-    expect(read('renderer/src/teammates/TeammatesPage.tsx')).toMatch(/asked=\{pendingAsk\(entries, t\.id\)\}/);
+    // Every line about it, not only the ones its chat draws, which hide queued and finished.
+    expect(read('renderer/src/teammates/TeammatesPage.tsx')).toMatch(/asked=\{pendingAsk\(chatEntries\(view, t\.id\), t\.id\)\}/);
   });
 });
 
@@ -80,6 +81,14 @@ describe('what you asked that it has not answered', () => {
   it('is nothing after the run finished, so a run on its own schedule names its own thread', () => {
     expect(pendingAsk([you('Find the three pages people leave from', 1), run('finished', 2)], ID)).toBeNull();
     expect(pendingAsk([you('Find the three pages people leave from', 1), run('stopped', 2)], ID)).toBeNull();
+  });
+
+  it('is still what you asked after it writes to another teammate', () => {
+    expect(pendingAsk([you('Find the three pages people leave from', 1), { id: 'm-2', kind: 'msg', from: ID, to: ['t-bbbbbbbbbb'], text: 'Can you pull last month?', ts: 2 }], ID)).toBe('Find the three pages people leave from');
+  });
+
+  it('is nothing when your message was queued behind a run it started on its own', () => {
+    expect(pendingAsk([run('picked', 1), you('Find the three pages people leave from', 2), run('queued', 3, { id: 'w-2:queued', item: 'w-2' })], ID)).toBeNull();
   });
 
   it('is not a message you sent somebody else', () => {

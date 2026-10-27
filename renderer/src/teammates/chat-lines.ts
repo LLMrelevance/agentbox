@@ -148,16 +148,17 @@ export function liveLine(
 
 // What you said to a teammate that it has not answered. A message sent while
 // a run is open goes into that run, so this, not the thread's title, is what
-// the run is on.
+// the run is on; unless it was queued behind a run you did not start. Reads
+// every line about the teammate, since its chat hides queued and finished.
 export function pendingAsk(entries: readonly ChatEntry[], id: string): string | null {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i];
     if (e.kind === 'msg') {
-      if (e.from === id) return null;
+      if (e.from === id && toList(e.to).every((x) => x === 'you')) return null;
       if (e.from === 'you' && toList(e.to).includes(id)) return firstSentence(e.text ?? '') || null;
     } else if (e.kind === 'run' && e.teammate === id) {
       if (e.verb === 'answered') return firstSentence(e.text ?? '') || null;
-      if (e.verb === 'sent' || e.verb === 'finished' || e.verb === 'stopped') return null;
+      if (e.verb === 'sent' || e.verb === 'finished' || e.verb === 'stopped' || e.verb === 'queued') return null;
     }
   }
   return null;
