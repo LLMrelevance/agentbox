@@ -27,7 +27,10 @@ describe('one at a time, under a full screen page', () => {
 
 describe('what must not change', () => {
   it('keeps the options at the foot of a one-at-a-time thread with no page full screen', () => {
-    expect(dock).toMatch(/<div className=\{`one-choices[^`]*`\}>\s*<OptionsOffer[^/]{0,600}\bbare\s*\/>/);
+    // Bare only while the agent is the one asking: its question is the page's
+    // headline, and the app's own is not written on the page at all
+    // (tests/a-change-nobody-committed-is-not-offered-for-shipping).
+    expect(dock).toMatch(/<div className=\{`one-choices[^`]*`\}>\s*<OptionsOffer[^/]{0,600}\bbare=\{!shipAsk\?\.headed\}\s*\/>/);
   });
   it('keeps them out of the conversation in one at a time', () => {
     expect(focus).toContain('{offerInPane && (page || closeAsk ? null : (');

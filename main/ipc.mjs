@@ -35,6 +35,7 @@ import { listFolders } from './folders.mjs';
 import { feedbackUrl, sendFeedback } from './feedback.mjs';
 import { feedbackPayload } from '../shared/feedback.mjs';
 import * as approvals from './approvals.mjs';
+import { cardsInFront } from '../shared/which-card-is-in-front.mjs';
 import { restartNeeded } from './staleness.mjs';
 import { artifactRoots, resolveArtifact } from './artifact-path.mjs';
 import { folderPictures } from './folder-pictures.mjs';
@@ -236,6 +237,26 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   const isPractice = (slug) => {
     try { return store.listProducts().some((p) => p.slug === slug && p.practice === true); } catch { return false; }
   };
+
+  // THE THREAD ON SCREEN, WHICH IS WHOSE CARD IS IN FRONT. The rule itself is
+  // shared/which-card-is-in-front.mjs, because the chord and the Agents menu
+  // answer in THIS process, ahead of the page: reading a different order from
+  // the one on screen means ⌘Y allows a command nobody was reading.
+  let looking = null;
+  const pendingApprovals = () => cardsInFront(approvals.listPending(config.storeRoot), looking);
+  ipcMain.handle('zero:looking', (event, { product = null, id = null } = {}) => {
+    // The window's own top frame and nothing else, the guard
+    // `zero:refresh-usage` carries: this moves which card ⌘Y answers. A page
+    // the app shows in a pane gets no preload and cannot reach here at all, so
+    // this is the second lock.
+    if (event?.senderFrame?.parent || (event?.sender && event.sender !== window.webContents)) return false;
+    const next = id ? { product: product ?? null, id: String(id) } : null;
+    if (next?.id === looking?.id && next?.product === looking?.product) return true;
+    looking = next;
+    // The snapshot carries the order, so the card only moves on a push.
+    push();
+    return true;
+  });
 
   // From her phone the answer names the card it drew (main/phone-inbox.mjs),
   // and a request rewritten since gets nothing.
@@ -491,7 +512,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       // TEAMMATES: who they are, what each is on, and the one team chat.
       teammates: alpha.teammates ? (() => { try { return store.teammatesView(items, now); } catch (err) { return { list: [], chat: [], runs: [], error: err.message }; } })() : null,
       agents: liveAgents(),
-      approvals: approvals.listPending(config.storeRoot),
+      // The open thread's own card first, which is the order the chord and the
+      // Agents menu answer in too (shared/which-card-is-in-front.mjs).
+      approvals: pendingApprovals(),
       supervisor: running,
       // WHETHER THERE ARE TWO CODING AGENTS TO CHOOSE BETWEEN, AND WHICH ONE
       // EACH ROW RUNS ON. Answered whole by the supervisor, because the two
@@ -2267,5 +2290,5 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // buttons do, rather than reaching past it into approvals.answer.
   // `push` goes with it so the updater can make the window refetch when a
   // download finishes, without holding the window itself.
-  return { answerApproval, push };
+  return { answerApproval, pendingApprovals, push };
 }

@@ -112,6 +112,9 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     }
   }
   const waiting: Waiting[] = [];
+  // Threads that start when the computer takes what was sent: "Queued", not "Nothing running".
+  const queued: string[] = [];
+  const queue = (id: string) => { if (!queued.includes(id)) queued.push(id); };
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const c of ordered) {
     if (c.kind === 'setting' || c.project === null) continue;
@@ -132,6 +135,7 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
     const said = (text: string) => waiting.push({ product: slug, id: id as string, at, text, ...(refused ? { refused } : {}), ...(cloud ? { cloud: true as const } : {}) });
     if (c.kind === 'reply' && c.item) {
       said(String(c.payload?.text ?? ''));
+      if (!refused && takenAt === null && !cloud) queue(id as string);
       // Answered, as the window marks a row the moment she sends, so it is In
       // progress until her Mac takes it and its own copy says what happened.
       if (row && !refused) items.set(key, { ...row, status: statusForReply(row.status) ?? row.status, answer: String(c.payload?.text ?? ''), wrote: { ...row.wrote, answer: { ts: at, source: 'founder' } }, updatedAt: at });
@@ -145,6 +149,7 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
       // Started in the cloud with the computer away: the copy the cloud wrote is the thread.
       const inCloud = takenAt === null && !!runOfClaim(c.claimed_by);
       if (inCloud && items.has(`${slug}/${made}`)) continue;
+      if (!refused && !inCloud && takenAt === null) queue(made);
       items.set(`${slug}/${made}`, {
         id: made, product: slug, productName: names.get(slug), title: String(c.payload?.title || c.payload?.body || '').slice(0, 200),
         body: String(c.payload?.body ?? ''), kind: 'directive', labels: ['founder'], priority: 0, createdAt: at, updatedAt: at,
@@ -152,7 +157,7 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
       });
     }
   }
-  return { products, items: [...items.values()], waiting, aliases, running, places, approvals, cards };
+  return { products, items: [...items.values()], waiting, aliases, running, queued, places, approvals, cards };
 }
 
 const THREADS_MAX = 3000;
@@ -279,8 +284,25 @@ const MAC_AWAY_MS = 15 * 60_000;
 /** The line over her inbox when what it shows may be out of date, or null. */
 export function phoneStatusLine({ error, fetchedAt, macSeen, cloud = false }: { error: string | null; fetchedAt: number; macSeen: number; cloud?: boolean }, now = Date.now()): string | null {
   if (error) return `Can't reach your inbox online.${fetchedAt ? ` This is how it was ${ago(now - fetchedAt)}.` : ''}`;
-  if (macSeen && now - macSeen > MAC_AWAY_MS) return cloud ? `Your computer is off. Replies carry on in ${Name} Cloud.` : `Your Mac was last online ${ago(now - macSeen)}. What you send waits for it.`;
+  if (macSeen && now - macSeen > MAC_AWAY_MS) return cloud ? `Your computer is off. Replies carry on in ${Name} Cloud.` : `Your computer was last online ${ago(now - macSeen)}. What you send waits for it.`;
   return null;
+}
+/**
+ * Signed in to an account no computer has sent a project to: the page says
+ * so, and which account it is, in place of an inbox that would read as empty.
+ */
+export function phoneConnectState({ signedIn, started, error, projects, email }: { signedIn: boolean; started: boolean; error: string | null; projects: unknown[]; email: string | null | undefined }): { email: string | null } | null {
+  if (!signedIn || !started || error || projects.length) return null;
+  return { email: email || null };
+}
+/** For the web app's Account page: where the computer is, and what happens to what is sent meanwhile. */
+export function computerSays({ seenAt, cloud }: { seenAt: number; cloud: boolean }, now = Date.now()): { label: string; desc: string } {
+  if (!seenAt) return { label: 'No computer connected yet', desc: `Open ${Name} on your computer and sign in to this account in Settings › Phone.` };
+  if (now - seenAt <= MAC_AWAY_MS) return { label: 'Your computer is online', desc: 'New threads and replies start there within a few seconds.' };
+  const label = `Your computer was last online ${ago(now - seenAt)}`;
+  return cloud
+    ? { label, desc: `${Name} Cloud starts your new threads and replies while it is off.` }
+    : { label, desc: `What you send waits for it. To keep agents running with the lid shut, set up ${Name} Cloud on your computer.` };
 }
 /** Whether a computer of hers leaves its threads ready for Agentbox Cloud. */
 export const cloudCarriesOn = (projects: { cloud?: boolean }[]) => projects.some((p) => p.cloud === true);

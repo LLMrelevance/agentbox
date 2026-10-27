@@ -221,6 +221,19 @@ const asksToShip = (option: string) => SHIPS.test(bareOption(option).replace(/^[
 // instead of sending is the wrong surprise on an option that said enough.
 const SAYS_NOTHING = /^(?:change|revise|edit|adjust|tweak|amend|rework|redo|fix)\s+(?:something|anything|it|this|that|some of it|a few things|this (?:part|bit)|parts?|bits?)(?:\s+first)?$/i;
 
+// THE OPTION THAT THROWS THE WORK AWAY, which asks first because nothing takes
+// it back (./discard-asks-first.ts says the rest).
+//
+// THE WHOLE OPTION, OR NONE OF IT. "Discard the first layout and ship the
+// second" is an instruction that happens to begin with the word, and a
+// question in front of it would be the app second-guessing a sentence it did
+// not write.
+const DISCARDS = /^(?:discard|bin|delete|drop|throw away|throw out)\s+(?:it|them|this|that|the (?:change|changes|work|edits|diff|lot))(?:\s+away)?$|^(?:discard|throw (?:it|them|the (?:change|changes|lot)) (?:all )?away)$/i;
+
+export function discardsTheChange(option: string): boolean {
+  return DISCARDS.test(bareOption(option));
+}
+
 export function needsYourWords(option: string): boolean {
   const words = bareOption(option);
   return SAYS_NOTHING.test(words) || /^(?:something|anything) else$/i.test(words);

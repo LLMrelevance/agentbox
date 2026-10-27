@@ -66,13 +66,14 @@ import { LATER_KEYWORDS } from './palette-rows';
  `astral/w-86452550e5-looks`.
 */
 import { announcesMove, announcesUpdate, isUpdateRow, CHECK_SAY, updateLook } from './update-row';
-import { ago, closesTheTask, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
-import { SHIP_OFFER } from './ship-offer';
+import { ago, closesTheTask, discardsTheChange, itemOptions, liveOption, needsYourWords, offerIsLive, parseRepeat, type ParsedOption } from './format';
+import { discardAsk } from './discard-asks-first';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
 } from './drafts';
 import { approvalStage } from './approval-stage';
+import { roomForTheCard } from './room-for-the-card';
 import { approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
 // one it took went. Only the second is raised from here, because by the time
@@ -171,13 +172,13 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
+import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
-import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
+import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, crumbTab, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { SAYS_UNDO, opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
@@ -417,7 +418,7 @@ export default function App() {
   // A ⌘K row that acts on the open thread's page (Focus `pageAsk`), and what that
   // page reports it draws (Focus `onShown`), which is when those rows are offered.
   const [threadAsk, setThreadAsk] = useState<{ key: string; what: 'summary' | 'people' | 'rename'; at: number } | null>(null);
-  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean } | null>(null);
+  const [openShows, setOpenShows] = useState<{ key: string; change: boolean; summary: 'open' | 'closed' | null; ship: ParsedOption[] | null } | null>(null);
   useEffect(() => {
     setThreadAsk((a) => (a && focused && a.key === `${focused.product}/${focused.id}` ? a : null));
   }, [focused?.product, focused?.id]);
@@ -2629,11 +2630,15 @@ export default function App() {
   const waitingByThread = useMemo(() => waitingCounts(items, stateOfMine), [items, stateOfMine]);
   // Which thread's close is asking, by `product/id`; null while none is.
   const [closeAskOn, setCloseAskOn] = useState<string | null>(null);
-  const [closeAskWhy, setCloseAskWhy] = useState<'filed' | 'unshipped'>('filed');
+  const [closeAskWhy, setCloseAskWhy] = useState<'filed' | 'unshipped' | 'discard'>('filed');
+  // The option a discard question was raised for, sent only if it is answered
+  // yes (./discard-asks-first.ts).
+  const [discardPick, setDiscardPick] = useState<ParsedOption | null>(null);
   // Bumped on every raise, so a second E on the same thread scrolls to it again.
   const [closeAskRaised, setCloseAskRaised] = useState(0);
   const keyOf = (item: WorkItem) => `${item.product}/${item.id}`;
   const askingToClose = (item: WorkItem) => (closeAskOn !== keyOf(item) ? null
+    : closeAskWhy === 'discard' ? discardAsk()
     : closeAskWhy === 'unshipped' ? unshippedAsk() : closeAsk(waitingFiled(item).length));
   // Leaving the thread drops its question; a close asked from the list opens
   // the thread and asks in the same press, so the thread it opens keeps it.
@@ -2646,6 +2651,9 @@ export default function App() {
   // halfway down a full board, because a card from another column was not in
   // it (2026-10-02, tests/the-board-walks-in-the-order-it-is-drawn.test.mjs).
   const onBoard = search === null && inboxDisplay.view === 'board';
+  // WHICH TAB THE OPEN THREAD'S BAR NAMES: the one holding it now, not the one
+  // you were standing on when you opened it (`crumbTab`, w-474ac45a33).
+  const crumbTabNow = focused ? crumbTab(stateOfMine(focused), view) : view;
   // The columns themselves are kept too, for the left and right arrows
   // (`boardSideways`), and they come in the order you dragged them to.
   const boardArgs = useMemo(
@@ -3069,6 +3077,18 @@ export default function App() {
   useEffect(() => {
     if (!answered) frontApproval.current = snap?.approvals?.[0] ?? null;
   }, [snap?.approvals, answered]);
+  // The list scrolls clear of the card while it is up (./room-for-the-card).
+  const cardRoomUndo = useRef<(() => void) | null>(null);
+  const cardRoom = useCallback((el: HTMLDivElement | null) => {
+    cardRoomUndo.current?.();
+    cardRoomUndo.current = el ? roomForTheCard(el) : null;
+  }, []);
+  // AND THE OPEN THREAD'S OWN CARD IS THE ONE IN FRONT. The order is decided in
+  // the main process, because ⌘Y is answered there, ahead of this page; all
+  // this says is which thread is being read (shared/which-card-is-in-front.mjs).
+  useEffect(() => {
+    void api.lookingAt(focused ? { product: focused.product, id: focused.id } : null);
+  }, [focused?.product, focused?.id]);
 
   // A saved draft is a conversation in progress: opening the item opens the
   // reply dock with it, instead of the draft hiding behind R (drafts already
@@ -4082,12 +4102,23 @@ export default function App() {
   // one before it (`deferCommit`), so Z takes back the close, the last thing.
   // `answerWith` is made further down.
   const answerWithRef = useRef<((item: WorkItem, text: string) => Promise<unknown>) | null>(null);
+  const pickRef = useRef<((item: WorkItem, n: number, how?: { confirmed?: boolean }) => Promise<void>) | null>(null);
   const answerCloseAsk = useCallback(async (item: WorkItem, n: number) => {
     const waiting = waitingFiled(item);
     const option = askingToClose(item)?.options.find((o) => o.n === n);
     if (!option) return;
+    const pick = discardPick;
     setCloseAskOn(null);
     setOptionSel(null);
+    setDiscardPick(null);
+    // THE ONE QUESTION HERE THAT IS NOT ABOUT CLOSING (./discard-asks-first.ts).
+    // Keeping the change is the whole of its own answer: the question goes and
+    // the thread is where it was, with its offer still standing.
+    if (option.act === 'keep') return;
+    if (option.act === 'discard') {
+      if (pick) await pickRef.current?.(item, pick.n, { confirmed: true });
+      return;
+    }
     if (option.act === 'ship') {
       const words = shipItAsk(item);
       if (words) await answerWithRef.current?.(item, words);
@@ -4104,8 +4135,8 @@ export default function App() {
     }
     // Work off main was asked about before this question could come up.
     await markDone(item, { force: true, unshippedOk: true });
-  }, [waitingFiled, resolve, markDone, closeAskOn, closeAskWhy]);
-  const keepThreadOpen = useCallback(() => { setCloseAskOn(null); setOptionSel(null); }, []);
+  }, [waitingFiled, resolve, markDone, closeAskOn, closeAskWhy, discardPick]);
+  const keepThreadOpen = useCallback(() => { setCloseAskOn(null); setOptionSel(null); setDiscardPick(null); }, []);
 
   // THERE IS NO DECLINE.
   //
@@ -4511,13 +4542,14 @@ export default function App() {
   // asks when a finished run left a change and said nothing is known only to
   // the page drawing it, and comes back through `onShown` (./ship-offer.ts).
   // The keys and the pick both read this, so a number can never answer
-  // something other than the row the pointer can see.
+  // something other than the row the pointer can see — the OPTIONS it drew and
+  // not a constant, since the app's own offer now has more than one wording.
   const offerNow = useCallback((item: WorkItem): ParsedOption[] => (
     offerIsLive(item) ? itemOptions(item)
-      : openShows?.ship && openShows.key === keyOf(item) ? SHIP_OFFER : []
+      : openShows?.ship && openShows.key === keyOf(item) ? openShows.ship : []
   ), [openShows]);
 
-  const pickOption = useCallback(async (item: WorkItem, n: number) => {
+  const pickOption = useCallback(async (item: WorkItem, n: number, { confirmed = false }: { confirmed?: boolean } = {}) => {
     // AN AGENT ROW IS NOT WORK OF HERS TO CLOSE, DEFER OR RESTART. It stands
     // for a session running outside Agentbox; the only two things that mean
     // anything to it are a reply and being taken to its window.
@@ -4535,6 +4567,19 @@ export default function App() {
     // "Close this task" is done here, the way E does it, and never sent: as a
     // reply it would reopen the row and start a run to close it (format.ts).
     if (closesTheTask(option.text)) { await markDone(item); return; }
+    // THROWING THE WORK AWAY ASKS FIRST (F-84, ./discard-asks-first.ts). One
+    // click sent it, the pane moved on, and the pointer came down on the next
+    // thread's "Ship it". Every other press here is a reply or a close and Z
+    // takes both back; this one ends in a folder.
+    if (!confirmed && discardsTheChange(option.text)) {
+      if (focused?.id !== item.id || focused?.product !== item.product) { setFocused(item); markSeen(item); }
+      setOptionSel(null);
+      setDiscardPick(option);
+      setCloseAskWhy('discard');
+      setCloseAskOn(keyOf(item));
+      setCloseAskRaised((c) => c + 1);
+      return;
+    }
     // "Change something first" ASKS A QUESTION, so it opens the box instead of
     // sending (format.ts, needsYourWords). Its own words go in as the first
     // line, so a send with nothing added does exactly what pressing 2 did
@@ -4582,7 +4627,10 @@ export default function App() {
       // what happened to it: "Option 1 → Practice" was read off the QA box as
       // meaning nothing.
     }, `Option ${option.n} sent → ${item.productName}`, takeBack, !movesOn(item), { product: item.product, id: item.id }, undid);
-  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow]);
+  }, [deferCommit, pushUndo, markDone, markSeen, movesOn, offerNow, focused?.id, focused?.product]);
+  // The discard question is raised inside `pickOption` and answered by
+  // `answerCloseAsk`, which is made above it.
+  useEffect(() => { pickRef.current = pickOption; }, [pickOption]);
 
   // A CLICK IS AIMED AT A PLACE ON THE SCREEN, so it carries the same guard the
   // numbers have carried since ./pick-settles: answering from Needs you moves
@@ -4894,7 +4942,7 @@ export default function App() {
     // finding 7).
     if (onCloudPhone()) {
       try { await (window.zero as any)?.stopSession?.({ product: item.product, id: item.id }); } catch (err) { showToast(`Not sent: ${String((err as Error)?.message ?? err)}`); return; }
-      showToast('Stop sent. Your Mac stops the agent when it gets it.');
+      showToast('Stop sent. Your computer stops the agent when it gets it.');
       await refresh();
       return;
     }
@@ -6119,6 +6167,17 @@ export default function App() {
       : <p className="ev-empty">No messages with {evMember.name.split(' ')[0]} yet.
         <button type="button" className="rm-btn" onClick={() => { setComposeInitial({ to: evMember.key.slice(evMember.key.indexOf(':') + 1) }); setModal('compose'); }}>Message {evMember.name.split(' ')[0]}</button></p>;
   const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };
+  // BACK LANDS ON THE TAB THE BAR NAMED (w-474ac45a33). The thread may have
+  // moved tabs while it was open, and closing it onto the tab it has left is
+  // how Esc landed on "Nothing is running." The cursor follows by id, the same
+  // way a reload puts it back, because the list it belongs to is one tab away.
+  const closeThreadOntoItsTab = () => {
+    if (focused && crumbTabNow !== view && search === null && !onBoard && !teamOpen && !roomsUi.openId) {
+      wantRow.current = focused.id;
+      setView(crumbTabNow);
+    }
+    setFocused(null);
+  };
   // `asking` is on the class list for the same reason the composer is: the
   // approval card stands in the corner the toast stands in and under it, so the
   // toast covered Allow and Deny. Read off the same stage the card is drawn
@@ -6481,7 +6540,7 @@ export default function App() {
                   onePage={onePage}
                   headerTarget={taskHeader}
                   cornerHeaderTarget={cornerHeaderTarget}
-                  // WHERE IT WAS OPENED FROM, in the tab strip's own words (so
+                  // WHICH TAB HOLDS IT, in the tab strip's own words (so
                   // "Waiting" when teammates are on the page), for the thin
                   // bar the thread wears while its summary is open (w-922f66bb06).
                   // On the board there is no tab: the page Esc goes back to
@@ -6489,8 +6548,8 @@ export default function App() {
                   crumbFrom={teamOpen ? 'Team' : search !== null ? 'Search'
                     : onBoard ? 'Threads'
                     : directOpen && roomsUi.openId ? 'Groups'
-                    : view === 'inbox' && team ? needsWord(picked, team.me)
-                      : INBOX_TABS.find((t) => t.view === view)?.label}
+                    : crumbTabNow === 'inbox' && team ? needsWord(picked, team.me)
+                      : INBOX_TABS.find((t) => t.view === crumbTabNow)?.label}
                   inlineArtifacts
                   previewSample={api.isFixtures && (reviewLab || new URLSearchParams(location.search).has('artifactTweaks')) ? artifactPreviewSample : undefined}
                   artifactView={openDoc ? artifactView : undefined}
@@ -6537,7 +6596,10 @@ export default function App() {
                   // The question a close asks while tasks still wait (w-d2744c6daa).
                   closeAsk={(() => {
                     const asked = askingToClose(focused);
-                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep: { label: KEEP_OPEN, onKeep: keepThreadOpen } };
+                    // No esc row on the discard question: its option 2 is the
+                    // same answer (./discard-asks-first.ts).
+                    const keep = closeAskWhy === 'discard' ? undefined : { label: KEEP_OPEN, onKeep: keepThreadOpen };
+                    return asked && { ...asked, raised: closeAskRaised, onPick: (n: number) => answerCloseAsk(focused, n), keep };
                   })()}
                   onNotice={showToast}
                   /*
@@ -6576,7 +6638,7 @@ export default function App() {
                   // Auto asking her who takes it is stalled for the list, not a dead agent.
                   stalled={(snap.supervisor.stalled?.includes(focused.id) ?? false) && !asksWho(focused)}
                   onRedeliver={() => redeliver(focused)}
-                  onClose={() => setFocused(null)}
+                  onClose={closeThreadOntoItsTab}
                   onResolve={() => markDone(focused)}
                   onPick={(n) => pickAimedHere(focused, n)}
                   onReply={() => setModal('reply')}
@@ -6684,7 +6746,8 @@ export default function App() {
                 {evTop}
                 {roomShown ? (evOn ? <div className="ev-space">{roomsUi.page}</div> : roomsUi.page) : evSpace ? evSpace : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
-                {clearMoves || (emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
+                {snap.phoneConnect ? <ConnectComputer email={snap.phoneConnect.email} onSignOut={() => { void api.teamSignOut().then(() => refresh()); }} />
+                : clearMoves || (emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
                   // A FILTER IS READ FIRST, so it can never fall through to
                   // "Nothing needs you" (w-5a08121f99). That sentence is a
                   // statement about her inbox and the page was saying it about
@@ -6873,7 +6936,7 @@ export default function App() {
             const to = how.kind === 'message'
               ? firstNames(how.toMany ?? [how.to ?? ''])
               : snap.products.find((x) => x.slug === how.product)?.name ?? how.product ?? '';
-            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt, threads: how.threads }));
+            showToast(sendingLine({ kind: how.kind, to, held: how.start === 'later', scheduled: !!how.runAt }));
             // AND IF THE APP NEVER TAKES IT, SAY THAT TOO. The line above is a
             // sentence about the next half second, and it expires; a send the
             // app has not taken by then is read as a send that never happened,
@@ -6945,20 +7008,16 @@ export default function App() {
               return;
             }
             if (made?.id) {
-              // A SPLIT LIST IS ONE SEND AND SO ONE UNDO. Z takes back every
-              // thread it made: three rows left behind by a Z that reached one
-              // of them is worse than no Z at all. A thread an agent has
-              // already answered is left alone, and if that is all of them the
-              // Z is refused rather than claiming a withdrawal it did not make.
-              const all = [{ product: made.product, id: made.id }, ...(how?.alsoMade ?? [])];
-              const label = all.length > 1 ? `Withdrawn: ${all.length} threads` : `Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`;
-              noteNewTask(label, all.length > 1 ? `take back those ${all.length} threads` : 'take back the task you just made', sent, async () => {
+              // A thread an agent has already answered is left alone, and then
+              // the Z is refused rather than claiming a withdrawal it did not
+              // make (tests/taking-back-a-task-the-agent-already-answered).
+              const one = { product: made.product, id: made.id };
+              noteNewTask(`Withdrawn: ${clipToSentence(made.title, TOAST_TITLE)}`, 'take back the task you just made', sent, async () => {
                 const rows = (await api.snapshot())?.items ?? [];
-                const rowOf = (one: { product: string; id: string }) => rows.find((i) => i.id === one.id && i.product === one.product);
-                const open = all.filter((one) => !answeredAlready(rowOf(one)));
-                if (!open.length) return { refused: TOO_LATE_TO_WITHDRAW, open: rowOf(all[0]) };
-                for (const one of open) await api.answer({ product: one.product, id: one.id, status: 'done' });
-              }, all.map((one) => ({ ...one, words: 'Undid sending it' })));
+                const row = rows.find((i) => i.id === one.id && i.product === one.product);
+                if (answeredAlready(row)) return { refused: TOO_LATE_TO_WITHDRAW, open: row };
+                await api.answer({ product: one.product, id: one.id, status: 'done' });
+              }, [{ ...one, words: 'Undid sending it' }]);
             }
             // Read before the line is said: a tool with no login left in
             // usage means nothing started, and the line has to say so.
@@ -6967,7 +7026,6 @@ export default function App() {
               to: to ?? slug,
               when: how?.runAt ? whenLabel({ runAt: how.runAt, repeat: null }) : null,
               held: how?.start === 'later',
-              threads: how?.threads,
               limit: made?.id ? next?.supervisor?.atLimit?.[made.id] : null,
             }), made?.id ? { product: made.product, id: made.id } : undefined);
           }}
@@ -7319,7 +7377,8 @@ export default function App() {
           // bottom of settings page". Only while someone is signed in.
           // HER PHONE WITH THE MAC SHUT: the projects she puts on it, on the
           // Phone page, only while she is signed in.
-          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null } : undefined}
+          phoneCloud={snap?.team?.signedIn ? { site: snap.team.phoneSite ?? null, siteQr: snap.team.phoneSiteQr ?? null, email: snap.team.me?.email ?? null, sentAt: snap.team.phoneSentAt ?? null, error: snap.team.phoneError ?? null } : undefined}
+          phoneWeb={snap?.phoneAccount ? { ...snap.phoneAccount, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           onPhoneSignIn={snap?.team && !snap.team.signedIn ? () => setPhoneSignInOpen(true) : undefined}
           account={snap?.team?.signedIn && snap.team.me ? { email: snap.team.me.email, team: snap.team.team?.name ?? null, onSignOut: () => { void api.teamSignOut().then(() => refresh()); } } : undefined}
           // THE VERSION AND THE CHECK FOR A NEWER ONE (w-39d6c237f7), off the
@@ -7668,7 +7727,7 @@ export default function App() {
         // first thing she reads. approval-card.ts is the only copy.
         const reads = approvalReads(a.input, a.tool);
         return (
-          <div className="approvals">
+          <div className="approvals" ref={cardRoom}>
             <div className="approval-stack">
               {waiting > 1 && <div className="approval-ghost g2" />}
               {waiting > 0 && <div className="approval-ghost g1" />}

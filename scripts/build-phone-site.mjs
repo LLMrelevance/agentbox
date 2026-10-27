@@ -15,10 +15,18 @@
 //   npm run phone:build
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { teamConfigFile } from './phone-site-config.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+// The commit it was built from, so a ship can tell whether the live site is behind
+// (scripts/lib/web-app-deploy.mjs) and the web app's Account page can say which it is.
+const commitHere = () => {
+  const r = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' });
+  return { sha: r.status === 0 ? r.stdout.trim() : '', at: new Date().toISOString() };
+};
 
 // THE APP'S PRIVACY POLICY AND TERMS (phone-legal/), filled in from the same
 // config. A page with a blank left in it is never published.
@@ -40,7 +48,7 @@ function publishLegal(legal, out, given, log) {
   return 'published';
 }
 
-export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out = path.join(root, 'phone-site'), configFile = teamConfigFile(root), icon = path.join(root, 'main', 'phone-icon.png'), legal = path.join(root, 'phone-legal'), log = console.log } = {}) {
+export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out = path.join(root, 'phone-site'), configFile = teamConfigFile(root), icon = path.join(root, 'main', 'phone-icon.png'), legal = path.join(root, 'phone-legal'), log = console.log, stamp = commitHere() } = {}) {
   if (!fs.existsSync(path.join(dist, 'index.html'))) throw new Error('build the renderer first: npm run phone:build');
   if (!configFile || !fs.existsSync(configFile)) throw new Error('no team.config.json on this machine (cloud/ or ~/.agentbox/): the phone site needs the team cloud');
   const given = JSON.parse(fs.readFileSync(configFile, 'utf8'));
@@ -60,8 +68,9 @@ export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out
   });
   const config = JSON.stringify({ url: origin.origin, anonKey }).replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/</g, '&lt;');
   const meta = `<meta name="agentbox-cloud" content='${config}'>`;
+  const built = /^[0-9a-f]{40}$/.test(stamp?.sha ?? '') && Number.isFinite(Date.parse(stamp?.at)) ? `\n    <meta name="agentbox-build" content="${stamp.sha} ${new Date(stamp.at).toISOString()}">` : '';
   const index = path.join(out, 'index.html');
-  fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('<head>', `<head>\n    ${meta}\n    <link rel="manifest" href="/manifest.webmanifest">`));
+  fs.writeFileSync(index, fs.readFileSync(index, 'utf8').replace('<head>', `<head>\n    ${meta}${built}\n    <link rel="manifest" href="/manifest.webmanifest">`));
   fs.copyFileSync(icon, path.join(out, 'phone-icon.png'));
   fs.writeFileSync(path.join(out, 'manifest.webmanifest'), JSON.stringify({
     name: 'Agentbox', short_name: 'Agentbox', start_url: '/', scope: '/', display: 'standalone',

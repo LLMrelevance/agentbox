@@ -276,7 +276,7 @@ describe('the doors the phone does not have', () => {
     expect(src).toMatch(/agentUpdate: async \(p: any\) => \{ if \(p\?\.action === 'start'\) throw new Error\(NOT_HERE\); return null; \}/);
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
     // A stop from the phone says it was sent, not that it stopped.
-    expect(app).toMatch(/showToast\('Stop sent\. Your Mac stops the agent when it gets it\.'\)/);
+    expect(app).toMatch(/showToast\('Stop sent\. Your computer stops the agent when it gets it\.'\)/);
   });
 });
 

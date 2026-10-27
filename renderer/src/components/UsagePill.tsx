@@ -115,12 +115,19 @@ function UsageOne({ usage, now, engineWord = null, onOpen, sidebar = false, agen
 
   // ESCAPE CLOSES IT, and a press anywhere else does too: the same two ways out
   // that everything else opening over this app has.
+  //
+  // BOTH WAYS OF OPENING IT, NOT JUST THE PIN. Clicking the bar means hovering
+  // it, so a press that cleared only the pin left the panel standing under a
+  // pointer that had not moved (F-87). Nothing reopens it: mouseenter cannot
+  // fire again until the pointer leaves and comes back.
   useEffect(() => {
     if (!pinned) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       e.stopPropagation();
+      if (linger.current) { clearTimeout(linger.current); linger.current = null; }
       setPinned(false);
+      setHovering(false);
     };
     // A press on the panel closes it too: it hangs over Settings, and counting
     // that as a press inside left the row unreachable (w-7b7182ef61). The bar is

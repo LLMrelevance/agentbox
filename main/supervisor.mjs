@@ -45,7 +45,7 @@ import { kitCopyPath, kitFramePath, readKitCopy, markerForCloudRun } from './clo
 import { REPLY_MARK, replyFrame, serverJoinedKey } from '../shared/cloud-kit.mjs';
 import { NEW_THREAD, NEW_THREAD_CODEX, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit } from '../shared/cloud-kit.mjs';
 import { execFile as execFileCb } from 'node:child_process';
-import { CLOSED_UNSHIPPED, closedBeforeItShipped } from '../shared/not-shipped.mjs';
+import { CLOSED_UNSHIPPED, closedBeforeItShipped, shippedAs } from '../shared/not-shipped.mjs';
 import { handBackWhat, handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
 import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
@@ -478,7 +478,7 @@ export class Supervisor {
         const fresh = this.store.readItem?.(item.product, item.id) ?? item;
         this.spawnWorker(fresh, { continuation: true, shipFailure: reply });
       },
-      afterShip: (shipped) => { this.onShipped(); this.watchMainsTests(shipped); },
+      afterShip: (shipped) => { this.onShipped(); this.watchMainsTests(shipped); this.reclaimShippedFolder(shipped); },
     });
     // AND THEN SOMEBODY WATCHES THE RUN THAT SHIP STARTED. The whole suite runs
     // on GitHub for every push and takes about five minutes, which is after the
@@ -2101,6 +2101,21 @@ export class Supervisor {
   }
 
   /**
+   * AND A SHIP IS THE OTHER MOMENT A FOLDER BECOMES FREE (F-81, 2026-10-26).
+   *
+   * Reclaiming only ever happened as a session ended or as a closed row was
+   * swept, and a thread that ships and then waits for an answer is neither: its
+   * commit reached main minutes after its session had gone, and the locked
+   * worktree sat there for days. The question asked is the same one as always
+   * (`releaseTaskFolder`), so anything uncommitted keeps the folder.
+   */
+  reclaimShippedFolder({ item, product } = {}) {
+    if (!item || !product) return Promise.resolve(null);
+    return Promise.resolve(this.releaseWorkFolder(item, product))
+      .catch((error) => { console.warn(`zero: could not hand back the folder of ${item.id}:`, error.message); return null; });
+  }
+
+  /**
    * A SESSION LETS GO OF ITS ROW, AND ONLY OF ITS OWN ROW.
    *
    * One entry in the session map per row, so two sessions on one row share it,
@@ -2352,7 +2367,14 @@ export class Supervisor {
         try { item = this.store.readItem?.(p.slug, folder.id) ?? null; } catch { item = null; }
         if (item) break;
       }
-      if (item && item.status !== 'done') continue;
+      // AND A ROW THAT HAS SHIPPED AND IS WAITING FOR YOU (F-81, 2026-10-26).
+      // Its folder is free the moment its commit is on main, which is minutes
+      // after the session that made it ended, so nothing was left to ask. It is
+      // handed back rather than parked: there is no work to keep, and the
+      // release refuses the moment there is.
+      const waiting = !!item && item.status !== 'done';
+      const shipped = waiting && !!shippedAs(item);
+      if (waiting && !shipped) continue;
       // A closed row still ships (main/ship-queue.mjs), from this folder.
       if (item && this.shipQueue?.owes(item, this._productsSharing(product))) continue;
       // AND NEVER A ROW SOMEBODY IS STILL HOLDING, which is the rule the bug
@@ -2371,7 +2393,9 @@ export class Supervisor {
       // THE PATH WE WERE HANDED, not the row id alone. Parking used to rebuild
       // `.claude/worktrees/<id>` from the id, so the folder it committed in and
       // removed was not necessarily the one this loop looked at (w-330eea6c66).
-      if ((await folderJob('parkTaskFolder', base, folder.id, { path: folder.path })).parked) put += 1;
+      const job = shipped ? 'releaseTaskFolder' : 'parkTaskFolder';
+      const out = await folderJob(job, base, folder.id, { path: folder.path });
+      if (out.parked || out.removed) put += 1;
     }
     return put;
   }
@@ -4929,9 +4953,26 @@ export class Supervisor {
   // cloud sign-in at all, or turned off, runs here. Read by `_roomFor` (so
   // neither the tick nor the sweep that resumes interrupted rows starts it, or
   // takes a slot from another row for it) and by `_whereToRun`.
+  // EXCEPT while the cloud's account is at its limit (2026-10-26): she
+  // switches this Mac to another account and expects work to go on, and that
+  // account is usually not the cloud's, so waiting meant nothing ran for the
+  // hour. This Mac's own cap still bounds what starts here.
   _waitsForCloud(item, engine) {
     return this._cloudFirst() && !!item?.id && this._cloudUsable(engine) && this._cloudSignedInAtAll(engine)
-      && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine);
+      && this._cloudEligible(item) && !this._mustRunHere(item, engine) && !this._cloudSlotFor(engine)
+      && this._cloudInUseState(engine) !== 'limited';
+  }
+
+  // The state of the one cloud account a run would take (`_cloudLoginRunnable`),
+  // read at most every five seconds: every waiting row asks it on every tick.
+  _cloudInUseState(engine, now = Date.now()) {
+    const which = engineOf(engine);
+    const had = (this._cloudInUseSeen ??= new Map()).get(which);
+    if (had && now - had.at < 5_000) return had.state;
+    const inUse = cloudLoginInUse(which, this._cloudAccountAsk(which, now));
+    const state = inUse ? cloudLoginState(inUse, { now }) : 'none';
+    this._cloudInUseSeen.set(which, { at: now, state });
+    return state;
   }
 
   // A Codex reply to a thread this Mac's app-server has open runs here and
