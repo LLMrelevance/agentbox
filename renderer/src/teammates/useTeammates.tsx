@@ -74,7 +74,7 @@ export function useTeammates({ items = [], view: stored, asking = [], running = 
     /** The wide sidebar's one Chats row; with Groups on, the Groups row is it. */
     rail: (lit: boolean) => (live ? <SidebarGroups label="Chats" onGroupsPage={lit} onGroups={() => go(open === 'new' || !open ? (team[0]?.id ?? 'new') : open)} /> : null),
     title: shownOpen ? <TeammatesTitle view={view ?? null} open={shownOpen} /> : null,
-    right: mate && shown ? <div className="th-right"><TeammateMenu t={mate} shown={shown} onOpen={go} call={call} /></div> : null,
+    right: mate && shown ? <div className="th-right"><TeammateMenu t={mate} shown={shown} onOpen={go} call={call} onDeleted={() => { leave(); onChanged(); }} /></div> : null,
     page,
   };
 }

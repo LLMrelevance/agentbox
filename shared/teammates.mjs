@@ -499,6 +499,13 @@ function verbFor(item, teammates) {
   return { verb: 'picked' };
 }
 
+// The note is written at the moment of the close, so a run reopened and
+// finished later reads as finished again.
+export const STOPPED_NOTE = 'Stopped by you.';
+export function stoppedByYou(item) {
+  return item?.status === 'done' && item.note === STOPPED_NOTE && item.wrote?.note?.ts === item.wrote?.status?.ts;
+}
+
 // The lines a run leaves in the chat, read straight off the ledger so they can
 // never disagree with it: picked up (or passed on), sent you, finished.
 export function runLines(items, teammates = []) {
@@ -525,7 +532,7 @@ export function runLines(items, teammates = []) {
       out.push({ ...base, id: `${item.id}:sent`, kind: 'run', verb: 'sent', said: clip(said, 200), waiting: waitingOnYou(item), answered, ts: r.ts });
     }
     if (item.status === 'done') {
-      out.push({ ...base, id: `${item.id}:done`, kind: 'run', verb: 'finished', ts: item.wrote?.status?.ts ?? item.updatedAt ?? 0 });
+      out.push({ ...base, id: `${item.id}:done`, kind: 'run', verb: stoppedByYou(item) ? 'stopped' : 'finished', ts: item.wrote?.status?.ts ?? item.updatedAt ?? 0 });
     }
   }
   return out.sort((a, b) => a.ts - b.ts);

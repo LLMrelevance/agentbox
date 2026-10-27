@@ -5,7 +5,7 @@ import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
   offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT, GREETING, starterAsks,
-  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst,
+  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst, isActiveRun, isQueued, STOPPED_NOTE,
 } from '../shared/teammates.mjs';
 import { isShippedNote } from '../shared/shipped-note.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
@@ -171,9 +171,35 @@ export class Teammates {
     }
   }
 
-  remove(id, now = Date.now()) {
+  // Stop: the run it is on and anything queued behind it end now, and it waits
+  // for your next word. `kill` stops a run's agent (the supervisor's stopSession).
+  stop(id, { kill } = {}, now = Date.now()) {
+    if (!this.get(id, now)) throw new Error('No such teammate.');
+    return { stopped: this._endRuns(id, (i) => isActiveRun(i) || isQueued(i), { kill, note: STOPPED_NOTE }, now) };
+  }
+
+  // Delete ends every run it has open, its questions to you too, so nothing
+  // it started is left running or waiting for a teammate that is gone.
+  remove(id, { kill } = {}, now = Date.now()) {
+    if (!this.get(id, now)) throw new Error('No such teammate.');
+    this._endRuns(id, () => true, { kill, note: 'Its teammate was deleted.' }, now);
     writeTeammate(this.dir(), id, { endedAt: now }, now);
     return { ok: true };
+  }
+
+  // Closed as you, not as the app: an app's close of a thread you wrote is
+  // news in Needs you, and yours is filed.
+  _endRuns(id, which, { kill, note }, now) {
+    const { workItemsDisk } = this.store.modules;
+    const runs = this.store.listItems(now).filter((i) => teammateIdOf(i) === id && i.status !== 'done' && which(i));
+    for (const run of runs) {
+      kill?.(run.id);
+      const dir = this.store.productDir?.(run.product);
+      if (!dir) continue;
+      workItemsDisk.updateWorkItem(dir, run.id, { note }, { source: 'system', now });
+      workItemsDisk.updateWorkItem(dir, run.id, { status: 'done' }, { source: 'founder', now });
+    }
+    return runs.length;
   }
 
   remember(id, text, { from = null, by = null } = {}, now = Date.now()) {

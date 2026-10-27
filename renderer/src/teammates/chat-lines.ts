@@ -25,7 +25,7 @@ export function chatEntries(view: TeammatesView | null | undefined, only: string
   const saidInChat = new Set(view.chat.filter((m) => m.kind === 'msg' && m.from === 'you').map((m) => String(m.text ?? '').trim()));
   // The team chat says a run finished and leaves out that it was picked up;
   // a teammate's own page keeps both.
-  const finished = new Set(view.runs.filter((r) => r.verb === 'finished').map((r) => r.item));
+  const finished = new Set(view.runs.filter((r) => r.verb === 'finished' || r.verb === 'stopped').map((r) => r.item));
   const shown = all.filter((e) => {
     if (!only && e.kind === 'run' && e.verb === 'picked' && finished.has(e.item)) return false;
     // A run's own start line repeats the pass that made it, so the pass speaks for it.
@@ -193,7 +193,7 @@ export const SAVED_VERBS = new Set(['learned', 'updated', 'lesson']);
 // A teammate's chat with you: your words to it, its words to you, what it sent
 // you, what it saved, and work it holds for you. Everything else is its Log.
 function betweenYou(e: ChatEntry, id: string): boolean {
-  if (e.kind === 'run') return e.teammate === id && (e.verb === 'sent' || e.verb === 'answered');
+  if (e.kind === 'run') return e.teammate === id && (e.verb === 'sent' || e.verb === 'answered' || e.verb === 'stopped');
   if (e.kind === 'msg') {
     if (e.from === 'you') return toList(e.to).includes(id);
     return e.from === id && toList(e.to).every((x) => x === 'you');
