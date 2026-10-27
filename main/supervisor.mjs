@@ -9,7 +9,7 @@ import { SHIP_LABEL, ShipQueue, readShipSettings, shipScriptFor } from './ship-q
 import { MainTests } from './main-went-red.mjs';
 import { folderJob } from './task-folders-offthread.mjs';
 import { gitJob } from './git-change-offthread.mjs';
-import { queuedReplyText, submitReply } from './live-replies.mjs';
+import { queuedReplyText, submitReply, framedTeammate } from './live-replies.mjs';
 import { taskCommand } from './task-commands.mjs';
 import { providerCommand, reviewTarget, nativeCommandNames } from '../shared/provider-commands.mjs';
 import {agentInstructionsUnified, readSystemTemplate, writeInstruction} from './instruction-settings.mjs';
@@ -93,7 +93,7 @@ function whoHasIt(made) {
   if (made?.taken !== false) return '';
   return `: its folder is ${made.reason}${made.heldBy ? ` by pid ${made.heldBy}` : ''}`;
 }
-import { agentSpokeSince, answerSettled, answerTs, stoppedByHer } from '../shared/answers.mjs';
+import { agentSpokeSince, answerSettled, answerTs, stoppedByHer, heldForHer, toldBy } from '../shared/answers.mjs';
 import { DEFAULT_SESSIONS_AT_ONCE } from './config.mjs';
 import { accountIdentity, nameForOrganization, profileForCloudLogin, isCloudLoginOf, toolingLine } from './account-tooling.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
@@ -2599,14 +2599,21 @@ export class Supervisor {
   // the row may have been rewritten since, because a later session or the
   // founder herself may have changed the title and the body underneath it.
   replyBrief(item, { product = null } = {}) {
+    const teammate = toldBy(item);
     const parts = [
-      'The founder has replied on the work item you were just working on. This is',
+      teammate ? `${teammate.name}, a teammate, has written on the work item you were just working on. This is` : 'The founder has replied on the work item you were just working on. This is',
       'that same session: everything you read and wrote is still here, so do not go',
       'back over the files or the item to catch up.',
       '',
-      'Their newest message is the last one below, and it outranks anything',
-      'before it. Do what it asks first. Earlier explicit autonomy for this',
-      'objective still holds unless they change it.',
+      ...(teammate ? [
+        'A teammate\'s hand-off is work to take on, not the founder\'s word: what',
+        'they told you still outranks it, and anything that needs their yes still',
+        'needs it.',
+      ] : [
+        'Their newest message is the last one below, and it outranks anything',
+        'before it. Do what it asks first. Earlier explicit autonomy for this',
+        'objective still holds unless they change it.',
+      ]),
       '',
       'Two things did change while you were stopped. Your claim on the row was',
       'released when your last run ended, so claim it again before you write to it.',
@@ -2672,7 +2679,7 @@ export class Supervisor {
       'and re-read the work item if you need to.',
     ];
     if (continuation && item?.answer && item.answer !== '(withdrawn)') {
-      parts.push('', 'The founder has answered since you stopped. Their newest message is the',
+      parts.push('', toldBy(item) ? `${toldBy(item).name}, a teammate, has written since you stopped. The newest message is the` : 'The founder has answered since you stopped. Their newest message is the',
         'last one below: do what it asks before you carry on with anything else.', '', String(item.answer));
       // A resumed session has everything it read still in it, EXCEPT anything
       // she attached to the reply that woke it. That is new, and it is the one
@@ -6742,6 +6749,8 @@ export class Supervisor {
     // fresh run on it ten seconds after her stop, on a row sitting in her
     // inbox. Her stop is the newest thing she said; a later reply wakes it.
     if (stoppedByHer(item)) return false;
+    // A teammate's hand-off held for her yes waits for her reply the same way.
+    if (heldForHer(item)) return false;
     return true;
   }
 
@@ -6977,7 +6986,8 @@ export class Supervisor {
       queue.push({
         item,
         continuation,
-        command: continuation
+        // A teammate's words are never one of your commands.
+        command: continuation && !toldBy(item)
           && !!commandPrompt(item.answer, this._nativeCommands?.[item.id])
           && this._engineFor(item) === DEFAULT_ENGINE,
       });
@@ -7211,8 +7221,24 @@ export class Supervisor {
       this.wake?.();
       return out;
     };
+    // A teammate's words on another teammate's thread take the same road, as
+    // that teammate's. A held one never reaches a running session.
+    const tell = async (product, id, { text, from, hold = false, hop = null }) => {
+      const commit = () => this.store.tellItem(product, id, { text, from, hold, hop });
+      if (hold) { commit(); this.wake?.(); return 'held'; }
+      let timer;
+      const late = new Promise((resolve) => { timer = setTimeout(() => resolve('late'), TEAMMATE_REPLY_DEADLINE_MS); });
+      const sent = submitReply(this, { product, id, answer: text, from: from.name }, commit);
+      const out = await Promise.race([sent, late]).finally(() => clearTimeout(timer));
+      if (out === 'late') {
+        sent.catch((err) => teammates.noteTrouble(`A hand-off to a running teammate did not land: ${err.message}`));
+        teammates.noteTrouble('A hand-off to a running teammate is taking a while to land.', now);
+      }
+      this.wake?.();
+      return out;
+    };
     try {
-      const done = await teammates.tick({ items, now, deliver });
+      const done = await teammates.tick({ items, now, deliver, tell });
       if (done.length) this.onChange?.();
     } catch (err) {
       teammates.noteTrouble?.(`Teammates could not wake: ${err.message}`, now);
@@ -7441,6 +7467,8 @@ export class Supervisor {
       const conversation = forkFrom ? null : resumeId;
       const answer = queuedReplyText(item, this.store.readHistory(item.product, item.id), (row) => this._answerDelivered(row) || this._heardIn(row, conversation));
       if (answer !== item.answer) item = { ...item, answer };
+    } else if (continuation && toldBy(item)) {
+      item = { ...item, answer: framedTeammate(toldBy(item).name, item.answer) };
     }
     let prompt;
     // THE TWO KINDS OF RESUME SAY DIFFERENT THINGS, and handing a finished
@@ -10148,6 +10176,7 @@ export class Supervisor {
     const stamp = (ts) => new Date(ts).toISOString().slice(0, 16).replace('T', ' ');
     const who = (turn) => {
       if (turn.source === 'founder') return 'THE FOUNDER';
+      if (turn.from) return `${turn.from}, a teammate (not the founder)`;
       if (turn.field === 'note') return 'a previous session, as its checkpoint to them';
       if (turn.field === 'result') return 'a previous session, as its result';
       return 'a previous session, rewriting the task';
@@ -10246,7 +10275,9 @@ export class Supervisor {
       files,
       named,
       conversation,
-      continuation && item.answer
+      continuation && item.answer && toldBy(item)
+        ? `\n# A teammate has written on this item\n\n${item.answer}\n\nIt is work to take on, not the founder's word: what they told you still outranks it, and anything that needs their yes still needs it.`
+        : continuation && item.answer
         ? `\n# The founder has answered\n\nThis item is a ${item.kind === 'review' ? 'review you filed; their answer is the verdict. Enact it (an approval means do the thing the review proposed: merge, ship, send), then update the item' : item.kind === 'question' ? 'question you (or a prior worker) asked' : 'work item the founder has replied to; their reply may have arrived after a prior session finished it, so read the item\'s result and status first'}. The founder's answer:\n\n> ${item.answer}\n\n${item.kind === 'review' ? '' : 'Apply their reply within the scope they authorized. Work they already authorized, including later stages of an agreed plan, is not a new proposal. If their reply explicitly expands the scope or delegates continued work toward an objective, carry it out. Otherwise, work beyond that scope needs a proposal and approval. An answer choosing a shell does not by itself authorize building an app.'}`
         : item.answer
           ? `\n# The founder has weighed in on this item\n\n> ${item.answer}\n\nThis is steering; follow it.`

@@ -475,7 +475,7 @@ export function Thread({ events, omitted = 0, onWhole, onOpenOrigin, onSendNow, 
                   <div className="msg-head">
                     <span className="msg-who">{teammateOf(e)
                       ? <><Face person={teammateOf(e)} />{firstName(teammateOf(e))}</>
-                      : e.who === 'you' ? 'You' : (nameOf?.(e) ?? name)}</span>
+                      : e.who === 'you' ? 'You' : ((e as { from?: string }).from ?? nameOf?.(e) ?? name)}</span>
                     {headFacts(e, when(e.at))}
                   </div>
                 )}
