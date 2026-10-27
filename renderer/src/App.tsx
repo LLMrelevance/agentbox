@@ -107,6 +107,7 @@ import { TeammatesContext } from './teammates/row-lead';
 import { ChatsContext, ChatsFrame, LAST_CHAT_KEY, type ChatsValue } from './teammates/ChatsColumn';
 import { queuedTeammateRun } from './teammates/chat-lines';
 import { teammateIdOf } from '../../shared/teammates.mjs';
+import { asksWho } from '../../shared/auto-route.mjs';
 import { RoomBoard } from './team/rooms/RoomBoard';
 import { directConversations } from './team/rooms/conversations';
 import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-rules';
@@ -6572,7 +6573,8 @@ export default function App() {
                      (w-1ef03d6f27). Only this row's: a message in flight on
                      another task belongs in that task's conversation. */
                   sending={sendingOn(focused)}
-                  stalled={snap.supervisor.stalled?.includes(focused.id) ?? false}
+                  // Auto asking her who takes it is stalled for the list, not a dead agent.
+                  stalled={(snap.supervisor.stalled?.includes(focused.id) ?? false) && !asksWho(focused)}
                   onRedeliver={() => redeliver(focused)}
                   onClose={() => setFocused(null)}
                   onResolve={() => markDone(focused)}

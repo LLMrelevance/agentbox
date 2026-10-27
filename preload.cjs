@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld('zero', {
   answer: (payload) => ipcRenderer.invoke('zero:answer', payload),
   sendNow: (payload) => ipcRenderer.invoke('zero:send-now', payload),
   compose: (payload) => ipcRenderer.invoke('zero:compose', payload),
+  // Who takes a thread sent to Auto, when she picks.
+  routeThread: (payload) => ipcRenderer.invoke('zero:route-thread', payload),
   schedule: (payload) => ipcRenderer.invoke('zero:schedule', payload),
   snooze: (payload) => ipcRenderer.invoke('zero:snooze', payload),
   // Feedback to the Agentbox team, from the card the sidebar opens.

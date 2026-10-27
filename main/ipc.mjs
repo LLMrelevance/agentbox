@@ -51,6 +51,7 @@ import { AccountUsage } from './account-usage.mjs';
 import { effectiveProfiles } from './account-discovery.mjs';
 import { usageEngine } from '../shared/usage.mjs';
 import { DEFAULT_ENGINE, isEngine } from '../shared/engines.mjs';
+import { routedPatch, PICKED_WHY } from '../shared/auto-route.mjs';
 import * as agents from './agents.mjs';
 import { findAgentFolders, readAgentFiles, readFolderAgents } from './agent-files.mjs';
 import { readCodexThreadsOffThread } from './codex-threads.mjs';
@@ -1025,6 +1026,19 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // Nothing to wake for a thread added to Later: it starts when she says.
     if (start !== 'later' && (!runAt || runAt <= Date.now())) supervisor.wake();
     return out;
+  });
+
+  // HER PICK OF WHO TAKES A THREAD: the answer when Auto asked, or giving one
+  // to someone else after (shared/auto-route.mjs). `to` is 'agent' or one of
+  // her teammates as 'mate:<id>'; anyone else is refused rather than written.
+  ipcMain.handle('zero:route-thread', (_e, { product, id, to }) => {
+    const item = store.readItem(product, id);
+    if (!item) throw new Error('that thread is gone');
+    const mate = typeof to === 'string' && to.startsWith('mate:') ? to.slice('mate:'.length) : null;
+    if (to !== 'agent' && !(mate && store.teammates?.get?.(mate))) throw new Error('there is no such teammate');
+    store.routeItem(product, id, routedPatch(item, { to, why: PICKED_WHY }, { items: store.listItems(), by: 'you' }));
+    supervisor.wake();
+    return { ok: true };
   });
 
   /* ----------------------------- the first run ---------------------------- */
