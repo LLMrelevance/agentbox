@@ -5398,6 +5398,7 @@ export class Supervisor {
     const noRoom = this._cloudNoRoomNow();
     if (noRoom) return { why: 'cloud-no-room', detail: noRoom.error };
     if (this._cloudVersionGaps().some((g) => g.engine === engineOf(engine) && g.blocks)) return { why: 'version', detail: engineOf(engine) };
+    if (this._cloudInUseState(engine) === 'limited') return { why: 'cloud-account-limited' };
     return { why: 'other' };
   }
 
