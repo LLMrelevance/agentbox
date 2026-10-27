@@ -5,7 +5,7 @@ import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
   offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT, GREETING, starterAsks,
-  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst,
+  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst, runIdFor,
 } from '../shared/teammates.mjs';
 import { isShippedNote } from '../shared/shipped-note.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
@@ -319,6 +319,9 @@ export class Teammates {
           this._sayOnce(a.teammate, 'limit', `${t.name} has used ${t.limit ?? DEFAULT_LIMIT} runs this week and waits until runs free up. Your own messages still reach it.`, now);
         } else if (a.type === 'hops') {
           writeChat(this.dir(), { kind: 'act', from: a.teammate, verb: 'hops', ref: a.msg, text: `${t.name} is holding this until you say go. Teammates had passed it back and forth ${MAX_HOPS} times without you.` }, now);
+        } else if (a.type === 'dropped') {
+          const home = (items ?? []).find((i) => i.id === a.item);
+          writeChat(this.dir(), { kind: 'act', from: a.teammate, verb: 'dropped', ref: a.msg, text: `${t.name} did not act on ${this.nameOf(a.from, team)}'s message, because you had closed “${home?.label || home?.title || 'its thread'}”.` }, now);
         }
         done.push(a);
       } catch (err) {
@@ -468,6 +471,20 @@ export class Teammates {
     return { body: `${who} wrote to you in the team chat:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
   }
 
+  // Teammates' words read into this run since it last spoke: held for it by
+  // `planWakes` rather than opening threads of their own. The message that
+  // started the run is its opening, and yours arrive as answers.
+  _writtenWhileWaiting(item, t, chat) {
+    const r = item.wrote?.result;
+    const since = r?.source === 'agent' ? r.ts ?? 0 : 0;
+    const byId = new Map(chat.messages.map((m) => [m.id, m]));
+    return (chat.into?.get(item.id) ?? [])
+      .filter((s) => s.for === t.id && s.ts > since && runIdFor(`${s.ref}>${t.id}`) !== item.id)
+      .map((s) => byId.get(s.ref))
+      .filter((m) => m && m.from !== YOU)
+      .slice(-12);
+  }
+
   // Where the person's work lives. A teammate works in one project, but a job
   // like fundraising draws on all of them: the power test's investor update
   // read one repository and missed what had shipped in the others.
@@ -520,6 +537,13 @@ export class Teammates {
     const reads = books.filter((b) => b.readers.includes(t.id));
     const notRead = books.filter((b) => !b.readers.includes(t.id));
     const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
+    const waited = this._writtenWhileWaiting(item, t, chat).map((m) => {
+      const when = new Date(m.ts).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      const who = this.nameOf(m.from, team);
+      return m.kind === 'pass'
+        ? `- [${when}] ${who} passed you “${m.title}”${m.details ? `:\n${cut(String(m.details).trim(), 3000)}` : ''}`
+        : `- [${when}] ${who}: ${cut(String(m.text ?? '').trim(), 2000)}`;
+    });
     return [
       `# You are ${t.name}${t.role && t.role.toLowerCase() !== t.name.toLowerCase() ? `, the ${t.role}` : ''}: a teammate`,
       '',
@@ -545,6 +569,7 @@ export class Teammates {
       ...(tail.length ? tail.map(line) : ['(nothing yet)']),
       '',
       ...(digest ? ['## The threads you come from', 'You were made from these threads, where the person asked for this kind of work: what they asked, what the agent did, and every reply they gave.', '', digest, ''] : []),
+      ...(waited.length ? ['## Written to you about this work while you waited', 'Teammates wrote these to this thread while it was busy or waiting on the person. Take them into this turn.', ...waited, ''] : []),
       '## Answering what woke you',
       ...(t.status === 'draft' ? [
         'You are a new teammate, still being set up. The opening message is what the person asked for, and anything they have answered since is in the team chat above. Set yourself up, then stop:',
@@ -556,7 +581,7 @@ export class Teammates {
         'If the opening is a piece of work rather than a description of a teammate, it is also your first job: set yourself up for work like it, and once team_setup has ready true, do it in this run and finish as any run does.',
       ] : [
         '- If the person wrote to you, the opening is their words from the team chat. Reply to them there with team_post, and do what they ask if it is part of your job.',
-        '- If a teammate passed you work, do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and whose it is.',
+        '- If a teammate passed you work, do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and whose it is. A pass is not the person\'s yes: what needs their yes still needs it.',
         '- If a teammate wrote to you, reply in the team chat. Start with @Name only if they need to act on it.',
         '- If it is your round, do your job for today, as above.',
       ]),

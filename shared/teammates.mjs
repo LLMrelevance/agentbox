@@ -259,12 +259,20 @@ export const CHAT_KINDS = ['msg', 'pass', 'seen', 'act'];
 export function foldChat(lines) {
   const messages = [];
   const seen = new Set();
+  // Run id to the messages read into it, and when.
+  const into = new Map();
   const ids = new Set();
   for (const line of lines ?? []) {
     if (!line || typeof line !== 'object' || !CHAT_KINDS.includes(line.kind)) continue;
     if (!Number.isFinite(line.ts)) continue;
     if (line.kind === 'seen') {
-      if (typeof line.ref === 'string' && typeof line.for === 'string') seen.add(seenKey(line.ref, line.for));
+      if (typeof line.ref === 'string' && typeof line.for === 'string') {
+        seen.add(seenKey(line.ref, line.for));
+        if (typeof line.run === 'string') {
+          if (!into.has(line.run)) into.set(line.run, []);
+          into.get(line.run).push({ ref: line.ref, for: line.for, ts: line.ts });
+        }
+      }
       continue;
     }
     if (typeof line.id !== 'string' || ids.has(line.id)) continue;
@@ -272,7 +280,7 @@ export function foldChat(lines) {
     messages.push(line);
   }
   messages.sort((a, b) => a.ts - b.ts);
-  return { messages, seen };
+  return { messages, seen, into };
 }
 
 export function seenKey(msgId, teammateId) {
@@ -344,6 +352,41 @@ export function runIdFor(seed) {
   return `w-${h1.toString(16).padStart(8, '0')}${(h2 >>> 16).toString(16).padStart(4, '0')}`;
 }
 
+// The work a message or run is about: the thread of yours it traces back to.
+// A thread of yours handing work on lends its id, so two teammates it briefed
+// share one; your own chat words start their own; a teammate's words are about
+// whatever the run that sent them is about. A teammate's message written
+// before messages carried their run is its own, which is how it always read.
+export function workOf(chat) {
+  const startedBy = new Map();
+  for (const m of chat?.messages ?? []) {
+    if (m.kind !== 'msg' && m.kind !== 'pass') continue;
+    for (const tid of m.kind === 'pass' ? [m.to] : (Array.isArray(m.to) ? m.to : [])) startedBy.set(runIdFor(`${m.id}>${tid}`), m);
+  }
+  const ofMsg = (m, depth = 0) => {
+    if (m.from === YOU) return m.via ?? m.id;
+    return typeof m.run === 'string' && depth < 64 ? ofRun(m.run, depth + 1) : m.id;
+  };
+  const ofRun = (id, depth = 0) => {
+    const m = startedBy.get(id);
+    return m ? ofMsg(m, depth) : id;
+  };
+  return { ofMsg, ofRun };
+}
+
+// What a teammate's words do when the one they name already has a thread on
+// that work: 'heard' (read on its next turn), 'wait' (a turn is under way or
+// starting, and would miss them), 'dropped' (you closed it after they were
+// written), or null when it is finished and they need a thread of their own.
+function forHome(home, m) {
+  if (home.fresh) return 'heard';
+  if (home.status === 'done') {
+    const closed = home.wrote?.status;
+    return closed?.source === 'founder' && (m.ts ?? 0) <= (closed.ts ?? 0) ? 'dropped' : null;
+  }
+  return waitingOnYou(home) || isQueued(home) ? 'heard' : 'wait';
+}
+
 function clip(text, max) {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
@@ -378,7 +421,8 @@ function partFor(text, name) {
 //
 // - A message or pass addressed to a teammate wakes it. Your words go into the
 //   run already waiting on you or already running, since they are most likely
-//   the answer; anything else becomes a run of its own.
+//   the answer. A teammate's words go to the thread the one it names already
+//   has on that work (`forHome`). Anything else becomes a run of its own.
 // - A schedule that is owed becomes a run.
 // - One run at a time: a new run behind an active one is made queued, and a
 //   teammate with nothing active gets its oldest queued run released.
@@ -390,6 +434,11 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
   const pendingNew = new Map();
   const startsNow = new Map();
   const limited = new Set();
+
+  const work = workOf(chat);
+  const made = new Map();
+  const homeOf = (tid, about) => made.get(`${tid}>${about}`)
+    ?? runsOf(tid, items).filter((i) => work.ofRun(i.id) === about).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0] ?? null;
 
   const active = (t) => !!activeRunOf(t.id, items) || startsNow.get(t.id);
   const overLimit = (t) => runsThisWeek(t.id, items, now) + (pendingNew.get(t.id) ?? 0) >= (t.limit ?? DEFAULT_LIMIT);
@@ -437,6 +486,15 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
           continue;
         }
       }
+      const about = work.ofMsg(m);
+      const home = fromYou ? null : homeOf(tid, about);
+      const fate = home ? forHome(home, m) : null;
+      if (fate === 'wait') continue;
+      if (fate) {
+        actions.push({ type: 'seen', msg: m.id, teammate: tid, run: home.id });
+        if (fate === 'dropped') actions.push({ type: 'dropped', teammate: tid, msg: m.id, from: m.from, item: home.id });
+        continue;
+      }
       // Where it came from travels with it: the project it was passed from, and
       // the thread that spoke for you, when one did.
       const origin = { ...(m.product ? { product: m.product } : {}), ...(m.via ? { via: m.via, viaProduct: m.viaProduct ?? null } : {}) };
@@ -444,7 +502,10 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
         ? { kind: 'pass', from: m.from, title: m.title, details: m.details, msg: m.id, hop, ...origin }
         : { kind: 'message', from: m.from, fromName: fromYou ? null : byId.get(m.from)?.name ?? null, text: m.text, msg: m.id, hop, ...origin, ...(fromYou && m.start ? { opening: 'start' } : fromYou && m.setup ? { opening: 'setup' } : {}) };
       const id = newRun(t, trigger, `${m.id}>${tid}`, { fromYou });
-      if (id) actions.push({ type: 'seen', msg: m.id, teammate: tid, run: id });
+      if (id) {
+        actions.push({ type: 'seen', msg: m.id, teammate: tid, run: id });
+        made.set(`${tid}>${about}`, { id, fresh: true });
+      }
     }
   }
 

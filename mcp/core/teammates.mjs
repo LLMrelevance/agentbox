@@ -40,10 +40,11 @@ export function teammateContext({ env = process.env, now = Date.now(), outsider 
   const accountId = String(env.STORE_ACCOUNT_ID ?? '').trim() || resolveAccount().accountId;
   const dir = teamDir(legacyRoot(), accountId);
   const team = readTeammates(dir, now);
-  if (!tid) return { dir, me: null, team, item, project, hop: 0, via: { via: item.id, viaProduct: project.id } };
+  if (!tid) return { dir, me: null, team, item, project, hop: 0, writtenIn: { via: item.id, viaProduct: project.id } };
   const me = team.find((t) => t.id === tid);
   if (!me) throw new Error(`the teammate behind ${itemId} is no longer on the team`);
-  return { dir, me, team, item, project, hop: hopOf(item), via: {} };
+  // The run is what says which work its words are about (`workOf`).
+  return { dir, me, team, item, project, hop: hopOf(item), writtenIn: { run: item.id } };
 }
 
 function idsFor(names, team, me) {
@@ -59,17 +60,17 @@ function idsFor(names, team, me) {
 }
 
 export function teamPost({ text, to = [], options } = {}, ctx = {}) {
-  const { dir, me, team, hop, via } = teammateContext({ ...ctx, outsider: true });
+  const { dir, me, team, hop, writtenIn } = teammateContext({ ...ctx, outsider: true });
   const words = String(text ?? '').trim();
   if (!words) throw new Error('nothing to post');
   const ids = new Set([...idsFor(to, team, me), ...mentionsIn(words, team).filter((x) => x !== me?.id)]);
   const opts = me && Array.isArray(options) ? options.map(plain).filter(Boolean).slice(0, 4) : null;
-  const m = writeChat(dir, { kind: 'msg', from: me?.id ?? YOU, to: [...ids], text: words.slice(0, 4000), hop, ...via, ...(opts?.length ? { options: opts } : {}) }, ctx.now);
-  return { posted: m.id, to: [...ids].map((x) => team.find((t) => t.id === x)?.name), note: ids.size ? 'The teammates named will wake to read it.' : 'Posted. Nobody was named, so nobody is woken by it.' };
+  const m = writeChat(dir, { kind: 'msg', from: me?.id ?? YOU, to: [...ids], text: words.slice(0, 4000), hop, ...writtenIn, ...(opts?.length ? { options: opts } : {}) }, ctx.now);
+  return { posted: m.id, to: [...ids].map((x) => team.find((t) => t.id === x)?.name), note: ids.size ? 'The teammates named will read it, in the thread they already have on this work if they have one.' : 'Posted. Nobody was named, so nobody is woken by it.' };
 }
 
 export function teamPass({ to, title, details, project: named } = {}, ctx = {}) {
-  const { dir, me, team, hop, via, project } = teammateContext({ ...ctx, outsider: true });
+  const { dir, me, team, hop, writtenIn, project } = teammateContext({ ...ctx, outsider: true });
   // The work is done where it is named, or for a thread handing it on, in that
   // thread's project; otherwise in the receiver's own.
   const where = named ? resolveProduct(named).id : me ? null : project.id;
@@ -77,7 +78,7 @@ export function teamPass({ to, title, details, project: named } = {}, ctx = {}) 
   if (!target) throw new Error('pass work to another teammate, not to yourself');
   const what = plain(title);
   if (!what) throw new Error('give the work a short title');
-  const m = writeChat(dir, { kind: 'pass', from: me?.id ?? YOU, to: target, title: what.slice(0, 200), details: String(details ?? '').slice(0, 6000), hop, ...via, ...(where ? { product: where } : {}) }, ctx.now);
+  const m = writeChat(dir, { kind: 'pass', from: me?.id ?? YOU, to: target, title: what.slice(0, 200), details: String(details ?? '').slice(0, 6000), hop, ...writtenIn, ...(where ? { product: where } : {}) }, ctx.now);
   return { passed: m.id, to: team.find((t) => t.id === target)?.name };
 }
 
