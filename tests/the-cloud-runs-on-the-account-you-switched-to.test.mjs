@@ -220,7 +220,7 @@ describe('the screen', () => {
 
   it('still says the account in use is out when it is', () => {
     const accounts = [account('acct-me', { inUse: false }), account('acct-work', { state: 'limited', ready: false, limitedUntil: at(15, 40), inUse: true })];
-    expect(cloudFootLine(cloud(accounts), now)).toBe('Your cloud account is at its usage limit until 3:40pm. Threads run on this Mac until then.');
+    expect(cloudFootLine(cloud(accounts), now)).toBe('The Claude account the cloud runs on is at its usage limit until 3:40pm. Threads run on this Mac until then.');
   });
 
   it('names none when the app marks none', () => {

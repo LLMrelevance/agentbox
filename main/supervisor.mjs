@@ -48,7 +48,7 @@ import { execFile as execFileCb } from 'node:child_process';
 import { CLOSED_UNSHIPPED, closedBeforeItShipped, shippedAs } from '../shared/not-shipped.mjs';
 import { handBackWhat, handsBack } from '../shared/cloud-hand-back.mjs';
 import { CLOUD_SENT, readSent } from '../shared/cloud-start.mjs';
-import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCaps } from './cloud/config.mjs';
+import { readCloudConfig, cloudAccountConfig, OLD_TOKEN_SERVICE, imageCapsToTry } from './cloud/config.mjs';
 import { cloudVersionGaps } from '../shared/cloud-versions.mjs';
 import { cloudLoginState, mayRunOn, startCloudSignIn, renewCloudCodexLogin, sweepRetiredLogins, forgetOldCloudTokens, listCloudLogins, removeCloudLogin, newCloudAccountKey, lookAtCloudLogin, cloudLimits, markCloudLogin, cloudLoginInUse, cloudAccountsFrom, CLOUD_ACCOUNT_ENV } from './cloud/logins.mjs';
 import { execFileSync } from 'node:child_process';
@@ -550,6 +550,9 @@ export class Supervisor {
       // the last-used time. The conversation is a file Claude Code writes for
       // every run whether we go back to it or not.
       this._rowSessions = state.rowSessions ?? {};
+      // Sessions an account stopped partway, kept for the row's next start
+      // (`_noteStoppedByAccount`).
+      this._stoppedSessions = state.stoppedSessions ?? {};
       this._compactions = state.compactions ?? {};
       this._nativeCommands = state.nativeCommands ?? {};
       for (const value of Object.values(this._compactions)) if (value.state === 'running') value.state = 'failed';
@@ -1234,6 +1237,12 @@ export class Supervisor {
     let items;
     try { items = this.store.listItems(Date.now()); } catch { return out; }
     let dirty = false;
+    // A kept session whose row is closed or gone has nothing to go back to.
+    for (const [id, kept] of Object.entries(this._stoppedSessions ?? {})) {
+      if (items.some((i) => i.id === id && i.product === kept.product && (i.status === 'open' || i.status === 'claimed'))) continue;
+      delete this._stoppedSessions[id];
+      dirty = true;
+    }
     // Rows this sweep will bring back on a later pass. Not stopped (`status`).
     const held = new Set();
     // IN HER RUNNING ORDER, so when slots are short after a restart the top of
@@ -2668,16 +2677,30 @@ export class Supervisor {
   // work item, her instructions, every file it read. A second copy of
   // the brief would arrive after all of that and read as a new instruction to
   // start over, which is the restart this whole path exists to avoid.
-  resumeBrief(item, { continuation, product = null } = {}) {
+  // `after` is the account trouble that stopped it (`_noteStoppedByAccount`),
+  // null for a sleep or a restart.
+  resumeBrief(item, { continuation, product = null, after = null } = {}) {
+    const why = after === 'at-limit'
+      ? ['Your session on this work item stopped when the plan it runs on reached its',
+        'usage limit. The limit has reset.']
+      : after
+        ? ['Your session on this work item stopped because the account it runs on could',
+          'not be used. It can be used again now.']
+        : [`Your session on this work item was interrupted. The machine slept, or ${NAME}`,
+          'restarted.'];
     const parts = [
-      `Your session on this work item was interrupted. The machine slept, or ${NAME}`,
-      'restarted. You did not fail, and nothing you did is lost: this is that same',
+      ...why,
+      'You did not fail, and nothing you did is lost: this is that same',
       'session, with everything you had read and written still in it.',
       '',
       'Carry on from where you stopped. If you are not certain where that was, check',
       'whether the step you were part-way through actually landed before you redo it,',
       'and re-read the work item if you need to.',
     ];
+    if (after) {
+      parts.push('', 'If you had helpers working when it stopped, check what each one finished',
+        'and start again only the ones that did not, rather than all of them.');
+    }
     if (continuation && item?.answer && item.answer !== '(withdrawn)') {
       parts.push('', toldBy(item) ? `${toldBy(item).name}, a teammate, has written since you stopped. The newest message is the` : 'The founder has answered since you stopped. Their newest message is the',
         'last one below: do what it asks before you carry on with anything else.', '', String(item.answer));
@@ -5122,6 +5145,9 @@ export class Supervisor {
   // sign-in that failed, or a folder still bringing an earlier run home says
   // nothing about the cloud.
   _noteCloudOutcome(session, code, signal = null) {
+    // A start it turned down may have said what the image takes, so the next
+    // placement reads it again rather than a minute later.
+    if (session?.cloud && code === 75) this._plainCapsAt = 0;
     if (!session?.cloud || session.stoppedByUs || session.cloudLoginTrouble || code === CLOUD_KEEP_ON_MAC || code === CLOUD_NO_ROOM) return;
     const h = (this._cloudHealth ??= { faults: 0, lastError: null, restUntil: 0 });
     if (session.sessionId != null || session.result != null) {
@@ -5134,7 +5160,9 @@ export class Supervisor {
       .flatMap((l) => l.slice('stderr:'.length).split('\n'))
       .map((l) => l.trim()).filter((l) => l.startsWith('agentbox cloud:'))
       .map((l) => l.slice('agentbox cloud:'.length).trim()).at(-1) ?? null;
-    if (said && /earlier cloud run in this folder/.test(said)) return;
+    // Nor an image turning down a project with no repository: it is written
+    // down and the thread runs here (main/cloud/run.mjs `NO_PLAIN_HERE`).
+    if (said && /earlier cloud run in this folder|cannot take a project with no repository/.test(said)) return;
     h.faults += 1;
     h.lastError = said || `a cloud run ended (${signal || code}) before its agent started`;
     if (h.faults >= CLOUD_FAULTS_TO_REST) h.restUntil = Date.now() + CLOUD_REST_MS;
@@ -5520,11 +5548,12 @@ export class Supervisor {
   }
 
   // Whether the cloud image takes a run with no repository, as its last start
-  // said (main/cloud/config.mjs `imageCaps`), read at most every minute.
+  // said or, before any, to be tried (main/cloud/config.mjs `imageCapsToTry`),
+  // read at most every minute.
   _cloudTakesPlain(now = Date.now()) {
     if (!this._plainCapsAt || now - this._plainCapsAt > 60_000) {
       const config = readCloudConfig(process.env, this.config.home);
-      this._plainCaps = !!config && imageCaps(config, process.env, this.config.home).includes('plain');
+      this._plainCaps = !!config && imageCapsToTry(config, process.env, this.config.home).includes('plain');
       this._plainCapsAt = now;
     }
     return this._plainCaps;
@@ -6172,6 +6201,7 @@ export class Supervisor {
         cloudHandBacks: Object.fromEntries(Object.entries(this.cloudHandBacks ?? {}).slice(-500)),
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
+        stoppedSessions: this._stoppedSessions,
         compactions: this._compactions,
         nativeCommands: this._nativeCommands,
         lastDigestTry: this.lastDigestTry,
@@ -7419,10 +7449,13 @@ export class Supervisor {
     // nothing ever forks twice.
     // A CONVERSATION BROUGHT IN FROM CLAUDE CODE is the same fork with the
     // source outside the app (`importedThreadFor`, GitHub #44).
-    const forkFrom = !rowChat && !resumeSessionId
+    // A RUN ITS ACCOUNT STOPPED PARTWAY goes back to its own session when it
+    // is started again (`_noteStoppedByAccount`).
+    const stopped = !rowChat && !resumeSessionId ? this._sessionStoppedByAccount(item, engine, product) : null;
+    const forkFrom = !rowChat && !resumeSessionId && !stopped
       ? (this.forkSourceFor(item, product) ?? this.importedThreadFor(item, product))
       : null;
-    const resumeIdOnDisk = resumeSessionId ?? rowChat?.sessionId ?? forkFrom?.sessionId ?? null;
+    const resumeIdOnDisk = resumeSessionId ?? rowChat?.sessionId ?? forkFrom?.sessionId ?? stopped?.sessionId ?? null;
     // AND WHICH SUBSCRIPTION IT LIVES ON. A resume is only a resume on the
     // account that started it: the transcript sits under that profile's home
     // and under no other. With two Claude logins, spawns round-robin across
@@ -7480,7 +7513,11 @@ export class Supervisor {
     // cannot work out for itself is that it has moved.
     else if (forkFrom?.imported) prompt = this.importedBrief(item, product, { continuation, engine, folder: forkFrom.folder, copy: !!forkFrom.open });
     else if (forkFrom) prompt = this.forkBrief(item, { product, from: forkFrom.sourceId });
-    else prompt = resumeId ? this.resumeBrief(item, { continuation, product }) : this.buildBrief(item, product, { continuation, engine });
+    else {
+      const kept = this._stoppedSessions?.[item.id];
+      const after = resumeId && kept?.sessionId === resumeId ? kept.cause : null;
+      prompt = resumeId ? this.resumeBrief(item, { continuation, product, after }) : this.buildBrief(item, product, { continuation, engine });
+    }
     // A BRANCH THE APP COULD NOT SHIP (main/ship-queue.mjs) goes back to the
     // session that wrote it, and that is all it is told: it has everything
     // else already. A fresh session gets its brief first.
@@ -9719,6 +9756,7 @@ export class Supervisor {
         // records the same id it already held and the thread keeps its name
         // across as many replies as she writes.
         this.rememberRowSession(item, { sessionId: session.sessionId, cwd, profile, engine, startedAt: session.startedAt });
+        this._stoppedSessionTakenUp(item, session);
         this._saveState();
       }
       // THE SENTENCE BEING TYPED, WHILE IT IS BEING TYPED. This is the only
@@ -9884,6 +9922,7 @@ export class Supervisor {
       this.forgetFinishedSession(item, session);
       this._forgetCloudStartThatLeftNothing(item, session);
       this.noteExitForBackoff(session, { onLine });
+      this._noteStoppedByAccount(item, session);
       if (session.cloud) this._sayCloudNews(cwd, item);
       const carryingAnswer = continuation && answerAtSpawn;
       if (carryingAnswer) this.settleDeliveryAndSay(item, answerAtSpawn, session, signal, { command: !!plan.command });
@@ -10438,6 +10477,36 @@ export class Supervisor {
     delete this._liveSessions[item.id];
     this._saveState();
     return true;
+  }
+
+  // A RUN ITS ACCOUNT STOPPED (a limit, a sign-in) after it had started work
+  // is kept, so the row's next start goes back to that session
+  // (`_sessionStoppedByAccount`) instead of a new one redoing everything. Kept
+  // apart from `_liveSessions`, which a command or a cloud start rewrites. A
+  // cloud run is left out: the cloud benches its own account.
+  _noteStoppedByAccount(item, session) {
+    const cause = session.accountFault?.cause;
+    const rec = this._liveSessions?.[item.id];
+    if (!cause || session.cloud || !rec?.sessionId || rec.sessionId !== session.sessionId) return;
+    if (!session.usedATool && !session.resumed) return;
+    const { sessionId, product, cwd, profile, engine } = rec;
+    (this._stoppedSessions ??= {})[item.id] = { sessionId, product, cwd, profile, engine, cause };
+    this._saveState();
+  }
+
+  // The kept session of a row, when it is still here to resume where it ran.
+  _sessionStoppedByAccount(item, engine, product = null) {
+    const rec = this._stoppedSessions?.[item.id];
+    if (!rec?.sessionId || rec.product !== item.product || engineOf(rec.engine) !== engineOf(engine)) return null;
+    const folders = product ? this.workFolders(item, product) : [];
+    if (folders.length && rec.cwd && !folders.includes(rec.cwd)) return null;
+    return this.transcriptFile(rec) ? rec : null;
+  }
+
+  // A run of the row that got going, other than a command, has taken it up.
+  _stoppedSessionTakenUp(item, session) {
+    if (session.command || !this._stoppedSessions?.[item.id]) return;
+    delete this._stoppedSessions[item.id];
   }
 
   // A CLOUD RUN IS REMEMBERED FROM ITS START, not from its session id. The id

@@ -27,7 +27,7 @@ describe('the last line of the cloud menu', () => {
   // rotation the cloud does not do.
   it('says the account is at its limit, and when the first comes back', () => {
     const line = cloudFootLine(cloud([acct('a', at(22, 10)), acct('b', at(22, 40))]), now);
-    expect(line).toBe('Your cloud account is at its usage limit until 10:10pm. Threads run on this Mac until then.');
+    expect(line).toBe('The Claude account the cloud runs on is at its usage limit until 10:10pm. Threads run on this Mac until then.');
   });
 
   // THE ACCOUNT IT RUNS ON, NOT ANY ACCOUNT (w-dac993a554). This read "while
@@ -42,7 +42,7 @@ describe('the last line of the cloud menu', () => {
 
   it('says the limit of the account it runs on, with a free login behind it', () => {
     expect(cloudFootLine(cloud([acct('a', at(22, 10)), acct('b')], 2), now))
-      .toBe('Your cloud account is at its usage limit until 10:10pm. Threads run on this Mac until then.');
+      .toBe('The Claude account the cloud runs on is at its usage limit until 10:10pm. Threads run on this Mac until then.');
   });
 
   it('forgets a limit that has passed, and says nothing of limits with the cloud off', () => {

@@ -142,6 +142,9 @@ export function limitInResultLine(line, now = Date.now()) {
 }
 
 export const IMPORT_FAILED = 75;
+// Said when the image turns down a run with no repository; the supervisor
+// does not count it as the cloud failing (`_noteCloudOutcome`).
+const NO_PLAIN_HERE ='this cloud image cannot take a project with no repository yet; rebuild it (node scripts/cloud-setup.mjs)';
 export const LOGIN_TROUBLE = 77;
 // A folder the cloud cannot take: the thread runs on this Mac instead, and is
 // not tried in the cloud again (Supervisor#_cloudKeptOnMac).
@@ -750,7 +753,7 @@ export async function cloudRun({
   // The supervisor checks the image first (`_cloudTakesPlain`), so this is an
   // image that changed in between.
   if (plain && (!docsDir || !imageCaps.includes('plain'))) {
-    say(docsDir ? 'this cloud image cannot take a project with no repository yet; rebuild it (node scripts/cloud-setup.mjs)' : 'a project with no repository runs in its documents folder, and this is not it');
+    say(docsDir ? NO_PLAIN_HERE : 'a project with no repository runs in its documents folder, and this is not it');
     return IMPORT_FAILED;
   }
   const sentAt = Date.now();
@@ -998,7 +1001,7 @@ export async function cloudRun({
     const outgrown = (base || plain) && started.error === 'bad-start';
     if (outgrown) { try { onCaps(started.caps || []); } catch { /* a hint */ } }
     const noRoom = refusedForRoom(started);
-    say(noRoom ? noRoom.line : `the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
+    say(noRoom ? noRoom.line : outgrown && plain ? NO_PLAIN_HERE : `the cloud run could not start: ${started.error || 'no answer'} ${started.message || ''}`.trim());
     clearMarker(here);
     if (noRoom) return noRoom.code;
     return outgrown ? IMPORT_FAILED : 1;
