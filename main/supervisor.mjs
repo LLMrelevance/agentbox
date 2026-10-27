@@ -4604,7 +4604,30 @@ export class Supervisor {
   }
 
   _cloudAccountAsk(engine, now = Date.now()) {
-    return { home: this.config.home, now, only: cloudAccountsFrom(process.env), prefer: this._cloudAccountOfThisMac(engine) };
+    const prefer = this._cloudAccountOfThisMac(engine);
+    return { home: this.config.home, now, only: cloudAccountsFrom(process.env), prefer, follow: !prefer && this._cloudKnowsWhose(engine, now) };
+  }
+
+  // Whether every cloud sign-in of this engine that could run says whose it
+  // is, so that none matching this Mac's account means it is not there. One
+  // whose organization was never read might be this Mac's, and is taken as
+  // before rather than leaving the cloud idle.
+  _cloudKnowsWhose(engine, now = Date.now()) {
+    const which = engineOf(engine);
+    if (!this._profilesFor(which)[0]) return false;
+    return listCloudLogins(which, { home: this.config.home })
+      .filter((r) => !['none', 'broken', 'duplicate'].includes(cloudLoginState(r, { now })))
+      .every((r) => (which === 'codex' ? !!r.email : !!r.org));
+  }
+
+  // Engines whose account on this Mac has no working sign-in in the cloud, so
+  // their threads run here (the cloud menu says so).
+  _cloudNotSignedInHere(now = Date.now()) {
+    return [DEFAULT_ENGINE, 'codex'].filter((engine) => {
+      if (!this.engineChoices().some((e) => e.id === engine)) return false;
+      if (!listCloudLogins(engine, { home: this.config.home }).length) return false;
+      return !cloudLoginInUse(engine, this._cloudAccountAsk(engine, now));
+    });
   }
 
   // THE CLOUD ACCOUNT THAT IS THIS MAC'S ONE ACCOUNT (`_theOneAccount`),
@@ -4661,6 +4684,7 @@ export class Supervisor {
       // What C turns the cloud back on to (main/settings.mjs cloudWhenOn).
       whenOn: this.config.cloudWhenOn === 'all' ? 'all' : 'full',
       accounts: setUp ? this._cloudAccounts() : [],
+      notInCloud: setUp ? this._cloudNotSignedInHere(now) : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
       projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
     };
@@ -4995,18 +5019,19 @@ export class Supervisor {
     worker.once('exit', () => { if (worker.threadId) entry.loaded?.add(worker.threadId); });
   }
 
-  // Set up, the engine offered, and an account of it signed in in the cloud,
-  // working or resting at its limit; not one that must sign in again.
+  // Set up, the engine offered, and this Mac's account of it signed in in the
+  // cloud, working or resting at its limit; not one that must sign in again.
   _cloudSignedInAtAll(engine = DEFAULT_ENGINE) {
     const which = engineOf(engine);
     if (this.config.cloudRuns === false || !readCloudConfig(process.env, this.config.home)) return false;
     if (!this.engineChoices().some((e) => e.id === which)) return false;
     const now = Date.now();
-    return listCloudLogins(which, { home: this.config.home }).some((r) => {
-      const state = cloudLoginState(r, { now });
-      // Resting at its limit, or a Codex sign-in being renewed: back soon.
-      return mayRunOn(state) || state === 'limited' || state === 'renew';
-    });
+    // The account the cloud would run on, which is this Mac's or none.
+    const inUse = cloudLoginInUse(which, this._cloudAccountAsk(which, now));
+    if (!inUse) return false;
+    const state = cloudLoginState(inUse, { now });
+    // Resting at its limit, or a Codex sign-in being renewed: back soon.
+    return mayRunOn(state) || state === 'limited' || state === 'renew';
   }
 
   _maxCloud() {
