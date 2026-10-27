@@ -106,7 +106,8 @@ export function buildPhoneSite({ dist = path.join(root, 'renderer', 'dist'), out
     '  Referrer-Policy: no-referrer',
     '  X-Content-Type-Options: nosniff',
     '  X-Frame-Options: SAMEORIGIN',
-    '  Permissions-Policy: camera=(), microphone=(), geolocation=()',
+    // The microphone for dictation, on the page itself and nothing it frames.
+    '  Permissions-Policy: camera=(), microphone=(self), geolocation=()',
     '',
   ].join('\n'));
   return { out, csp, legal: publishLegal(legal, out, given, log) };

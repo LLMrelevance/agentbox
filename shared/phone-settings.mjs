@@ -86,6 +86,8 @@ export function phoneSettingsOf(model, { version }) {
     v: SETTINGS_VERSION,
     version: String(version ?? ''),
     workspace: {
+      // What the web app gives a paid plan, dictation (renderer/src/web-speech.ts).
+      plan: typeof w.cloudPlan === 'string' ? w.cloudPlan : null,
       cornerTag: !!w.cornerTag,
       diagnostics: !!w.diagnostics,
       adhdMode: !!w.adhdMode,

@@ -342,6 +342,9 @@
     flex: none; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0 4px 0 -6px;
     border: 0; background: none; color: var(--text-dim); box-shadow: none;
   }
+  /* The microphone beside it (WebDictation.tsx), the phone app's size. */
+  :root:root:root .dictate-mic { width: 36px; height: 36px; margin: 0 0 0 -14px; }
+  :root:root:root .compose-sentence > .dictate-row { min-height: 36px; }
 
   /* The hint plates teach keys a phone does not have. */
   :root:root:root .hint-plate, :root:root:root .row-keys, :root:root:root .dock-card kbd { display: none !important; }
@@ -492,6 +495,14 @@
     display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 15px;
   }
   :root:root:root .tc-card > .tc-bar > .tc-icon::after { content: 'Attach a file or picture'; }
+  /* The microphone at the end of that row, and the Listening row in its place
+     while it listens, as in the phone app. */
+  :root:root:root .tc-card > .tc-bar > .dictate-mic {
+    position: absolute; z-index: 1; right: calc(8px + env(safe-area-inset-right, 0px)); bottom: calc(8px + var(--phone-foot)); margin: 0;
+  }
+  :root:root:root .tc-card > .tc-bar > .dictate-row {
+    order: 3; flex: none; height: calc(52px + var(--phone-foot)); padding: 0 12px var(--phone-foot) 16px; border-top: 1px solid var(--line);
+  }
   /* Send is the orange box, square, 16px in from the edge and centred on the
      top bar: at 12px from the edge it sat "touching the top corner of the
      app" (2026-10-11). */
