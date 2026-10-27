@@ -13,11 +13,6 @@
 .ev-card.drop-before::before, .ev-card.drop-after::after { content: ""; position: absolute; top: 6px; bottom: 6px; width: 2px; background: var(--text-dim); }
 .ev-card.drop-before::before { left: -7px; }
 .ev-card.drop-after::after { right: -7px; }
-.ev-strip.compact { grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); gap: 8px; }
-.ev-strip.compact .ev-card { display: flex; align-items: center; gap: 10px; padding: 7px 10px; }
-.ev-strip.compact .ev-n { flex: 1; min-width: 0; font-size: 13.5px; }
-.ev-c { display: inline-flex; align-items: center; gap: 6px; flex: none; font: 11px var(--mono); color: var(--text-dim); }
-.ev-c .live-mark { width: 11px; height: 11px; gap: 1px; color: var(--text); }
 .ev-card.ev-add { background: none; border-style: dashed; text-align: left; font: inherit; color: inherit; }
 .ev-card.ev-add.on { border-color: var(--text-faint); }
 .ev-t { min-width: 0; display: flex; flex-direction: column; gap: 3px; }

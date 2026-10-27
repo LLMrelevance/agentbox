@@ -30,17 +30,10 @@ export function MemberFace({ m, size }: { m: Member; size: number }) {
 
 const BUBBLE = <svg className="ev-bubble" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z" /></svg>;
 
-function Card({ m, on, drop, onPick, drag, compact }: { m: Member; on: boolean; drop: 'before' | 'after' | null; onPick: () => void; drag: Record<string, unknown>; compact: boolean }) {
+function Card({ m, on, drop, onPick, drag }: { m: Member; on: boolean; drop: 'before' | 'after' | null; onPick: () => void; drag: Record<string, unknown> }) {
   const chat = m.kind === 'chat';
   const attrs = { role: 'button', tabIndex: 0, className: `ev-card ${m.kind}${on ? ' on' : ''}${drop ? ` drop-${drop}` : ''}`, 'data-key': m.key, title: m.name,
     onClick: onPick, onKeyDown: (e: { key: string; preventDefault: () => void }) => { if (e.key === 'Enter') { e.preventDefault(); onPick(); } }, ...drag };
-  // While a chat is open the cards are one line each, so the chat keeps the page.
-  if (compact) return <div {...attrs}>
-    <MemberFace m={m} size={26} />
-    <span className="ev-n">{chat && BUBBLE}<span className="rm-one">{m.name}</span></span>
-    {chat ? (m.unread ? <i className="ev-new" aria-label="New messages" /> : null)
-      : m.agents ? <span className="ev-c"><LiveMark />{m.agents}</span> : null}
-  </div>;
   return <div {...attrs}>
     <MemberFace m={m} size={52} />
     <div className="ev-t">
@@ -57,13 +50,12 @@ function Card({ m, on, drop, onPick, drag, compact }: { m: Member; on: boolean; 
 }
 
 /** The cards. A card dropped on another goes before it, or after it on its right half. */
-export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = false, compact = false }: {
+export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = false }: {
   members: Member[]; picked: string | null; onPick: (key: string) => void;
   /** The cards' new order after one was dragged. */
   onMove: (keys: string[]) => void;
   /** The last card: a new AI teammate. */
   onAdd?: () => void; adding?: boolean;
-  compact?: boolean;
 }) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<{ key: string; side: 'before' | 'after' } | null>(null);
@@ -73,8 +65,8 @@ export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = fal
     return e.clientX > r.left + r.width / 2 ? 'after' : 'before';
   };
   const end = () => { setDragging(null); setOver(null); };
-  return <div className={`ev-strip${compact ? ' compact' : ''}`} aria-label="Your team">
-    {members.map((m) => <Card key={m.key} m={m} on={picked === m.key} onPick={() => onPick(m.key)} compact={compact}
+  return <div className="ev-strip" aria-label="Your team">
+    {members.map((m) => <Card key={m.key} m={m} on={picked === m.key} onPick={() => onPick(m.key)}
       drop={over?.key === m.key && dragging && dragging !== m.key ? over.side : null}
       drag={{
         draggable: true,
@@ -84,9 +76,8 @@ export function TeamStrip({ members, picked, onPick, onMove, onAdd, adding = fal
         onDragEnd: end,
       }} />)}
     {onAdd && <button type="button" className={`ev-card ev-add${adding ? ' on' : ''}`} onClick={onAdd}>
-      <span className="ev-ai" style={compact ? { width: 26, height: 26, fontSize: 12 } : { width: 52, height: 52, fontSize: 18 }} aria-hidden="true">+</span>
-      {compact ? <span className="ev-n">New teammate</span>
-        : <div className="ev-t"><span className="ev-n">New teammate</span><span className="ev-on idle rm-one">An AI teammate with a job of its own</span></div>}
+      <span className="ev-ai" style={{ width: 52, height: 52, fontSize: 18 }} aria-hidden="true">+</span>
+      <div className="ev-t"><span className="ev-n">New teammate</span><span className="ev-on idle rm-one">An AI teammate with a job of its own</span></div>
     </button>}
   </div>;
 }

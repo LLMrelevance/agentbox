@@ -69,12 +69,8 @@ describe('the cards', () => {
     expect(person).toContain('14 AGENTS WORKING');
   });
 
-  it('shrink to one line each while a chat is open, keeping each one\'s agents', () => {
-    const html = strip({ compact: true });
-    expect(html).toContain('ev-strip compact');
-    expect(html).not.toContain('ev-t');
-    expect(html).toMatch(/Maya Costa<\/span><\/span><span class="ev-c">.*14<\/span>/);
-  });
+  // They used to shrink to one line while a chat was open; they stay as they
+  // are now (tests/a-chat-opens-under-the-same-cards).
 
   it('end with a card that makes a new AI teammate', () => {
     expect(strip({ onAdd() {} })).toContain('New teammate');

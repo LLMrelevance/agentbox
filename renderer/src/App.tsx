@@ -6104,7 +6104,7 @@ export default function App() {
     needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
   const evTop = evOn ? <>
     <TeamStrip members={members} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
-      onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'} compact={evFill} />
+      onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'} />
     {evBar}
   </> : null;
   // A person or an AI teammate that has no page of its own to open: its threads, or the way to start talking.
