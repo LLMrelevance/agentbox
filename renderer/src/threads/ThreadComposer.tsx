@@ -44,6 +44,7 @@ import { AUTO_LABEL } from '../../../shared/auto-route.mjs';
 import { conversationWith } from './page-rules';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { AttachRow } from '../components/AttachRow';
+import { Listening, MicButton, useWebDictation } from '../components/WebDictation';
 import { PRIORITIES, priorityLabelOf, priorityValueOf, startingPriority, type PriorityId } from '../priority';
 import { composeDraftIsEmpty, dropComposeDraft, markComposeDraftSending, openingComposeDraft, readComposeDraft, restoreComposeDraft, saveComposeDraft, type ComposeDraft } from '../drafts';
 import { LAST_PRODUCT_KEY } from '../compose-project';
@@ -656,6 +657,7 @@ export function ThreadComposer({
     else { dropComposeDraft(taken); setText(''); onClose(); }
   };
   const send = () => (person && sendAs === 'message' ? sendMessage() : sendTask());
+  const talk = useWebDictation({ text, setText }, () => void send());
   // ⌘↵ SENDS WHEREVER THE CURSOR IS while the card is open (w-9f6975906c).
   // It used to be heard only inside the card, so once a menu or a click had
   // taken focus out of it the key did nothing: "Command+Enter in the tutorial
@@ -1111,6 +1113,7 @@ export function ThreadComposer({
           onChange={(e) => { setText(e.target.value); named.track(e.target); }}
           onSelect={(e) => named.track(e.currentTarget)}
           onScroll={(e) => named.track(e.currentTarget)}
+          onFocus={() => { if (talk.on) talk.stop(); }}
           onKeyDown={(e) => { named.keyDown(e); }}
           placeholder={mate === 'new' ? 'What should they do? They set themselves up from it and ask what they need' : mateRow ? `What should ${mateRow.name} do?` : person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {
@@ -1139,6 +1142,7 @@ export function ThreadComposer({
             may not exist until the message makes it; the send hands them over
             and main/team/index.mjs saves them once it knows where. */}
         {error && <div className="tc-note tc-error" role="alert">{error}</div>}
+        {!talk.on && talk.problem && <div className="tc-note">{talk.problem}</div>}
 
         {person && sendAs === 'message' ? (
           <div className="tc-bar">
@@ -1202,9 +1206,12 @@ export function ThreadComposer({
                 {open === 'visibility' && visibilityMenu}
               </span>
             )}
+            {talk.on ? <Listening talk={talk} /> : (
             <button type="button" className="tc-icon" title="Attach files" aria-label="Attach files" onClick={() => fileRef.current?.click()}>
               <ClipIcon />
             </button>
+            )}
+            {talk.allowed && !talk.on && <MicButton talk={talk} />}
             <input ref={fileRef} type="file" multiple hidden onChange={async (e) => { await addFiles(e.target.files); e.target.value = ''; }} />
             {/* WHY SEND IS OFF, WHEN IT IS OFF FOR WANT OF A PROJECT. My
                 Workspace is made for everybody at boot, so this should never

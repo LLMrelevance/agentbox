@@ -20,14 +20,15 @@ import { feedbackPayload, sendFeedback } from '../../shared/feedback.mjs';
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
-import { setPictureLinks } from './picture';
+import { pictureLinksChanged, setPictureLinks } from './picture';
 import { SEND_MAX_BYTES, sendFiles, sentFileName } from './phone-sends-files';
 import { LINK_RENEW_MS, fileOnPhone, linkForFile, linkOfEntry as linkOfName, objectsToSign, phonePage, renewLinks, type Links } from './phone-links';
 import { BUCKET, cloudPlaces, findFile, findFolder, installCloudFiles, type Place } from './cloud-files';
 import {
   LIVE_FOR_MS, NOT_HERE, PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneConnectState, phoneHistory, phoneSlug, phoneStatusLine,
-  phoneView, readCommands, readThreads, splitSlug, type Aliases, type PhoneRows,
+  phoneView, readCommands, readSettingsRows, readThreads, splitSlug, type Aliases, type PhoneRows,
 } from './phone-rows';
+import { dictationAllowed, setDictationAllowed } from './web-speech';
 import { phoneSender } from './phone-send';
 
 export {
@@ -120,7 +121,10 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     const owner = client.session()?.user.id;
     if (!owner) return;
     const asked = client.generation();
-    await renewLinks((paths, seconds) => client.signFiles(BUCKET, paths, seconds), objectsToSign(places, rows.commands, links, owner), links, () => client.generation() === asked);
+    const want = objectsToSign(places, rows.commands, links, owner);
+    if (!want.length) return;
+    await renewLinks((paths, seconds) => client.signFiles(BUCKET, paths, seconds), want, links, () => client.generation() === asked);
+    pictureLinksChanged();
   }
   const linkOfEntry = (n?: string) => linkOfName(links, n);
   const linkFor = (file: string) => linkForFile(places, links, file);
@@ -134,6 +138,20 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
 
   const commands = () => readCommands((table, query) => client.select(table, query));
 
+  // Whether this account dictates, by the plan its computer last read (web-speech.ts).
+  const PLAN_READ_MS = 60_000;
+  let planReadAt = -Infinity;
+  async function readPlan() {
+    if (!client.signedIn()) { planReadAt = -Infinity; setDictationAllowed(false); return; }
+    if (Date.now() - planReadAt < PLAN_READ_MS) return;
+    planReadAt = Date.now();
+    const asked = client.generation();
+    try {
+      const paid = dictationAllowed(await readSettingsRows((table, query) => client.select(table, query)));
+      if (client.generation() === asked) setDictationAllowed(paid);
+    } catch { /* the microphone stays as it was until the next read */ }
+  }
+
   // One read at a time: on a slow network a read can outlast the five seconds between them.
   let reading: Promise<void> | null = null;
   // Her threads' copies as last fetched; a read fetches only what changed since.
@@ -145,6 +163,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     return reading;
   }
   async function readRows() {
+    void readPlan();
     if (!client.signedIn()) { rows = EMPTY_ROWS; return; }
     const asked = client.generation();
     try {
@@ -267,7 +286,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     }),
     teamSignOut: async () => {
       client.signOut(); rows = EMPTY_ROWS; error = null; threadCache.clear();
-      places = new Map(); links.clear();
+      places = new Map(); links.clear(); planReadAt = -Infinity; setDictationAllowed(false);
       for (const key of [...pages.keys()]) dropPage(key);
       changed(null);
       return { ok: true };
@@ -277,7 +296,17 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       const where = splitSlug(product);
       const owner = client.session()?.user.id;
       if (!where || !owner) throw new Error(NOT_HERE);
-      return sendFiles({ put: (object, bytes, type) => client.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
+      const sent = await sendFiles({ put: (object, bytes, type) => client.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
+      // Drawn from the bytes just sent until the next read signs its link;
+      // `until: 0` is what asks for that link.
+      sent.forEach((s, i) => {
+        const name = sentFileName(s.rel);
+        const data = files[i]?.dataBase64;
+        if (!name || !data || links.has(name)) return;
+        links.set(name, { url: URL.createObjectURL(new Blob([Uint8Array.from(atob(data), (c) => c.charCodeAt(0))])), until: 0 });
+      });
+      pictureLinksChanged();
+      return sent;
     },
     // HER FILES, from the links her Mac's list gives (cloud-files.ts).
     openArtifact: async (p: { product: string; src: string; mode?: string }) => {

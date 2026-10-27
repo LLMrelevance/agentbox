@@ -1626,24 +1626,25 @@ body {
 .live-span { color: var(--text-faint); font-variant-numeric: tabular-nums; }
 /* THE SHIMMER. A soft band travelling through predominantly full ink, which is what
    Claude Code and Codex both do to say "this word is live" without moving the
-   word. It is clipped to the glyphs, so nothing is drawn outside the text and
-   there is no box to notice. Off entirely under reduced motion, where it falls
-   back to plain dim ink rather than to a colour nothing else in the app uses. */
+   word. The letters keep solid ink and the band is a moving mask over them, so
+   a browser that draws no mask still draws the word: in transparent ink with a
+   clipped gradient, Safari on an iPhone drew nothing at all
+   (tests/the-thinking-word-is-never-drawn-in-clear-ink). Off under reduced
+   motion, in plain dim ink. */
 .live-word.is-shimmering {
-  background: linear-gradient(100deg,
-    var(--text) 0%, var(--text) 32%,
-    var(--text-faint) 50%,
-    var(--text) 68%, var(--text) 100%);
-  background-size: 260% 100%;
-  -webkit-background-clip: text; background-clip: text;
-  color: transparent; -webkit-text-fill-color: transparent;
+  color: var(--text);
+  -webkit-mask-image: linear-gradient(100deg, #000 0%, #000 32%, color-mix(in srgb, #000 45%, transparent) 50%, #000 68%, #000 100%);
+  mask-image: linear-gradient(100deg, #000 0%, #000 32%, color-mix(in srgb, #000 45%, transparent) 50%, #000 68%, #000 100%);
+  -webkit-mask-size: 260% 100%; mask-size: 260% 100%;
   animation: live-shimmer 2.6s linear infinite;
 }
-@keyframes live-shimmer { from { background-position: 160% 0; } to { background-position: -60% 0; } }
+@keyframes live-shimmer {
+  from { -webkit-mask-position: 160% 0; mask-position: 160% 0; }
+  to { -webkit-mask-position: -60% 0; mask-position: -60% 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   .live-word.is-shimmering {
-    animation: none; background: none; color: var(--text-dim);
-    -webkit-text-fill-color: currentColor;
+    animation: none; -webkit-mask-image: none; mask-image: none; color: var(--text-dim);
   }
 }
 
@@ -3652,6 +3653,26 @@ img.product-mark { object-fit: cover; opacity: 1; }
   padding: 9px 14px 10px 18px;
   border-top: 1px solid var(--line);
 }
+
+/* DICTATION IN THE WEB APP (components/WebDictation.tsx): the microphone, and
+   the row that takes the footer's place while it listens. */
+.dictate-mic {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; padding: 0;
+  border: 0; border-radius: var(--radius); background: none; box-shadow: none; color: var(--text-dim); cursor: pointer;
+}
+.dictate-mic:hover, .dictate-mic:focus-visible { color: var(--text); outline: none; }
+.dictate-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; min-height: 30px; }
+.dictate-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.dictate-level { flex: none; display: inline-flex; align-items: center; gap: 2.5px; height: 14px; }
+.dictate-level i { width: 2px; background: var(--text-dim); transition: height .08s linear; }
+.dictate-word { flex: 1; min-width: 0; font-size: 13px; color: var(--text-dim); }
+.dictate-button {
+  flex: none; height: 29px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 0; background: none;
+  font: inherit; font-size: 13px; font-weight: 500; color: var(--text-dim); cursor: pointer;
+}
+.dictate-button.strong { padding: 0 16px; font-weight: 600; color: var(--text); background: var(--wash); }
+.dictate-button:hover:not(:disabled) { border-color: var(--text-faint); }
+.dictate-button:disabled { opacity: .5; cursor: default; }
 
 /* THE QUIET FOOTER (chosen 2026-08-20, the hover version, out of fifteen
    drawn mechanisms). At rest the line says one thing, the project, and the rest

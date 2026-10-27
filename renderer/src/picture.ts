@@ -23,6 +23,23 @@ const SCHEME = `${IMG_SCHEME}://file`;
 let linkFor: ((file: string) => string | null) | null = null;
 export function setPictureLinks(fn: ((file: string) => string | null) | null) { linkFor = fn; }
 
+const SENT = /(?:^|\/)phone-files\/[0-9a-f]{64}\.[a-z0-9]{1,8}$/;
+/**
+ * A picture sent from the web app (phone-files/<hash>.<ext>): its link, null
+ * while it is on its way, undefined for any other picture or a page without links.
+ */
+export function sentPictureLink(file: string): string | null | undefined {
+  if (!linkFor || !SENT.test(String(file ?? ''))) return undefined;
+  return linkFor(file);
+}
+
+// Links arrive after the words that name them; a picture drawn before then listens for them.
+let version = 0;
+const listeners = new Set<() => void>();
+export const pictureLinksVersion = () => version;
+export function onPictureLinks(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
+export function pictureLinksChanged() { version += 1; for (const fn of listeners) fn(); }
+
 /** The url for a picture at an absolute path on this Mac. */
 export function pictureUrl(file: string): string {
   if (!file || !file.startsWith('/')) return file;
