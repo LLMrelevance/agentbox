@@ -144,7 +144,8 @@ import { approvalPublicKey } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
 import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mjs';
 import { accountName } from '../shared/account-names.mjs';
-import { nameRow, wantsName } from './row-label.mjs';
+import { nameRow, wantsName, askSmallModel } from './row-label.mjs';
+import { isAuto, asksWho, routeCandidates, routePrompt, readRoute, routedPatch, NOBODY_WHY, FAILED_WHY } from '../shared/auto-route.mjs';
 import { LEVELS, latestMessage, sortMessage, wantsPriority } from './message-priority.mjs';
 import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name.mjs';
 import { signInFiles, signInStamp } from './sign-in-files.mjs';
@@ -204,6 +205,9 @@ const DIGEST_RETRY_MS = 30 * 60_000;
 // How long a row the namer could not name waits before it is asked about again,
 // so it cannot hold the rows behind it (nameTheRows).
 const NAME_RETRY_MS = 10 * 60_000;
+// How long one account gets to say who takes a thread sent to Auto. A person is
+// waiting on this one, unlike a name, and a miss sends the thread to an agent.
+const ROUTE_TIMEOUT_MS = 60_000;
 // A spawn that exits faster than this did no real work (limit hit, bad flag,
 // untrusted workspace); consecutive fast exits back spawning off exponentially.
 const FAST_EXIT_MS = 45_000;
@@ -3478,6 +3482,38 @@ export class Supervisor {
     return this._askSmall((opts) => sortMessage(latest, opts), { product });
   }
 
+  /**
+   * GIVE A THREAD SENT TO AUTO TO WHOEVER'S WORK IT IS (shared/auto-route.mjs).
+   * Paced like the namer: one call at a time, oldest thread first, never awaited
+   * by the tick. Each thread gets one question. No teammate to give it to, no
+   * answer, or an answer that is not one all send it to an agent and say so on
+   * the thread, so nothing ever waits on Auto.
+   */
+  routeTheThreads(items, now = Date.now()) {
+    if (this._routing) return undefined;
+    const next = items
+      .filter((i) => isAuto(i) && i.status === 'open' && !asksWho(i))
+      .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))[0];
+    if (!next) return undefined;
+    let team = [];
+    try { team = teammatesOn(this.config) ? routeCandidates(this.store.teammates?.list?.(now) ?? []) : []; } catch { team = []; }
+    const write = (decision) => {
+      this.store.routeItem(next.product, next.id, routedPatch(next, decision, { items, now: Date.now() }));
+      this.wake();
+    };
+    if (!team.length) { write({ to: 'agent', why: NOBODY_WHY }); return undefined; }
+    this._routing = true;
+    const prompt = routePrompt(next, team, items);
+    const clean = (text) => (readRoute(text, team) ? text : '');
+    return this._askSmall((opts) => askSmallModel(prompt, clean, { ...opts, timeoutMs: ROUTE_TIMEOUT_MS }), { product: next.product })
+      .then((answer) => write(readRoute(answer, team) ?? { to: 'agent', why: FAILED_WHY }))
+      .catch((e) => {
+        console.warn('zero: could not route a thread:', e.message);
+        try { write({ to: 'agent', why: FAILED_WHY }); } catch { /* the thread is gone */ }
+      })
+      .finally(() => { this._routing = false; });
+  }
+
   sayItOnEveryStrandedRow(items, now = Date.now()) {
     let dirty = false;
     // AND THE SAME PASS COUNTS THEM, for the line above her list. The count
@@ -6238,7 +6274,8 @@ export class Supervisor {
           && !this.sessions.has(i.id) && !settingUp(i.id)
           && !this._comingHome?.has(i.id)
           && !heldBySweep(i.id)
-          && (this._isHeld(i) || (i.answer && i.answer !== '(withdrawn)'
+          // Auto asked her which teammate takes it; nothing starts it until she says.
+          && (this._isHeld(i) || asksWho(i) || (i.answer && i.answer !== '(withdrawn)'
             && !answerSettled(i)
             && this._answerDelivered(i))))
         .map((i) => i.id);
@@ -6732,6 +6769,8 @@ export class Supervisor {
     const founderInitiated = (item.labels ?? []).includes('founder')
       && item.wrote?.labels?.source !== 'agent';
     return !(item.labels ?? []).includes(FIRST_RUN_LABEL)
+      // Sent to Auto and not yet given to anyone (`routeTheThreads`).
+      && !isAuto(item)
       && item.status === 'open' && item.kind !== 'question' && item.kind !== 'review'
       && (founderInitiated || autonomous.has(item.product)) && !item.answer
       // A ROW THAT ALREADY HOLDS AN ANSWER FOR HER IS NOT FRESH WORK. This is
@@ -6825,6 +6864,8 @@ export class Supervisor {
     try { this.nameTheRows(items); } catch (e) { console.warn('zero: could not name a row:', e.message); }
     // And has a teammate written something that needs sorting by urgency?
     try { this.sortTheMessages(items, process.env.AGENTBOX_PERSON_ID); } catch (e) { console.warn('zero: could not sort a message:', e.message); }
+    // And is there a thread sent to Auto still waiting to be given to someone?
+    try { this.routeTheThreads(items); } catch (e) { console.warn('zero: could not route a thread:', e.message); }
 
     // Before anything is resumed or spawned: has the urgent row we interrupted
     // something FOR actually got its slot? Every hold this clears is a row that

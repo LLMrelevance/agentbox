@@ -42,6 +42,6 @@ export function PeoplePanel({ room, onPerson }: { room: Pick<Room, 'members' | '
 }
 
 /** Every group down the left, the open one's chat, and who is in it. */
-export function GroupPage({ notice = null, chat, people, list = null }: { notice?: ReactNode; chat: ReactNode; people: ReactNode; list?: ReactNode }) {
-  return <div className="gr-page"><div className="gr-body">{list}<div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
+export function GroupPage({ notice = null, chat, people, list = null, inline = false }: { notice?: ReactNode; chat: ReactNode; people: ReactNode; list?: ReactNode; inline?: boolean }) {
+  return <div className="gr-page"><div className="gr-body">{inline ? null : list}<div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
 }

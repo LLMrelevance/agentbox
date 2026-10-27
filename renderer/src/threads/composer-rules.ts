@@ -515,6 +515,15 @@ export function writingMovesToTheDialog({ waiting, onScreen, writing }: { waitin
 }
 
 /**
+ * Whether To offers Auto (shared/auto-route.mjs): only with an AI teammate that
+ * is working to give a thread to, and only where the box can reach teammates.
+ * Auto keeps the Model row, so what it runs on is still yours to pick.
+ */
+export function autoOffered(mates: readonly { paused?: boolean }[] | null | undefined, canReachTeammates: boolean): boolean {
+  return canReachTeammates && !!mates?.some((t) => !t.paused);
+}
+
+/**
  * Which rows the head draws. To an agent it is still To and Model, untouched.
  * To a person it is To and Send As, and the day appears only once it is a
  * task, because a message has nothing to be due.

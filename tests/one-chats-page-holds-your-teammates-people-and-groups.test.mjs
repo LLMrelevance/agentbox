@@ -111,7 +111,8 @@ describe('the sidebar', () => {
     expect(hook).not.toMatch(/<TeammatesRail /);
     expect(page).not.toMatch(/tm-tabs|function Roster\(/);
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
-    expect(app).toMatch(/<ChatsContext\.Provider value=\{chatsValue\}>/);
+    // With a team on, Everything else's cards stand in for the Chats list (w-b5f23cff71).
+    expect(app).toMatch(/<ChatsContext\.Provider value=\{teamMode \? null : chatsValue\}>/);
   });
 });
 

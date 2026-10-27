@@ -47,6 +47,7 @@ import { rowTitle } from '../list-rules';
 import { askMarkUnread, say } from '../team/chat-events';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { TeammatesContext } from '../teammates/row-lead';
+import { RouteLine } from './RouteLine';
 import { teammateIdOf, OFFER_LABEL } from '../../../shared/teammates.mjs';
 import { Name } from '../../../shared/product-name.mjs';
 
@@ -329,6 +330,7 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
   // are that list's. Everything belonging to the newest turn comes back in
   // `atFoot` and is drawn under the checkpoint, which is that turn's last word.
   const made = filedOnTurn(events, filed);
+  const routeAt = events.findIndex((e) => e.kind !== 'work' && e.who === 'you');
   const madeList = (rows: typeof filed) => (
     <ThreadsMade rows={rows} label="Filed from this thread" onOpen={(id) => onOpenFiled?.(id)} onApprove={onApproveFiled} onHere={onHereFiled} onDismiss={onDismissFiled} onStartAll={onStartAllFiled} onDismissAll={onDismissAllFiled} />
   );
@@ -431,7 +433,13 @@ export function ItemThread({ item, engine, engineChoice, codexModels = [], codex
         code={changed.length && onOpenDoc
           ? { paths: changed, open: (path) => onOpenDoc(changePathFor(item.id), path) }
           : null}
-        tail={(i) => { const rows = made.onTurn.get(i + Math.max(from, 0)); return rows ? madeList(rows) : null; }}
+        tail={(i) => {
+          const at = i + Math.max(from, 0);
+          const rows = made.onTurn.get(at);
+          // Who Auto gave it to, under her opening words (./RouteLine).
+          const route = at === routeAt && item.routed ? <RouteLine item={item} mates={teammates} /> : null;
+          return rows || route ? <>{route}{rows && madeList(rows)}</> : null;
+        }}
         {...(chat ? {
           // ONLY IN A CHAT. The chips, the bar on pointing and the quote are
           // drawing A's, and a thread with an agent keeps exactly the screen it

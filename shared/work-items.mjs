@@ -167,6 +167,10 @@ export const WORK_ITEM_FIELDS = [
   // command, knows for certain whether that command already landed, rather
   // than guessing from the words (Codex's third review of step 1, finding 5).
   'fromPhone',
+  // WHO A THREAD SENT TO AUTO WENT TO, AND WHY, as one line on the thread:
+  // `{ to: 'mate:<id>' | 'agent', why, at, by }`, or `{ ask: [two of those], ... }`
+  // while it waits for the person to pick (shared/auto-route.mjs).
+  'routed',
 ];
 
 // THE SUMMARY IS SHARED BETWEEN THE PERSON AND THE AGENT. Everywhere else the
@@ -176,6 +180,20 @@ export const WORK_ITEM_FIELDS = [
 // recorded so the panel can say who touched it last.
 const SHARED_FIELDS = new Set(['problem', 'progress', 'solution', 'blockedBy', 'blocks']);
 const MAX_SUMMARY = 1200;
+
+const ROUTE_TO = /^(agent|mate:[A-Za-z0-9_-]{1,64})$/;
+/** The `routed` field as it is kept, or undefined for anything else. */
+export function cleanRouted(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const why = typeof value.why === 'string' ? value.why.slice(0, 200) : '';
+  const at = Number.isFinite(value.at) ? Math.trunc(value.at) : 0;
+  const by = value.by === 'you' ? 'you' : 'auto';
+  if (Array.isArray(value.ask)) {
+    const ask = [...new Set(value.ask.filter((x) => typeof x === 'string' && ROUTE_TO.test(x)))].slice(0, 3);
+    return ask.length ? { ask, why, at, by } : undefined;
+  }
+  return typeof value.to === 'string' && ROUTE_TO.test(value.to) ? { to: value.to, why, at, by } : undefined;
+}
 
 // A person id or a line id: short, plain, never an object a writer slipped in.
 const MAX_PERSON_CHARS = 64;
@@ -506,6 +524,7 @@ function coerceField(field, value) {
       if (!Array.isArray(value)) return undefined;
       return [...new Set(value.map(shortId).filter(Boolean))].slice(0, MAX_LABELS);
     }
+    case 'routed': return cleanRouted(value);
     default: return undefined;
   }
 }
