@@ -10,6 +10,9 @@
 // (the-cards-stop-at-two-rows).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { CardsArea } from '../renderer/src/team/everything/CardsArea.tsx';
 import { rowsAfterDrag } from '../renderer/src/team/everything/members.ts';
 
 const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
@@ -41,10 +44,15 @@ describe('in the app', () => {
   const area = read('renderer/src/team/everything/CardsArea.tsx');
   const css = read('renderer/src/team/everything/everything.css');
 
-  it('puts a grip between the cards and an open chat, and nowhere else', () => {
-    expect(app).toMatch(/<CardsArea [^>]*grip=\{evFill\}/);
-    expect(area).toMatch(/\{grip && <Grip /);
-    expect(area).toMatch(/role="separator" aria-orientation="horizontal" aria-label="Drag to make the chat taller"/);
+  // Selecting You used to remove the grip. Render every selection without a chat-only flag.
+  it.each(['me', 'room:group', 'person:someone', 'mate:helper', 'new', null])('keeps the cards resizable with %s selected', (picked) => {
+    const html = renderToStaticMarkup(createElement(CardsArea, {
+      rows: null, onRows() {}, picked, hidden: [], onShow() {},
+    }, createElement('div', { className: 'ev-strip' })));
+    expect(html).toContain('role="separator"');
+    expect(html).toContain('aria-label="Drag to resize the cards"');
+    expect(html).toContain('tabindex="0"');
+    expect(app).not.toMatch(/<CardsArea [^>]*grip=/);
     expect(css).toMatch(/\.ev-grip \{[^}]*cursor: row-resize/);
   });
 

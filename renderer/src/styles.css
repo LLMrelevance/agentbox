@@ -9,6 +9,7 @@
 .agent-update-status {padding:10px 20px;color:var(--text-dim);font-size:13px;}
 .agent-update-status button {text-decoration:underline;}
 .agent-update-panel .task-terminal-side {position:static;width:auto;height:280px;}
+.agent-update-panel .task-terminal-bottom {max-height:calc(60vh - 40px);}
 /* the app: generous rows, soft contrast, the text as the interface. Two themes on
    one token set. EVERY COLOUR IN THIS FILE IS A TOKEN, and every token is
    defined in BOTH themes. A raw rgba(255,255,255,x) wash is invisible on a

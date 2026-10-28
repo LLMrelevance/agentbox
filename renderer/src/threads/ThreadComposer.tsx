@@ -1110,10 +1110,9 @@ export function ThreadComposer({
           className={`tc-text ${named.over}`}
           rows={inline ? 1 : undefined}
           value={text}
-          onChange={(e) => { setText(e.target.value); named.track(e.target); }}
+          onChange={(e) => { talk.typed(); setText(e.target.value); named.track(e.target); }}
           onSelect={(e) => named.track(e.currentTarget)}
           onScroll={(e) => named.track(e.currentTarget)}
-          onFocus={() => { if (talk.on) talk.stop(); }}
           onKeyDown={(e) => { named.keyDown(e); }}
           placeholder={mate === 'new' ? 'What should they do? They set themselves up from it and ask what they need' : mateRow ? `What should ${mateRow.name} do?` : person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {
