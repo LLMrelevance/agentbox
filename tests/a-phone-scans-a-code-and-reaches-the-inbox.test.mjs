@@ -77,8 +77,8 @@ describe('the phone door', () => {
     const ok = await request(port, '/api/zero:snapshot', { method: 'POST', headers: { 'x-agentbox-token': link.key, 'x-agentbox-device': 'abc', 'user-agent': IPHONE } });
     expect(ok.status).toBe(200);
     expect(JSON.parse(ok.body)).toEqual({ items: ['one'] });
-    // The page itself is public files, as on the loopback door.
-    expect((await request(port, '/')).body).toBe('<p>inbox</p>');
+    // The page itself is public files, as on the loopback door, marked with the door it came through (serve.mjs markTheDoor).
+    expect((await request(port, '/')).body).toBe('<meta name="agentbox-door" content="this-computer"><p>inbox</p>');
   });
 
   it('lists the phone that used it, by what kind of phone it is', async () => {

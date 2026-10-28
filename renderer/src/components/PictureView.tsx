@@ -2,13 +2,25 @@
 // press away ("Open beside"), and so is Preview.
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { clickZoom, fitScale, panToKeep, picturesBeside, readyAround, stepTo, zoomBy, PICTURE_WAIT_MS, type Picture } from '../picture-view';
+import { clickZoom, fitScale, isDoubleTap, panToKeep, picturesBeside, pinchTo, readyAround, stepTo, swipeStep, zoomBy, PICTURE_WAIT_MS, type Picture } from '../picture-view';
+import { doubleTapScale, onPhone } from '../phone-screen';
 import { CrossIcon } from './CrossIcon';
 
 export type { Picture };
 
 /** How long the pointer has to rest before the controls fade and leave only the picture. */
 const IDLE_MS = 2400;
+/** How long a single tap waits to be sure it is not the first of a double tap. */
+const TAP_MS = 260;
+
+// A finger never rests the way a mouse does, so on a touch screen the controls
+// do not fade on a timer: faded, they took no taps, and the tap that brought
+// them back was swallowed by iOS, so Close never answered.
+const touchOnly = () => typeof matchMedia === 'function' && matchMedia('(hover: none)').matches;
+
+type Touching =
+  | { kind: 'one'; x: number; y: number; t: number; pan: { x: number; y: number }; zoom: number; moved: boolean }
+  | { kind: 'two'; distance: number; mid: { x: number; y: number }; pan: { x: number; y: number }; zoom: number };
 
 /** The pictures a click on `href` steps through: those in the pressed picture's part of the thread. */
 export function picturesFor(root: ParentNode | null, href: string, from?: Element | null): { pictures: Picture[]; start: number } {
@@ -70,6 +82,14 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [idle, setIdle] = useState(false);
+  // Controls put away by a tap, on a touch screen.
+  const [bare, setBare] = useState(false);
+  const touchScreen = useRef(touchOnly()).current;
+  const fingers = useRef(new Map<number, { x: number; y: number }>());
+  const touching = useRef<Touching | null>(null);
+  const lastTap = useRef<{ t: number; x: number; y: number } | null>(null);
+  const tapTimer = useRef<number | undefined>(undefined);
+  const touchedAt = useRef(0);
   const stage = useRef<HTMLDivElement | null>(null);
   const strip = useRef<HTMLDivElement | null>(null);
   const placed = useRef(false);
@@ -125,10 +145,10 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
   const wake = (e?: { target: EventTarget | null }) => {
     setIdle(false);
     window.clearTimeout(idleTimer.current);
-    if ((e?.target as HTMLElement | null)?.closest?.('.pv-chrome')) return;
+    if (touchScreen || (e?.target as HTMLElement | null)?.closest?.('.pv-chrome')) return;
     idleTimer.current = window.setTimeout(() => setIdle(true), IDLE_MS);
   };
-  useEffect(() => { wake(); return () => window.clearTimeout(idleTimer.current); }, []);
+  useEffect(() => { wake(); return () => { window.clearTimeout(idleTimer.current); window.clearTimeout(tapTimer.current); }; }, []);
 
   // Taken at the window before the app's own keys, so J, K and Esc act on the
   // picture and not on the thread behind it.
@@ -158,7 +178,7 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
   };
 
   const down = (e: ReactPointerEvent) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || e.pointerType === 'touch') return;
     drag.current = { px: e.clientX, py: e.clientY, x: pan.x, y: pan.y, moved: false };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
   };
@@ -181,6 +201,78 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
     setZoom(next);
     setPan(next === 1 ? { x: 0, y: 0 } : clampPan(panToKeep(fromMiddle(e), pan, zoom, next), next));
   };
+
+  // FINGERS: one pans an enlarged picture or swipes to the next, two pinch,
+  // a tap shows or hides the controls and a double tap zooms.
+  const touchIn = (e: ReactPointerEvent) => {
+    if (e.pointerType !== 'touch' || (e.target as HTMLElement).closest('.pv-chrome')) return false;
+    touchedAt.current = Date.now();
+    return true;
+  };
+  const two = () => {
+    const [a, b] = [...fingers.current.values()];
+    return { distance: Math.hypot(a.x - b.x, a.y - b.y), mid: fromMiddle({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 }) };
+  };
+  const fingerDown = (e: ReactPointerEvent) => {
+    if (!touchIn(e)) { if (e.pointerType !== 'touch') wake(e); return; }
+    // The first finger of a new touch: any finger whose lift went unheard is gone.
+    if (e.isPrimary) fingers.current.clear();
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (fingers.current.size === 2) touching.current = { kind: 'two', ...two(), pan, zoom };
+    else if (fingers.current.size === 1) touching.current = { kind: 'one', x: e.clientX, y: e.clientY, t: Date.now(), pan, zoom, moved: false };
+  };
+  const fingerMove = (e: ReactPointerEvent) => {
+    if (!fingers.current.has(e.pointerId)) { if (e.pointerType !== 'touch') wake(e); return; }
+    fingers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const g = touching.current;
+    if (g?.kind === 'two' && fingers.current.size >= 2) {
+      const now = two();
+      const next = pinchTo(g, now.distance, now.mid);
+      setZoom(next.zoom);
+      setPan(clampPan(next.pan, next.zoom));
+    } else if (g?.kind === 'one') {
+      const dx = e.clientX - g.x, dy = e.clientY - g.y;
+      if (Math.abs(dx) + Math.abs(dy) > 8) g.moved = true;
+      if (g.moved && g.zoom > 1) setPan(clampPan({ x: g.pan.x + dx, y: g.pan.y + dy }, g.zoom));
+    }
+  };
+  const fingerUp = (e: ReactPointerEvent) => {
+    if (!fingers.current.delete(e.pointerId)) return;
+    touchedAt.current = Date.now();
+    const g = touching.current;
+    if (g?.kind === 'two') {
+      // The finger still down carries on as a pan, never as a tap.
+      const [rest] = [...fingers.current.values()];
+      touching.current = rest ? { kind: 'one', x: rest.x, y: rest.y, t: 0, pan, zoom, moved: true } : null;
+      if (zoom < 1.01) { setZoom(1); setPan({ x: 0, y: 0 }); }
+      return;
+    }
+    touching.current = null;
+    if (!g || e.type === 'pointercancel') return;
+    if (g.moved) {
+      if (g.zoom <= 1.01) {
+        const by = swipeStep(e.clientX - g.x, e.clientY - g.y);
+        if (by) setIndex((i) => stepTo(i, pictures.length, by));
+      }
+      return;
+    }
+    const tap = { t: Date.now(), x: e.clientX, y: e.clientY };
+    window.clearTimeout(tapTimer.current);
+    if (isDoubleTap(lastTap.current, tap)) {
+      lastTap.current = null;
+      const next = doubleTapScale(zoom);
+      setZoom(next);
+      setPan(next === 1 ? { x: 0, y: 0 } : clampPan(panToKeep(fromMiddle(e), pan, zoom, next), next));
+      return;
+    }
+    lastTap.current = tap;
+    tapTimer.current = window.setTimeout(() => setBare((b) => !b), TAP_MS);
+  };
+  // The click a tap leaves behind is not a click on the dark around the picture.
+  const closeFromBackdrop = (e: { target: EventTarget; currentTarget: EventTarget }) => {
+    if (e.target === e.currentTarget && Date.now() - touchedAt.current > 800) onClose();
+  };
+
   const wheel = (e: ReactWheelEvent) => {
     if (e.ctrlKey) {
       const next = zoomBy(zoom, Math.exp(-e.deltaY * 0.01));
@@ -205,13 +297,15 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
       tabIndex={-1}
       role="dialog"
       aria-label={name}
-      className={`picture-view${idle && zoom === 1 ? ' pv-idle' : ''}`}
-      onPointerMove={wake}
-      onPointerDown={wake}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      className={`picture-view${(idle && zoom === 1) || bare ? ' pv-idle' : ''}`}
+      onPointerMove={fingerMove}
+      onPointerDown={fingerDown}
+      onPointerUp={fingerUp}
+      onPointerCancel={fingerUp}
+      onClick={closeFromBackdrop}
     >
       {drawn && !missing && <img className="pv-glow" src={drawn.url} crossOrigin="anonymous" alt="" aria-hidden="true" />}
-      <div ref={stage} className="pv-stage" onWheel={wheel} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div ref={stage} className="pv-stage" onWheel={wheel} onClick={closeFromBackdrop}>
         {missing
           ? <p className="pv-missing">This picture could not be opened.</p>
           : drawn && (
@@ -239,7 +333,8 @@ export function PictureView({ pictures, start, resolve, onClose, onBeside, onPre
         </span>
         <span className="pv-tools">
           <button type="button" className="pv-icon" onClick={() => onBeside(shown.path)} title="Open beside the thread" aria-label="Open beside the thread"><Glyph d={BESIDE} /></button>
-          <button type="button" className="pv-icon" onClick={() => onPreview(shown.path)} title="Open in Preview" aria-label="Open in Preview"><Glyph d={OUTSIDE} /></button>
+          {/* Preview is on the computer, so on a phone the press showed nothing. */}
+          {!onPhone() && <button type="button" className="pv-icon" onClick={() => onPreview(shown.path)} title="Open in Preview" aria-label="Open in Preview"><Glyph d={OUTSIDE} /></button>}
           <span className="pv-rule" aria-hidden="true" />
           <button type="button" className="pv-icon pv-close" onClick={onClose} title="Close (esc)" aria-label="Close"><CrossIcon /></button>
         </span>
