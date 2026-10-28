@@ -44,7 +44,8 @@ import { isCarried } from '../shared/cloud-carry.mjs';
 
 // A file her phone sent with a reply or a new thread (shared/phone-files.mjs).
 export { phoneFilesIn };
-const HEARTBEAT_MS = 5 * 60_000;
+const HEARTBEAT_MS = 30_000;
+const SETTINGS_HEARTBEAT_MS = 5 * 60_000;
 class Refused extends Error {}
 
 // How long a thread started on the phone is remembered as the row it became:
@@ -207,7 +208,7 @@ export function createPhoneInbox({
       let cloud = false;
       try { cloud = !!kitsFor?.(p.slug); } catch { /* says no */ }
       const said = cloud ? `${p.name}\0cloud` : p.name;
-      // Written again every few minutes unchanged: its moment is how the phone knows this Mac is still here.
+      // Renew presence even when no threads changed.
       if (state.sent[key] !== said || !(now() - (beats.get(key) ?? -Infinity) < HEARTBEAT_MS)) {
         still();
         await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name, ...(kitsFor ? { cloud } : {}) });
@@ -291,7 +292,7 @@ export function createPhoneInbox({
     try { carried = phoneSettingsOf(await readSettings(), { version }); } catch (err) { troubled('read', err); return false; }
     if (!carried) return false;
     const key = JSON.stringify(carried);
-    if (key === settings.key && now() - settings.sentAt < HEARTBEAT_MS) return false;
+    if (key === settings.key && now() - settings.sentAt < SETTINGS_HEARTBEAT_MS) return false;
     still();
     try {
       await backend.putPhoneSettings({ owner, device, name: computer, settings: carried });

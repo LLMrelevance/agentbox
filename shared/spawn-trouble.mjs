@@ -834,8 +834,13 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
 //
 // `retryAt` is when the rest ladder starts it again (`restingUntil` in
 // main/supervisor.mjs), named only on the causes that wait for nothing else.
-export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null, retryAt = null, now = Date.now() } = {}) {
+//
+// `slept` is this computer having slept while the run was up. A run that named no
+// cause of its own was cut off by that, and says so.
+export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', runs = 1, resetsAt = null, worked: usedATool = false, partway = false, model = null, planEnded = null, gaveUp = false, account = null, retryAt = null, slept = false, now = Date.now() } = {}) {
   if (usedATool && !WORKED_OPENERS[cause]) cause = 'unknown';
+  const asleep = slept && (cause === 'interrupted' || cause === 'unknown');
+  if (asleep) cause = 'interrupted';
   const worked = usedATool || (partway && !!WORKED_OPENERS[cause]);
   // A LIMIT IS A FACT ABOUT ONE LOGIN, so that is the one cause whose opener
   // takes the name. The others are about the tool or the task.
@@ -844,9 +849,12 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       ? `hit its usage limit on ${account} partway through, so this task is not finished.`
       : `is at its usage limit on ${account}, so nothing has been done on this task.`)
     : null;
+  const sleptOpener = asleep
+    ? `was cut off when this computer went to sleep, so ${worked ? 'this task is not finished.' : 'nothing has been done on this task.'}`
+    : null;
   const opener = cause === 'no-plan'
     ? DEAD_RUN_OPENERS['no-plan']
-    : `${engineWord} ${limitOpener ?? (worked ? WORKED_OPENERS[cause] ?? WORKED_OPENERS.unknown : DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown)}`;
+    : `${engineWord} ${sleptOpener ?? limitOpener ?? (worked ? WORKED_OPENERS[cause] ?? WORKED_OPENERS.unknown : DEAD_RUN_OPENERS[cause] ?? DEAD_RUN_OPENERS.unknown)}`;
 
   const again = runs > 1 ? ` This has happened ${runs} times on this task.` : '';
 

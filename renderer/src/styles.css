@@ -181,6 +181,11 @@
      accent is always this orange. The selected-row bar, link underlines and
      the asks-you chip wear it, as they do in Dark. */
   --accent: #ee6018;
+  /* THE LOGO'S OWN TWO COLOURS, for the waiting logo (.logo-orbit): the app
+     icon's grey dots and its orange one. They do NOT follow the theme, because
+     the logo is the same mark on every theme. */
+  --logo-dot: #5f5e5c;
+  --logo-orange: #ee6018;
   /* THE READING SURFACE IN THE SETUP PICTURE, and the only place in the app
      that paints paper rather than a theme surface. The values are the landing
      page's own (~/dd-landing/index.html), because the article Agentbox offers you
@@ -501,6 +506,9 @@
      wore before that, so anything painting dark without the picture got it.
      tests/every-theme-wears-the-one-orange.test.mjs reads every declaration. */
   --accent: #ee6018;
+  /* The logo's own two colours, the same as light's: the logo does not theme. */
+  --logo-dot: #5f5e5c;
+  --logo-orange: #ee6018;
   /* THE READING SURFACE IN THE SETUP PICTURE, and the only place in the app
      that paints paper rather than a theme surface. The values are the landing
      page's own (~/dd-landing/index.html), because the article Agentbox offers you
@@ -829,11 +837,13 @@ body {
   color: var(--text-faint);
 }
 
-/* The one sentence the boot screen says when nothing comes back. It stands
-   where the wordmark stood, in reading type rather than in the wordmark's
-   tracking. */
+/* The one sentence the boot screen says when nothing comes back. It hangs
+   28px under the moving logo, in reading type, and the logo does not move up
+   to make room for it: it stays on the spot it was already on. */
+.boot-stuck { position: relative; }
 .boot-stuck p {
-  margin: 0;
+  position: absolute; top: calc(50% + 45px + 28px); left: 24px; right: 24px;
+  margin: 0 auto;
   max-width: 560px;
   text-align: center;
   font-size: 15px;
@@ -841,6 +851,37 @@ body {
   letter-spacing: normal;
   line-height: 1.6;
   color: var(--text-dim);
+}
+
+/* THE LOGO, ITS ORANGE DOT RUNNING ROUND THE RING (logo-orbit.ts). The app
+   icon's proportions at 90px: 24px dots, 9px gaps. Each dot is the logo's
+   grey under an orange layer whose opacity runs ORBIT_KEYS, and a test holds
+   the percentages below to them. The logo's own colours, so the same in
+   every theme. */
+.logo-orbit {
+  display: grid; grid-template-columns: repeat(3, 24px); gap: 9px;
+}
+.logo-orbit-dot {
+  position: relative; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--logo-dot);
+}
+.logo-orbit-dot::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: var(--logo-orange); opacity: 0;
+  animation: logo-orbit 1488ms linear infinite;
+  animation-delay: var(--orbit-delay, 0ms);
+}
+.logo-orbit-dot[data-still]::after { animation: none; }
+@keyframes logo-orbit {
+  0% { opacity: 1; }
+  6% { opacity: 1; }
+  14% { opacity: 0.45; }
+  26% { opacity: 0; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-orbit-dot::after { animation: none; opacity: 0; }
+  .logo-orbit-dot[data-corner]::after { opacity: 1; }
 }
 
 /* --read-w is the width of the sheet an opened task is set on: the reading
@@ -2770,6 +2811,9 @@ body {
 .approval-card.answered .approval-opens,
 .approval-card.answered .approval-meta { animation: approval-recede 420ms ease-out forwards; }
 .approval-card.answered.allow { border-color: var(--text-faint); }
+/* Deny moves its edge too (F-115): Allow lightened the card and Deny changed
+   nothing, so the quieter decision was the one with no sign it had landed. */
+.approval-card.answered.deny { border-color: var(--line-strong); }
 
 .approval-verdict {
   position: absolute; inset: 0; z-index: 1;
@@ -2778,8 +2822,8 @@ body {
 }
 .approval-verdict-mark { font-size: 21px; line-height: 1; color: var(--text); }
 .approval-verdict-word { font-size: 13.5px; font-weight: 650; letter-spacing: 0.2px; color: var(--text); }
-.approval-card.answered.deny .approval-verdict-mark,
-.approval-card.answered.deny .approval-verdict-word { color: var(--text-dim); }
+/* Both verdicts are stamped in the card's own ink. Deny had --text-dim here, a
+   step quieter than a mark already on screen for a sixth of a second (F-115). */
 
 /* The press, then a beat holding the verdict, then away. The hold is the whole
    point: an exit that starts fading immediately is the same abrupt
@@ -8790,6 +8834,11 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .live-mark { width: 14px; height: 14px; gap: 1.5px; }
 .live-disclosure { gap: 6px; line-height: 20px; }
 .live-disclosure .live-span { flex: none; }
+/* Where it runs, with the list's why card (threads/pages.css) on hover,
+   opening upward because the reply box sits right under this line. */
+.live-place.has-card { position: relative; cursor: help; }
+.live-place .th-why-card { top: auto; bottom: calc(100% + 10px); }
+.live-place.has-card:hover .th-why-card { display: block; }
 .live-details { margin: 8px 0 0; }
 .live-command { margin: 0; color: var(--text-dim); }
 .live-command summary { display: flex; align-items: center; gap: 7px; height: 28px; cursor: pointer; list-style: none; }

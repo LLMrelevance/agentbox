@@ -476,7 +476,11 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
         return;
       }
       const type = MIME[path.extname(file)] ?? 'application/octet-stream';
-      res.writeHead(200, { 'content-type': type });
+      // A built file's name carries a hash of what is in it, so a phone may
+      // keep it for good rather than fetch the screen again on every open
+      // (w-f430aa863d). The page itself is never kept: it names the files.
+      const kept = /^\/assets\/[^/]+$/.test(rel) ? { 'cache-control': 'public, max-age=31536000, immutable' } : {};
+      res.writeHead(200, { 'content-type': type, ...kept });
       res.end(type === MIME['.html'] ? markTheDoor(buf) : buf);
     });
   };
