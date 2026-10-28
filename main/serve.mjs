@@ -169,7 +169,7 @@ export function answerWhatOnlyTheWindowAnswered(ipcMain) {
  *  sends nothing and the other reports that there is nothing to update, which
  *  is the truth for a copy run out of npm.
  */
-export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, userDir = dataDir, openExternal = openInBrowser } = {}) {
+export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, userDir = dataDir, openExternal = openInBrowser, host = null } = {}) {
   const config = loadConfig(dataDir);
   // The browser editor uses the same user files as the desktop. Finish the
   // older migrations first so only user content enters the combined file.
@@ -192,7 +192,9 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
   const store = await new Store(config).init();
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   const window = broadcastingWindow();
-  const host = nodeHost({ openExternal });
+  // A caller may bring its own three, which is how a test asks what the
+  // handlers do with an answer only a real file dialog gives.
+  host = host ?? nodeHost({ openExternal });
   // THE TEAM, as on the desktop (main/main.mjs), with no Electron: the session
   // file is plain JSON readable only by this user, kept in this copy's own
   // folder and not in the store (headlessSessionFile), and Google sign-in opens
