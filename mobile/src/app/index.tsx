@@ -14,6 +14,7 @@ import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
 import { Magnifier, StateGlyph, ViewButton, ViewMenu } from '../ui/Filters';
 import { Cloud, Gear, Pen, Tick } from '../ui/icons';
+import { Waiting } from '../ui/LogoOrbit';
 import { barsFor } from '../ui/Pickers';
 import { footRoom, IconButton, PriorityBars, RunningMark, T, TopBar, Wall } from '../ui/parts';
 import { color, font, size } from '../ui/theme';
@@ -181,7 +182,7 @@ export default function Threads() {
   const order = useMemo(() => c.view.products.map((p) => p.slug), [c.view.products]);
   const shown = useMemo(() => shownTabs(c.tabs, display, c.now, order), [c.tabs, display, c.now, order]);
   const board = useMemo(() => (display.view === 'board' ? phoneBoard(c.view, c.tabs, display, c.now) : null), [display, c.view, c.tabs, c.now]);
-  if (!c.opened) return <Wall><View /></Wall>;
+  if (!c.opened) return <Wall><Waiting /></Wall>;
   if (!c.signedIn) return <Redirect href="/sign-in" />;
   const rows = shown.rows[tab];
   const counts = { inbox: shown.rows.inbox.length, progress: shown.rows.progress.length, snoozed: shown.rows.snoozed.length, done: shown.rows.done.length };
@@ -221,7 +222,7 @@ export default function Threads() {
           renderItem={({ item, index }) => <ThreadRow row={item} first={index === 0} unread={c.unread(item.item)} />}
           refreshControl={<RefreshControl tintColor={color.dim} refreshing={pulling} onRefresh={async () => { setPulling(true); await c.refresh(); setPulling(false); }} />}
           keyboardShouldPersistTaps="handled"
-          ListEmptyComponent={c.loading ? undefined : hidden > 0 ? <FilteredEmpty tab={tab} hidden={hidden} clear={clear} />
+          ListEmptyComponent={c.loading ? <Waiting list /> : hidden > 0 ? <FilteredEmpty tab={tab} hidden={hidden} clear={clear} />
             : tab === 'inbox' ? <InboxClear />
               : <T style={{ paddingHorizontal: size.inset, paddingTop: 28, fontSize: 15, lineHeight: 23, color: color.dim }}>{EMPTY[tab]}</T>}
           contentContainerStyle={{ paddingBottom: 96 }}

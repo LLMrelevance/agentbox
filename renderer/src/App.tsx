@@ -29,6 +29,7 @@ import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
+import { LogoOrbit } from './components/LogoOrbit';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
@@ -285,10 +286,11 @@ const NO_RUNNING: RunningSession[] = [];
 // patience does for the page (relay/phone/tunnel.mjs GAP_MS).
 const FIRST_READ_AGAIN_MS = 1_500;
 
-// THE SCREEN BEFORE THERE IS A SCREEN. The app's name in the faintest grey
-// there is, which is right for the half second it is usually up and reads as
-// an empty window for anything longer. It waits exactly as long as it ever
-// did; it stops being silent about it.
+// THE SCREEN BEFORE THERE IS A SCREEN. The logo, its orange dot running round
+// the ring (w-eb1e55360c). It was the app's name in the faintest grey, which
+// was right for the half second it is up on a desktop and read as an empty
+// window for the many seconds it is up on a phone. It waits exactly as long as
+// it ever did; it stops being silent about it.
 function Booting() {
   const [said, setSaid] = useState<string | null>(null);
   useEffect(() => {
@@ -296,12 +298,11 @@ function Booting() {
     const stuck = setTimeout(() => setSaid(RESTART_IT), RESTART_IT_MS);
     return () => { clearTimeout(slow); clearTimeout(stuck); };
   }, []);
-  // The sentence replaces the wordmark: the wordmark says the app is coming
-  // up, which the sentence contradicts, and together they put the name on the
-  // screen twice in two sizes.
+  // The sentence goes under the mark and the mark keeps moving. A load this
+  // long is ordinary on a phone, so the screen says so without looking dead.
   return said
-    ? <div className="boot boot-stuck"><p>{said}</p></div>
-    : <div className="boot"><span>{NAME}</span></div>;
+    ? <div className="boot boot-stuck"><LogoOrbit /><p>{said}</p></div>
+    : <div className="boot" role="status" aria-label={`${NAME} is loading`}><LogoOrbit /></div>;
 }
 
 /** What Tab reaches inside a walk screen that is holding its own focus. */
@@ -742,6 +743,8 @@ export default function App() {
   // your name again, and you stayed on General with Sign out one tab away.
   const [settingsVisit, setSettingsVisit] = useState(0);
   const [settingsPage, setSettingsPage] = useState<string | null>(null);
+  // The same page by its full name (`project:kestrel`), for the reload note.
+  const [settingsAt, setSettingsAt] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
   // THE BOX FILTER'S OTHER TWO PARTS (w-aa3fa4cbf0). The project part is
   // `productFilter` above, kept under its old name because the practice run and
@@ -5719,7 +5722,10 @@ export default function App() {
     if (focused) place.item = { product: focused.product, id: focused.id };
     if (focusedRepeat) place.repeat = { product: focusedRepeat.product, id: focusedRepeat.id };
     if (openDoc) place.doc = { product: openDoc.product, src: openDoc.src };
-    if (settingsOpen) place.settings = true;
+    if (settingsOpen) {
+      place.settings = true;
+      if (settingsAt) place.settingsPage = settingsAt;
+    }
     if (search !== null) place.search = search;
     if (current) place.row = current.id;
     writePlace(window.localStorage, place);
@@ -5728,7 +5734,7 @@ export default function App() {
     // would rewrite this file every ten seconds to say what it already said.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloaded, restored, view, focused?.id, focused?.product, focusedRepeat?.id,
-    openDoc?.src, openDoc?.product, settingsOpen, search, current?.id]);
+    openDoc?.src, openDoc?.product, settingsOpen, settingsAt, search, current?.id]);
 
   // READING IT BACK, once, on a page that is coming back and never on a fresh
   // launch. Opening Agentbox in the morning still opens on the inbox: that is
@@ -5758,7 +5764,10 @@ export default function App() {
     if (place.repeat && repeats.length === 0) return;
     setRestored(true);
     setView(place.view);
-    if (place.settings) setSettingsOpen(true);
+    if (place.settings) {
+      setSettingsPane(place.settingsPage ?? null);
+      setSettingsOpen(true);
+    }
     if (place.search !== undefined) {
       searchReturn.current = { view: place.view, selected: 0 };
       setSearch(place.search);
@@ -7432,6 +7441,7 @@ export default function App() {
           usageReadings={snap.usageByEngine ?? (snap.usage ? [snap.usage] : [])}
           now={now}
           onSectionChange={setSettingsPage}
+          onPaneChange={setSettingsAt}
           look={pickedLook ?? look}
           onSetLook={setLook}
           keyHints={keyHints}
