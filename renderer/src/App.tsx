@@ -117,6 +117,7 @@ import { MentionRows } from './team/rooms/MentionRows';
 import { AgentsLine, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
 import { buildMembers, hideMember, mateRunsOf, orderMembers, personCardsOf, readCardRows, readHidden, readOrder, splitHidden, teamRunsOf, unhideMember, writeCardRows, writeHidden, writeOrder, type CardRows, type Hidden, type Member } from './team/everything/members';
 import { CardsArea } from './team/everything/CardsArea';
+import { EverythingLook, readLook } from './team/everything/Looks';
 import { readFolded, stackRows, toggleFolded, type StackKey } from './threads/stack-rules';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.mjs';
@@ -180,7 +181,7 @@ import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import { SignInPage } from './team/SignInPage';
-import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, crumbTab, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
+import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, finishedAt, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, crumbTab, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
 import { boardStops, listStops, stepFromPlace, stepStop, stopKey, type Stop } from './threads/walk-rules';
 import { SAYS_UNDO, opensTheToast, saysWhereItWent, toastOpens, toastParts, type ToastGoes } from './toast-parts';
@@ -6186,6 +6187,16 @@ export default function App() {
   const evPeople = new Map(members.filter((m) => m.kind === 'person').map((m) => [m.key.slice('person:'.length), { name: m.name, url: m.avatarUrl ?? null }]));
   const evRuns = evMember?.team && evTab === 'agents'
     ? teamRunsOf(cards, items, [...evPeople.keys()], members.filter((m) => m.kind === 'mate').map((m) => m.key.slice('mate:'.length)), dayStart) : [];
+  // EXPLORATION (w-2b3e1a85e5): another layout for your own Everything else, when one is switched on.
+  const evLookName = readLook();
+  const evLookOn = evOn && evKey === 'me' && !!evLookName;
+  const evLook = evLookOn ? <EverythingLook look={evLookName!} members={evSplit.shown} hidden={evSplit.hidden}
+    progress={shownAs(progressTab, 'progress')} later={shownAs(snoozed, 'snoozed')} done={shownAs(done, 'done').filter((i) => finishedAt(i) >= dayStart)}
+    products={snap?.products ?? []} now={now} dayStart={dayStart} cards={cards} items={items} mates={snap?.teammates?.list ?? []} live={liveIds}
+    onPick={(key) => pickMember(key)} onOpen={(item) => { setFocused(item); markSeen(item); }}
+    board={(order) => <InboxBoard items={items} products={snap?.products ?? []} display={inboxDisplay} now={now} stateOf={stateOfMine} projectOrder={projectOrder}
+      cards={cards} picked={team ? picked : undefined} onOpenCard={openTeammateCard} columnOrder={order}
+      onOpenItem={(item) => { setFocused(item); markSeen(item); }} />} /> : null;
   const evBar = !evMember ? null
     : evMember.kind === 'me' ? <SpaceBar m={evMember} tabs={[]} />
     : evMember.kind === 'chat' && !evMember.team ? <SpaceBar m={evMember} tabs={[]} slot={inTeamChat ? setTaskHeader : undefined} />
@@ -6539,7 +6550,7 @@ export default function App() {
         </div>
       )}
       <div ref={setArtifactBody} hidden={settingsOpen || teamShown} className="body">
-            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}${evFill ? ' ev-open' : ''}`}>
+            <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}${evFill || evLookOn ? ' ev-open' : ''}`}>
               {noPlan && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
               {teammatesShown ? (evOn ? <>{evTabsRow}{evTop}<div className="ev-space">{teammatesUi.page}</div></> : teammatesUi.page) : focusedRepeat ? (
                 <RepeatFocus
@@ -6791,8 +6802,8 @@ export default function App() {
                     team={teamTabs}
                   />
                 )}
-                {evTop}
-                {roomShown ? (evOn ? <div className="ev-space">{roomsUi.page}</div> : roomsUi.page) : evSpace ? evSpace : <>
+                {!evLookOn && evTop}
+                {evLook ? evLook : roomShown ? (evOn ? <div className="ev-space">{roomsUi.page}</div> : roomsUi.page) : evSpace ? evSpace : <>
                 {snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}
                 {snap.phoneConnect ? <ConnectComputer email={snap.phoneConnect.email} onSignOut={() => { void api.teamSignOut().then(() => refresh()); }} />
                 : clearMoves || (emptyView && !theirRows.length && !(view === 'inbox' && search === null && roomsUi.mentions.length)) ? (
