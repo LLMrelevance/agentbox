@@ -28,7 +28,9 @@ describe('on a phone', () => {
     const r = rule(':root:root:root .th-bar > .th-search');
     expect(r).toMatch(/position: fixed;/);
     expect(r).toMatch(/right: calc\(44px \+ env\(safe-area-inset-right, 0px\)\)/);
-    expect(rule(':root:root:root .workspace-layout:has(.th-bar > .th-search) > .topbar')).toMatch(/padding-right: 84px;/);
+    // 88, not 84: the gear and the search both grew to a thumb's 44 (QA batch
+    // 005, F-121), so the title keeps clear of four more points.
+    expect(rule(':root:root:root .workspace-layout:has(.th-bar > .th-search) > .topbar')).toMatch(/padding-right: 88px;/);
   });
   it('the inboxes are spread across the row, so the four fit a 393px phone', () => {
     const r = rule(':root:root:root .tm-tabs');

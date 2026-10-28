@@ -1,4 +1,5 @@
 import { currentActivity } from './agent-activity.mjs';
+import { workerGitBrief, withWorkerGitBrief } from './worker-git.mjs';
 import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
 import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { NO_METERED_KEY } from './harnesses/claude.mjs';
@@ -136,6 +137,7 @@ import {
   ENGINE_CHOICE_ENABLED, DEFAULT_ENGINE, ENGINE_IDS,
 } from '../shared/engines.mjs';
 import { createCodexAppServer } from './codex-app-server.mjs';
+import { CLAUDE_MODELS } from '../shared/claude-models.generated.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
 import { CodexUsage, codexAccountReadings } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mjs';
@@ -153,7 +155,7 @@ import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name
 import { signInFiles, signInStamp } from './sign-in-files.mjs';
 import { runsOn } from './runs-on.mjs';
 import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath, readMacPressure } from './memory-gate-server.mjs';
-import { startDecision, readMacPressureNow } from './start-hold.mjs';
+import { startDecision, readMacPressureNow, SETTLE_MS } from './start-hold.mjs';
 import { MemoryLog } from './memory-log.mjs';
 import { autoSlots, DEFAULTS as MEMORY_GATE } from './memory-gate.mjs';
 import { LeftoverCleaner } from './leftovers.mjs';
@@ -296,6 +298,10 @@ const CLOUD_REST_MS = 10 * 60_000;
 // a spawn cooldown and short enough that a row can never be quietly parked for
 // an afternoon by an urgent row that turned out to be unspawnable.
 const PREEMPTION_HOLD_MS = 15 * 60_000;
+// How long the row the ten-minute rule let through keeps that pass for its
+// launch: long enough to make its folder, too short to pass a second time.
+const OVERDUE_PASS_MS = 2 * 60_000;
+const DIGEST_PASS = 'digest';
 
 // HOW LONG FRESH WORK RESTS AFTER A RUN THAT MOVED NOTHING.
 //
@@ -1167,7 +1173,8 @@ export class Supervisor {
   _spawnResume(item) {
     const live = item.answer && item.answer !== '(withdrawn)';
     if (live) this._handledAnswers.add(this._answerKey(item));
-    this.spawnWorker(item, { continuation: !!live });
+    // She resumed it by name, and its launch asks memory the way its queue did.
+    this.spawnWorker(item, { continuation: !!live, asked: true });
   }
 
   // The recovery command. When every worker dies at once (the founder's plan
@@ -1494,8 +1501,9 @@ export class Supervisor {
   // ONE ENGINE'S SLOT. Killing a Claude session frees a Claude slot, which is
   // no use whatsoever to an urgent Codex row: the row would still not fit, and
   // she would have lost a running worker for nothing. So the candidate list is
-  // scoped to the engine the urgent row is going to spawn on, and a full fleet
-  // on the OTHER engine is simply not this row's problem.
+  // scoped to the engine the urgent row is going to spawn on, unless that
+  // engine still has room and only the computer's shared total is full
+  // (`_takeSlotFor`).
   //
   // A ROW SHE PUSHED WITH "RUN NOW" TAKES A SLOT TOO, by the same door and with
   // the same promise that what it pauses comes back as itself. Two things are
@@ -1541,12 +1549,20 @@ export class Supervisor {
     // lease somebody else still holds, which would refuse this worker the
     // claim whatever we killed to make room for it.
     if (this.claimHeldElsewhere(item)) return null;
+    // THE COMPUTER'S NUMBER IS SHARED BY BOTH ENGINES NOW (`_capacity`), so a
+    // row whose own engine still has room is held only by the shared total,
+    // and a session on either engine frees that. With its own engine full, only
+    // one of its own frees anything (Codex's review, w-9c7ca4b8a9).
+    const onlyTotalFull = this._loadFor(engine) < this._capacityFor(engine) && this._load() >= this._capacity();
     const candidates = [];
     for (const session of this.sessions.values()) {
       const id = session.itemId;
       if (!id || id === item.id) continue;
+      // A command she typed and a remote session left idle hold no slot
+      // (`_loadFor`), so stopping one makes no room at all.
+      if (session.command || session.remoteIdle) continue;
       // A session on the other engine is holding a slot this row cannot use.
-      if (engineOf(session.engine) !== engineOf(engine)) continue;
+      if (engineOf(session.engine) !== engineOf(engine) && !onlyTotalFull) continue;
       // Already interrupted for someone else. Taking it twice would be taking
       // a session that is not running.
       if (this._preempted.has(id)) continue;
@@ -1577,6 +1593,9 @@ export class Supervisor {
       at: Date.now(),
       forItem: item.id,
       forProduct: item.product,
+      // Only a session that was running on this Mac gives back this Mac's
+      // memory, so only that one makes the start a swap (main/start-hold.mjs).
+      local: this._startsOnThisMac(taken.session),
     });
     // The row we just interrupted is now a stranded session, which is the wake
     // sweep's business. Arming it here is what carries the second half of the
@@ -1833,7 +1852,7 @@ export class Supervisor {
     const running = engineLabel(engine);
     try {
       this.store.recordSessionResult(item.product, item.id, {
-        result: `This task asks for ${asked} and for the model "${item.model}", and ${asked} is not what would run it here. ${Name} has ${running} to run it on, and a ${asked} model is not a word ${running} knows. Nothing here will pick a stand-in for you, so this task is waiting rather than running on a model you did not choose. Either way out works: install ${asked} and it runs as written, or clear the model on this task and it runs now on ${running}.`,
+        result: `This task chose ${asked} model "${item.model}", but this computer would run it with ${running}. Nothing has been done. Pick a ${running} model to continue, or use a computer with ${asked}.`,
         status: 'open',
       });
     } catch (e) { console.warn('zero: could not say the model is for another engine:', e.message); }
@@ -4692,10 +4711,18 @@ export class Supervisor {
   // could otherwise be read as no cap, and everything that asks the fleet as a
   // whole -- what the snapshot tells her, whether a resume has anywhere to go --
   // is asking about this Mac rather than about one subscription.
+  //
+  // AND THE COMPUTER'S NUMBER IS THE CEILING ON THAT SUM (w-9c7ca4b8a9). Each
+  // engine was held to the whole computer's number on its own, so Automatic's
+  // 6 on her 16 GB Mac, with Codex signed in too, was a fleet of 12: the
+  // minute log read "capacity 12" all evening on 2026-10-27, nine ran at
+  // once, and the Mac stopped answering. Either engine may still use all of
+  // it, so a Codex row still runs while Claude is quiet.
   _capacity() {
     let n = 0;
     for (const id of ENGINE_IDS) n += this._capacityFor(id);
-    return n;
+    const whole = this._machineTotalFor(DEFAULT_ENGINE);
+    return whole === null ? n : Math.min(n, whole);
   }
 
   // HOW MANY SESSIONS ONE ENGINE'S CAP IS COUNTING, and the number every spawn
@@ -5962,10 +5989,12 @@ export class Supervisor {
 
   // A row bound for the cloud that cannot go after all (a Codex resume, an
   // account with no cloud sign-in) may run here instead only as any start
-  // here would: a slot, and this Mac's memory. A reply still runs here.
-  _mayRunHereInstead({ item, engine, pinnedFull = false, continuation = false, heldForMemory = false }) {
+  // here would: a slot, and this Mac's memory. A reply still runs here past
+  // the slots, and asks memory as a row she named; a command she typed asks
+  // neither.
+  _mayRunHereInstead({ item, engine, pinnedFull = false, continuation = false, heldForMemory = false, command = false }) {
     if (pinnedFull) return false;
-    if (continuation) return true;
+    if (continuation) return command || this._memoryLetsLaunch(item, { asked: true });
     return this._localSlotFor(engine) && !heldForMemory && this._memoryLetsStart(item);
   }
 
@@ -5999,10 +6028,11 @@ export class Supervisor {
    */
   _memoryLetsStart(item, { asked = false } = {}) {
     const now = Date.now();
-    const swap = !!item && [...this._preempted.values()].some((p) => p.forItem === item.id);
+    const swap = !!item && [...this._preempted.values()].some((p) => p.forItem === item.id && p.local !== false);
     const d = startDecision({
       on: !!this.config.memoryGate,
       reading: this._memReading,
+      recent: this._memRecent ?? [],
       now,
       running: this._load(),
       urgent: !!item && (isUrgent(item) || this._runNow.has(item.id)),
@@ -6015,13 +6045,40 @@ export class Supervisor {
       if (d.why === 'off' || d.why === 'normal' || d.why === 'no-reading') this._memHeldSince = null;
       // The one let through after ten minutes restarts the wait from now, even
       // if its spawn takes a while to register a session.
-      if (d.why === 'overdue') this._lastStartAt = now;
+      if (d.why === 'overdue') {
+        this._lastStartAt = now;
+        // Remembered for its launch, which asks again (`_memoryLetsLaunch`)
+        // and would otherwise be held by the very clock this just restarted.
+        // A digest is asked before it has an id, so it is remembered as one.
+        this._letThroughOverdue ??= new Map();
+        for (const [id, at] of this._letThroughOverdue) if (now - at > OVERDUE_PASS_MS) this._letThroughOverdue.delete(id);
+        this._letThroughOverdue.set(item?.id ?? DIGEST_PASS, now);
+      }
     } else {
       this._memHeldSince ??= now;
       this._memHeldAt = now;
       this._memHeldWhy = d.why;
     }
     return d.start;
+  }
+
+  /**
+   * EVERY START ON THIS MAC ASKS MEMORY AT THE DOOR (Codex's review,
+   * w-9c7ca4b8a9). The queue asks when it picks a row, but a row's folder can
+   * take a while to make, and a reply never asked at all: her answer outranks
+   * the number of agents, and it went past memory with it. So the launch asks
+   * once more, where it is decided. A reply counts as a row she asked for by
+   * name: it starts while memory is tight and waits only while it is very
+   * short, the rule urgent work already has.
+   */
+  _memoryLetsLaunch(item, { asked = false } = {}) {
+    if (!this.config.memoryGate) return true;
+    const key = String(item?.id ?? '').startsWith('digest-') ? DIGEST_PASS : item?.id;
+    const passed = this._letThroughOverdue?.get(key);
+    // Kept for the whole window, not spent on first use: one launch can ask
+    // twice (`_mayRunHereInstead`, then the door itself).
+    if (passed !== undefined && Date.now() - passed <= OVERDUE_PASS_MS) return true;
+    return this._memoryLetsStart(item, { asked });
   }
 
   /** What the Running page says about the hold: whether a start was held in
@@ -6044,7 +6101,11 @@ export class Supervisor {
     const asked = now;
     Promise.resolve().then(() => this._readPressure()).then((r) => {
       if (this._memReadingSince !== asked) return;
-      this._memReading = { level: r?.level ?? null, freePct: r?.freePct ?? null, at: Date.now() };
+      // The ones before are kept three minutes, so one normal reading between
+      // short ones does not open the door (main/start-hold.mjs).
+      const at = Date.now();
+      if (this._memReading) this._memRecent = [...(this._memRecent ?? []), this._memReading].filter((x) => at - x.at <= SETTLE_MS);
+      this._memReading = { level: r?.level ?? null, freePct: r?.freePct ?? null, at };
     }, () => {}).finally(() => {
       if (this._memReadingSince === asked) this._memReadingSince = null;
     });
@@ -7754,6 +7815,7 @@ export class Supervisor {
     const review = continuation && harnessFor(engine).capabilities.nativeReview && providerCommand(item.answer, engine)?.name === 'review' ? providerCommand(item.answer, engine) : null;
     const command = continuation && harnessFor(engine).capabilities.nativeCommands ? commandPrompt(item.answer, this._nativeCommands?.[item.id]) : review ? item.answer.trim() : null;
     if (command) prompt = command;
+    else prompt = withWorkerGitBrief(prompt, product.repoPath);
     if (!command && resumeId) {
       // Native resumes can reuse an older system prompt, so refresh the task
       // boundaries in the new turn too, without depending on a newer CLI flag.
@@ -9376,7 +9438,7 @@ export class Supervisor {
     }
   }
 
-  spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null } = {}) {
+  spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null, asked = false } = {}) {
     if (this._heldFromStarting(item)) return;
     // Every other way in (a resume on wake, a held thread's retry) meets the
     // same rule as the queue: a run started in a dark wake dies at the next.
@@ -9415,7 +9477,7 @@ export class Supervisor {
     const hold = this._leftoverCleaner?.holdMs?.(item.id) ?? 0;
     if (hold > 0) {
       this._preparing ??= new Map();
-      const opts = { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, shipFailure };
+      const opts = { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, shipFailure, asked };
       const held = this._preparing.get(item.id);
       if (held) { held.item = item; held.opts = opts; this._saveState(); return; }
       const entry = { item, opts, engine };
@@ -9436,8 +9498,10 @@ export class Supervisor {
     // Asked here rather than inside `spawnPlan` because the answer is not a
     // narrower plan, it is no run at all -- and asked before the slot check and
     // before the product lookup, so a refusal costs the fleet nothing.
-    if (item?.model && !modelForEngine(item, engine)) {
-      this._sayTheModelIsForAnotherEngine(item, engine);
+    const claudeModelOnCodex = engine === 'codex' && !isEngine(item?.engine) && typeof item?.model === 'string'
+      && (item.model.startsWith('claude-') || CLAUDE_MODELS.some(m => m.alias === item.model));
+    if (item?.model && (!modelForEngine(item, engine) || claudeModelOnCodex)) {
+      this._sayTheModelIsForAnotherEngine(claudeModelOnCodex ? { ...item, engine: 'claude' } : item, engine);
       // THE USER'S WORDS ARE NOT DELIVERED BY A WORKER THAT NEVER STARTED. The queue
       // writes the delivery mark before it calls this method and that mark is
       // persisted, so leaving it standing would record the reply as handed over
@@ -9498,8 +9562,8 @@ export class Supervisor {
       console.warn(`zero: refusing to start a session in ${product.slug}: nothing runs in a practice project`);
       return;
     }
-    if (this._folderFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly })) return;
-    if (this._photoFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly })) return;
+    if (this._folderFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, asked })) return;
+    if (this._photoFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, asked })) return;
 
     // THE ROW'S OWN FOLDER, RESOLVED BEFORE ANYTHING IS ALLOCATED FOR THE RUN.
     // Everything downstream follows this one word: the snapshot the change card
@@ -9527,7 +9591,8 @@ export class Supervisor {
     // unless memory has recovered while its folder was being made: asked
     // again here, where the decision is used (Codex's review, 2026-10-13).
     const heldForMemory = this._stillHeldForMemory(item);
-    const mayRunHereInstead = () => this._mayRunHereInstead({ item, engine, pinnedFull, continuation, heldForMemory });
+    // Only ever called once `plan` below exists.
+    const mayRunHereInstead = () => this._mayRunHereInstead({ item, engine, pinnedFull, continuation, heldForMemory, command: !!plan.command });
     let where = this._whereToRun({ item, product, cwd, engine, continuation, remoteOnly, localFull: pinnedFull || heldForMemory });
     if (!where) {
       if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
@@ -9567,6 +9632,13 @@ export class Supervisor {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
       }
+    }
+    // AND MEMORY, ASKED WHERE THIS MAC IS DECIDED (`_memoryLetsLaunch`). A
+    // command she typed is over in seconds and never waits. A row held here
+    // goes back to the queue, which sends it to the cloud if it can.
+    if (where === 'local' && !plan.command && !this._memoryLetsLaunch(item, { asked: continuation || asked })) {
+      if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+      return;
     }
     // ONE RUN, ONE PAIR OF FILES. The MCP config and the settings used to be a
     // fixed name each in the temp folder, fine while every spawn wrote the
@@ -10489,7 +10561,7 @@ export class Supervisor {
     // to the briefs in Settings can use the same two tokens and follow a
     // rename too. Her saved copy keeps the tokens; only what a session reads
     // has the name in it.
-    return fillName(`${header}\n\n---\n\n${template}`);
+    return fillName(`${header}\n\n---\n\n${template}\n\n${workerGitBrief(product.repoPath)}`);
   }
 
   // What a spawned worker is allowed to do when the founder has not said.
