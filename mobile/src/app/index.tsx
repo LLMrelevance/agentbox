@@ -13,7 +13,9 @@ import { phoneBoard, shownTabs, TABS, type Row, type TabId } from '../lib/tabs';
 import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
 import { Magnifier, StateGlyph, ViewButton, ViewMenu } from '../ui/Filters';
-import { Cloud, Gear, Pen, Tick } from '../ui/icons';
+import { Cloud, Gear, Pen, Pin, Repeat, Tick } from '../ui/icons';
+import { repeatRow, repeatTag } from '../../../renderer/src/repeat-words';
+import type { PhoneRepeat } from '../../../renderer/src/phone-repeats';
 import { barsFor } from '../ui/Pickers';
 import { footRoom, IconButton, PriorityBars, RunningMark, T, TopBar, Wall } from '../ui/parts';
 import { color, font, size } from '../ui/theme';
@@ -40,9 +42,11 @@ function ThreadRow({ row, first, unread }: { row: Row; first: boolean; unread: b
       {unread && <View style={{ position: 'absolute', left: 5, top: 22, width: 6, height: 6, borderRadius: 3, backgroundColor: color.accent }} />}
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {row.running && <View style={{ marginRight: row.cloud ? 6 : 8 }}><RunningMark cloud={row.cloud}><Cloud /></RunningMark></View>}
-        <T numberOfLines={2} style={{ flex: 1, fontSize: 16, lineHeight: 21.6, letterSpacing: -0.16 }}>
+        <T numberOfLines={2} style={{ flexShrink: 1, fontSize: 16, lineHeight: 21.6, letterSpacing: -0.16 }}>
           {row.title}{aside ? <Text style={{ color: color.faint }}>{`  ${aside}`}</Text> : null}
         </T>
+        {/* Pinned, faint after the title as the desktop draws it (pages.css `.th-pin`); a closed thread keeps no pin. */}
+        {row.item?.pinned && row.item.status !== 'done' && <View accessibilityLabel="Pinned" style={{ marginLeft: 8 }}><Pin /></View>}
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
         {/* Sent from the phone and not yet taken: the web app's status word (status-word.ts). */}
@@ -52,6 +56,38 @@ function ThreadRow({ row, first, unread }: { row: Row; first: boolean; unread: b
         <T style={small}>{row.when}</T>
       </View>
     </Pressable>
+  );
+}
+
+/** Repeating tasks above what is put off, as the desktop's Later tab has them (List.tsx). */
+function RepeatRows({ repeats, items, now }: { repeats: PhoneRepeat[]; items: any[]; now: number }) {
+  const small = { fontSize: 11, lineHeight: 20, color: color.faint };
+  return (
+    <View style={{ paddingBottom: 8 }}>
+      <T style={{ paddingHorizontal: size.inset, paddingTop: 16, paddingBottom: 4, fontFamily: font.mono, fontSize: 11, letterSpacing: 0.88, textTransform: 'uppercase', color: color.faint }}>Repeating</T>
+      {repeats.map((r, i) => {
+        const last = r.lastOccurrence ? items.find((it) => it.id === r.lastOccurrence) ?? null : null;
+        const words = repeatRow(r, last, now);
+        return (
+          <Pressable key={`${r.product}/${r.id}`} onPress={() => router.push({ pathname: '/repeat/[product]/[id]', params: { product: r.product, id: r.id } })}
+            style={({ pressed }) => ({ minHeight: 64, paddingTop: 14, paddingBottom: 14, paddingLeft: size.inset, paddingRight: 12, backgroundColor: pressed ? color.fill : 'transparent' })}>
+            {i > 0 && <View style={{ position: 'absolute', top: 0, left: 0, right: 12, height: 1, backgroundColor: color.rowLine }} />}
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ marginRight: 9 }}><Repeat /></View>
+              <T numberOfLines={2} style={{ flex: 1, fontSize: 16, lineHeight: 21.6, letterSpacing: -0.16 }}>
+                {r.title}<Text style={{ color: color.faint }}>{`  ${repeatTag(r)}`}</Text>
+              </T>
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
+              {r.waiting && <><T style={{ ...small, color: color.dim }}>Queued</T><T style={small}>·</T></>}
+              <T numberOfLines={1} style={{ fontFamily: font.mono, fontSize: 11, lineHeight: 20, letterSpacing: 0.55, textTransform: 'uppercase', color: color.dim, flexShrink: 1 }}>{r.productName}</T>
+              <T style={small}>·</T>
+              <T numberOfLines={1} style={{ ...small, flexShrink: 1 }}>{`Next ${words.when}`}</T>
+            </View>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 
@@ -184,7 +220,9 @@ export default function Threads() {
   if (!c.opened) return <Wall><View /></Wall>;
   if (!c.signedIn) return <Redirect href="/sign-in" />;
   const rows = shown.rows[tab];
-  const counts = { inbox: shown.rows.inbox.length, progress: shown.rows.progress.length, snoozed: shown.rows.snoozed.length, done: shown.rows.done.length };
+  // Later counts its repeating tasks too, as the desktop's does (App.tsx `scheduledCount`).
+  const counts = { inbox: shown.rows.inbox.length, progress: shown.rows.progress.length, snoozed: shown.rows.snoozed.length + c.repeats.length, done: shown.rows.done.length };
+  const repeatsShown = tab === 'snoozed' && c.repeats.length > 0;
   const hidden = shown.whole[tab] - rows.length;
   const foot = footRoom(inset);
   const clear = () => setDisplay({ ...display, priorities: [], projects: [], updated: 'any', privacy: 'any' });
@@ -218,10 +256,11 @@ export default function Threads() {
         <FlatList
           data={rows}
           keyExtractor={(r) => r.key}
-          renderItem={({ item, index }) => <ThreadRow row={item} first={index === 0} unread={c.unread(item.item)} />}
+          renderItem={({ item, index }) => <ThreadRow row={item} first={index === 0 && !repeatsShown} unread={c.unread(item.item)} />}
           refreshControl={<RefreshControl tintColor={color.dim} refreshing={pulling} onRefresh={async () => { setPulling(true); await c.refresh(); setPulling(false); }} />}
           keyboardShouldPersistTaps="handled"
-          ListEmptyComponent={c.loading ? undefined : hidden > 0 ? <FilteredEmpty tab={tab} hidden={hidden} clear={clear} />
+          ListHeaderComponent={repeatsShown ? <RepeatRows repeats={c.repeats} items={c.view.items} now={c.now} /> : undefined}
+          ListEmptyComponent={c.loading || repeatsShown ? undefined : hidden > 0 ? <FilteredEmpty tab={tab} hidden={hidden} clear={clear} />
             : tab === 'inbox' ? <InboxClear />
               : <T style={{ paddingHorizontal: size.inset, paddingTop: 28, fontSize: 15, lineHeight: 23, color: color.dim }}>{EMPTY[tab]}</T>}
           contentContainerStyle={{ paddingBottom: 96 }}

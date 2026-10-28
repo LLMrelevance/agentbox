@@ -41,7 +41,7 @@ export function previewRows(now = Date.now()): PhoneRows {
         { ts: at(90), source: 'founder', patch: { body: stuckAsk } },
         { ts: at(14), source: 'agent', patch: { status: 'blocked', note: stuckNote } },
       ]),
-      thread('agentbox', { id: 'w-8b9c0d1e2f', title: 'Draw three versions of the inbox', status: 'blocked', priority: 5, body: roundAsk, note: roundNote, createdAt: at(70), updatedAt: at(9), wrote: { body: her(at(70)), status: agent(at(9)), note: agent(at(9)) } }, [
+      thread('agentbox', { id: 'w-8b9c0d1e2f', title: 'Draw three versions of the inbox', status: 'blocked', pinned: true, priority: 5, body: roundAsk, note: roundNote, createdAt: at(70), updatedAt: at(9), wrote: { body: her(at(70)), status: agent(at(9)), note: agent(at(9)) } }, [
         { ts: at(70), source: 'founder', patch: { body: roundAsk } },
         { ts: at(9), source: 'agent', patch: { status: 'blocked', note: roundNote } },
       ], { attached }),
@@ -84,6 +84,9 @@ export function previewRows(now = Date.now()): PhoneRows {
       thread('site', { id: 'w-6f7a8b9c0d', title: 'Try a light theme for the phone', status: 'open', priority: 0, body: 'Try a light theme.', snoozedUntil: now + 20 * 60 * MIN, createdAt: at(800), updatedAt: at(700), wrote: { body: her(at(800)), snoozedUntil: her(at(700)) } }, [
         { ts: at(800), source: 'founder', patch: { body: 'Try a light theme.' } },
       ]),
+      // Two runs of the daily report (previewSettings' repeating tasks): one quiet, one with news.
+      thread('agentbox', { id: 'w-r1a2b3c4d5', title: 'Daily report', labels: ['repeat:r-preview-1', 'clean'], status: 'done', priority: 5, body: 'Write the daily report.', result: 'Nothing new since yesterday.', createdAt: at(26 * 60), updatedAt: at(26 * 60 - 6), wrote: { status: agent(at(26 * 60 - 6)) } }, []),
+      thread('agentbox', { id: 'w-r2b3c4d5e6', title: 'Daily report', labels: ['repeat:r-preview-1'], status: 'done', priority: 5, body: 'Write the daily report.', result: 'Two sign-ups failed at the email step. The fix is in its own thread.', createdAt: at(120), updatedAt: at(112), wrote: { status: agent(at(112)) } }, []),
       thread('agentbox', { id: 'w-7a8b9c0d1e', title: 'Rename the Display menu', status: 'done', priority: 0, body: 'Rename it to View.', result: 'Renamed.', createdAt: at(3000), updatedAt: at(1500), wrote: { body: her(at(3000)), result: agent(at(1600)), status: her(at(1500)) } }, [
         { ts: at(3000), source: 'founder', patch: { body: 'Rename it to View.' } },
         { ts: at(1600), source: 'agent', patch: { result: 'Renamed.' } },
@@ -117,6 +120,11 @@ export function previewSettings(now = Date.now()) {
         { slug: 'film', name: 'Launch film', onPhone: true, autonomous: false, permission: 'plan', codexMode: 'workspace', account: 'any', running: 1 },
         { slug: 'site', name: 'Website', onPhone: true, autonomous: false, permission: 'workspace', codexMode: 'workspace', account: 'any', running: 0 },
       ],
+      // The repeating tasks a Mac sends with its settings (shared/phone-snapshot.mjs phoneRepeatsOf).
+      repeats: [
+        { product: 'agentbox', id: 'r-preview-1', title: 'Daily report', body: 'Write the daily report: sign-ups, failed runs, and anything that needs me. Say "nothing new" if nothing changed.', priority: 5, every: 'weekday', at: '09:00', createdAt: now - 9 * 24 * 60 * MIN, served: '', lastOccurrence: 'w-r2b3c4d5e6' },
+        { product: 'site', id: 'r-preview-2', title: 'Check the launch page numbers', body: 'Check the launch page numbers and tell me what moved.', priority: 5, every: 'week', on: 4, at: '08:00', createdAt: now - 20 * 24 * 60 * MIN, served: '' },
+      ],
     },
   };
 }
@@ -144,7 +152,12 @@ export function previewCloud(now = () => Date.now()) {
   const takeSetting = (c: PhoneRows['commands'][number]) => setTimeout(() => {
     const { scope, key, value, product } = c.payload ?? {};
     const w: any = settings.settings.workspace;
-    if (scope === 'project') Object.assign(settings.settings.projects.find((p) => p.slug === product) ?? {}, { [key]: value });
+    const repeats: any[] = (settings.settings as any).repeats;
+    if (scope === 'thread') { const t = rows.threads.find((r) => r.project === product && r.item === c.payload.item); if (t) { t.snapshot.item.pinned = value || undefined; t.updated_at = new Date(now() + 1).toISOString(); } }
+    else if (scope === 'repeat' && key === 'end') (settings.settings as any).repeats = repeats.filter((r) => !(r.product === product && r.id === c.payload.id));
+    else if (scope === 'repeat' && key === 'change') Object.assign(repeats.find((r) => r.product === product && r.id === c.payload.id) ?? {}, value);
+    else if (scope === 'repeat' && key === 'new') repeats.push({ product, id: `r-${c.id}`, priority: 5, createdAt: now(), served: '', ...value });
+    else if (scope === 'project') Object.assign(settings.settings.projects.find((p) => p.slug === product) ?? {}, { [key]: value });
     else if (key === 'alphaRooms') w.alpha.rooms = value;
     else if (key === 'memoryGate') w.memoryGate.on = value;
     else if (key === 'memoryGateSlots') w.memoryGate.slots = value;

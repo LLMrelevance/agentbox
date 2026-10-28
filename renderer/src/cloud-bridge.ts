@@ -30,6 +30,7 @@ import {
 } from './phone-rows';
 import { dictationAllowed, setDictationAllowed } from './web-speech';
 import { phoneSender } from './phone-send';
+import { phoneRepeats } from './phone-repeats';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
 import { cloudAlertsVia } from './cloud-alerts';
 import { computerOf, type Change, type SettingsRow } from './phone-settings-view';
@@ -54,7 +55,7 @@ const READS = new Set([
   'cloudClipboardCode', 'projectInstructionsRead', 'codeFile', 'railNote',
   'agentConversation', 'phoneLink', 'teamStatus',
   // Where she dragged a row or a project to: kept on this page, not sent.
-  'setThreadPlaces', 'setThreadPins', 'setProductOrder', 'setProductHidden',
+  'setThreadPlaces', 'setProductOrder', 'setProductHidden',
 ]);
 // The reads whose callers take a field off the answer: each gets an empty
 // answer of its own shape, not null (tests/the-done-tab-opens-on-the-web-app).
@@ -339,7 +340,13 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     settingsRead: () => readWebSettings(),
     setWorkspaceSetting: (p: { key: string; value: unknown }) => changeSetting({ scope: 'workspace', key: p?.key, value: p?.value }),
     setProjectSetting: (p: { product: string; key: string; value: unknown }) => changeSetting({ scope: 'project', product: p?.product, key: p?.key, value: p?.value }),
-    repeats: async () => [],
+    // Each computer's repeating tasks ride with its settings copy (phone-repeats.ts).
+    repeats: async () => {
+      await boot;
+      if (!client.signedIn()) return [];
+      try { settingsRows = await readSettingsRows((table, query) => client.select(table, query)); } catch { /* the last copy read stands */ }
+      return phoneRepeats(settingsRows, rows.commands, rows.projects);
+    },
     // Her Mac runs the agents; nothing here asks her to set one up.
     engineSetup: async () => ({ ok: true, phase: 'ready', found: true, signedIn: true }),
     dashboard: async () => null,

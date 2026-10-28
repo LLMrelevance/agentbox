@@ -67,11 +67,11 @@ export function Ghost({ title, onPress, disabled }: { title: string; onPress: ()
 }
 
 /** Every picker is a sheet from the bottom, a row per choice in words (phone.css `.tc-menu`). */
-export function Sheet({ open, close, children }: { open: boolean; close: () => void; children: ReactNode }) {
+export function Sheet({ open, close, onGone, children }: { open: boolean; close: () => void; /** iOS: the sheet has finished leaving. */ onGone?: () => void; children: ReactNode }) {
   const inset = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   return (
-    <Modal visible={open} transparent animationType="fade" onRequestClose={close}>
+    <Modal visible={open} transparent animationType="fade" onRequestClose={close} onDismiss={onGone}>
       <Pressable style={{ flex: 1, backgroundColor: color.scrim }} onPress={close} accessibilityLabel="Close" />
       <View style={{ maxHeight: height * 0.72, backgroundColor: color.pop, borderTopWidth: 1, borderTopColor: color.lineStrong }}>
         <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 10, paddingHorizontal: 8, paddingBottom: 16 + inset.bottom, gap: 1 }}>
