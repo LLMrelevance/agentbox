@@ -1019,7 +1019,9 @@ async function createWindow() {
       }
     };
     supervisor.start();
+    powerMonitor.on('suspend', () => supervisor.noteSleep());
     powerMonitor.on('resume', () => {
+      supervisor.noteWake();
       setTimeout(() => {
         try { supervisor.recoverInterrupted('wake'); } catch (e) { console.warn('zero: wake recovery:', e.message); }
       }, WAKE_SETTLE_MS);
