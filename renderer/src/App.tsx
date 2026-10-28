@@ -22,7 +22,7 @@ import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRu
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
-import { advanceAfter, advanceLandsHere, replyMovesOn, nextAfterAdvance, type Advance } from './advance';
+import { advanceAfter, advanceLandsHere, replyMovesOn, opensIntoNeedsYou, nextAfterAdvance, type Advance } from './advance';
 import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
@@ -115,7 +115,9 @@ import { isPresenceCard, roomMateCards, roomMatesById } from './team/rooms/room-
 import { MARK_UNREAD, SAY } from './team/chat-events';
 import { MentionRows } from './team/rooms/MentionRows';
 import { AgentsLine, CornerFaces, MateThreads, PersonThreads, SpaceBar, TeamStrip, TeamThreads } from './team/everything/TeamStrip';
-import { buildMembers, mateRunsOf, orderMembers, personCardsOf, readOrder, teamRunsOf, writeOrder } from './team/everything/members';
+import { buildMembers, hideMember, mateRunsOf, orderMembers, personCardsOf, readCardRows, readHidden, readOrder, splitHidden, teamRunsOf, unhideMember, writeCardRows, writeHidden, writeOrder, type CardRows, type Hidden, type Member } from './team/everything/members';
+import { CardsArea } from './team/everything/CardsArea';
+import { readFolded, stackRows, toggleFolded, type StackKey } from './threads/stack-rules';
 import { FeedbackCard } from './components/FeedbackCard';
 import { searchFieldInStrip, workspaceDestinations, workspacePageTitle } from './workspace-navigation.mjs';
 import { UsagePill } from './components/UsagePill';
@@ -2464,6 +2466,7 @@ export default function App() {
   // With Rooms on, teammates' threads are on a room's board instead, and the
   // pick kept here waits untouched for Rooms going off.
   const roomsOn = !!snap?.alpha?.rooms && !!snap?.team?.rooms?.on;
+  const teamMode = !!snap?.teammates || roomsOn;
   const everyone = useMemo(() => {
     if (!team) return [];
     const people = [...team.byId.values()];
@@ -2665,7 +2668,17 @@ export default function App() {
     [onBoard, boardArgs, columnOrder],
   );
   const boardOrder = useMemo(() => (boardCols ? boardWalk(boardCols) : null), [boardCols]);
-  const list = search !== null ? (hits ?? []).map((h) => h.item) : boardOrder ?? displayedBox;
+  // YOUR THREADS AS ONE LIST (./threads/stack-rules). With a team on, a tab
+  // other than Needs you is only reached under Everything else, as your threads.
+  const [stackFolded, setStackFolded] = useState<Set<StackKey>>(() => readFolded());
+  const shownAs = useCallback((rows: WorkItem[], tab: View) => (mineShown
+    ? sortedByDisplay(filterBox(rows, boxFilter, directSlugs).filter((i) => isTroubleRow(i) || isUpdateRow(i) || keepsDisplay(i, inboxDisplay, now, seenOf(i), directSlugs)), inboxDisplay, tab, projectOrder, directSlugs)
+    : []), [mineShown, boxFilter, directSlugs, inboxDisplay, now, seenOf, projectOrder]);
+  const stacked = useMemo(() => (teamMode && view !== 'inbox' && search === null && !onBoard
+    ? stackRows({ progress: shownAs(progressTab, 'progress'), later: shownAs(snoozed, 'snoozed'), done: shownAs(done, 'done'),
+      dayStart: new Date(now).setHours(0, 0, 0, 0), folded: stackFolded, laterRules: repeats.length })
+    : null), [teamMode, view, search, onBoard, shownAs, progressTab, snoozed, done, now, stackFolded, repeats.length]);
+  const list = search !== null ? (hits ?? []).map((h) => h.item) : stacked ? stacked.rows : boardOrder ?? displayedBox;
 
   // THE PLACE FOLLOWS ITS THREAD when the list changes under a cursor nobody
   // moved (./cursor-follows). Worked out here, in the render, so the board
@@ -2737,6 +2750,7 @@ export default function App() {
   const walkOwn = walkAim ? list.find((i) => i.id === walkAim) : undefined;
   const pointed: WorkItem | undefined = walkOwn
     ?? (hoveredId && !multiSel.size ? list.find((i) => i.id === hoveredId) : undefined) ?? (keyCard ? undefined : current);
+  const keyTab = stacked && pointed ? stacked.tabOf(pointed) : view;
 
   /* ------------------------- a panel with a panel in it -------------------- */
   // NO HAIRLINE WITHOUT A SIDEBAR BEHIND IT.
@@ -3514,7 +3528,6 @@ export default function App() {
   // is two tabs: Needs you, and Everything else, where your team sits as cards
   // over whichever one you opened. The Chats page and its sidebar row are gone;
   // their chats open under the cards.
-  const teamMode = !!snap?.teammates || roomsOn;
   const roomsUi = useRooms({
     inline: teamMode,
     rooms: snap?.team?.rooms, on: !!snap?.alpha?.rooms, meId: snap?.team?.me?.id ?? null,
@@ -3642,6 +3655,12 @@ export default function App() {
     setView('inbox'); setSelected(0); setMultiSel(new Set());
   };
   const reorderMembers = (keys: string[]) => { setEvOrder(keys); writeOrder(keys); };
+  // Cards put away (./team/everything/members `splitHidden`), and how tall the cards are over an open chat.
+  const [evHidden, setEvHidden] = useState<Hidden>(() => readHidden());
+  const evSplit = splitHidden(members, evHidden);
+  const keepHidden = (next: Hidden) => { setEvHidden(next); writeHidden(next); };
+  const [evRows, setEvRowsNow] = useState<CardRows>(() => readCardRows());
+  const setEvRows = (rows: CardRows) => { setEvRowsNow(rows); writeCardRows(rows); };
 
   // C TURNS THE CLOUD ON OR OFF, from anywhere a key reaches (2026-10-16), and
   // a note says which. Through a ref so the key handlers read the cloud as it
@@ -5535,6 +5554,9 @@ export default function App() {
         setCardSel(null);
         if (at >= 0) setSelected(at);
       };
+      {
+        // On Your threads a row's keys are its own section's, the way its tab's were (./threads/stack-rules).
+        const view = keyTab;
       switch (e.key) {
         case 'j': case 'J':
         case 'ArrowDown': {
@@ -5621,10 +5643,11 @@ export default function App() {
           else if (search !== null) closeSearch();
           break;
       }
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [modal, newProject, focused, focusedRepeat, inFullScreen, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow, clearSlot, teamMode, evPick, pickMember, goNeedsYou]);
+  }, [modal, newProject, focused, focusedRepeat, inFullScreen, current, pointed, list, view, markDone, openSnooze, pickOption, offerNow, undo, markSeen, optionSel, snoozed, unsnooze, items, selectable, batchDone, selected, showToast, snap, multiSel, refresh, settingsOpen, search, openSearch, closeSearch, openDoc, artifactMode, artifactReturnBeside, teamShown, openCard, inboxDisplay, setInboxDisplay, stateTabOrder, roomShown, roomsUi, teammatesShown, teammatesUi, boardCols, stops, keyCard, walkPlace, goToStop, openTeammateCard, closeAskOn, closeAskWhy, waitingFiled, answerCloseAsk, keepThreadOpen, toast, openToastRow, clearSlot, teamMode, evPick, pickMember, goNeedsYou, keyTab]);
 
   // WHO HOLDS THE KEYBOARD WHILE SEARCHING. The field is in the top bar and
   // stays mounted while a result is open, so without this the J and K that walk
@@ -5790,6 +5813,22 @@ export default function App() {
     setSelected(at >= 0 ? at : 0);
   }, [shownInbox, view, onBoard, list, focused, markSeen]);
 
+  // A thread opened while it waits in Needs you puts you in Needs you
+  // (./advance). Asked once per thread opened, not again as it changes tabs.
+  const openedKey = useRef<string | null>(null);
+  useEffect(() => {
+    const key = focused ? keyOf(focused) : null;
+    if (key === openedKey.current) return;
+    openedKey.current = key;
+    if (!focused) return;
+    if (opensIntoNeedsYou({
+      view, onBoard, searching: search !== null,
+      index: shownInbox.findIndex((i) => i.id === focused.id && i.product === focused.product),
+      conversation: directSlugs.has(focused.product), interrupted: !!heldByUrgent, walking: !!run,
+    })) setView('inbox');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused, view, onBoard, search, shownInbox, directSlugs, heldByUrgent, run]);
+
   // A SEND THAT MOVED HER ON IS SAID ABOVE THE REPLY BOX of the thread it moved
   // her to (./components/SentLine). The line keeps its own clock, which stops
   // under the pointer, so the six-second one is cleared; leaving the thread or a
@@ -5939,8 +5978,8 @@ export default function App() {
   // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
   // with two lessons left to give there.
   const [landOn, setLandOn] = useState<string | null>(null);
-  const finishFresh = useCallback((sent: string | null) => {
-    const to = firstRunLanding(sent);
+  const finishFresh = useCallback((sent: string | null, runAt = 0) => {
+    const to = firstRunLanding(sent, runAt);
     finishFirstRun(localStorage);
     setLessons(localStorage, ['open', 'pick']);
     setLessonList(['open', 'pick']);
@@ -6073,7 +6112,9 @@ export default function App() {
   // sentence (List.tsx says why), so this asks for search to be off, not
   // merely empty.
   const emptyView = search === null && !focused && !focusedRepeat && list.length === 0
-    && !(view === 'snoozed' && repeats.length > 0);
+    && !(view === 'snoozed' && repeats.length > 0)
+    // Every section folded is not an empty page: their headers are still there to open.
+    && !stacked?.sections.length;
   // A thread landed in Needs you while you were writing in the box on the
   // empty inbox: the page is kept for the one render it takes to read the box,
   // and the dialog opens on it before anything paints.
@@ -6127,11 +6168,17 @@ export default function App() {
     && (inTeamChat || (!focused && (teammatesShown || (roomShown ? evKey !== null : view !== 'inbox' || !!evPick))))
     && !(evKey === 'me' && inboxDisplay.view === 'board');
   const evMember = evOn ? members.find((m) => m.key === evKey) ?? null : null;
+  // Hiding the card that is open goes back to your threads.
+  const hideCard = (m: Member) => {
+    keepHidden(hideMember(evHidden, m));
+    if (evKey === m.key) pickMember('me');
+  };
+  const showCard = (m: Member) => keepHidden(unhideMember(evHidden, m.key));
   // A chat fills the space and keeps its box at the foot; a list scrolls with the cards.
   const evFill = evOn && (teammatesShown || roomShown || inTeamChat);
   const teamTabs = teamMode ? {
     on: evOn, onNeeds: goNeedsYou, onEverything: () => pickMember('me'),
-    corner: evOn ? null : <CornerFaces members={members} onPick={(key) => pickMember(key)} />,
+    corner: evOn ? null : <CornerFaces members={evSplit.shown} onPick={(key) => pickMember(key)} />,
   } : null;
   const dayStart = new Date(now).setHours(0, 0, 0, 0);
   const evItems = evMember?.kind === 'mate' ? (mateRunsOf(items, evMember.key.slice('mate:'.length), dayStart)) : [];
@@ -6140,20 +6187,21 @@ export default function App() {
   const evRuns = evMember?.team && evTab === 'agents'
     ? teamRunsOf(cards, items, [...evPeople.keys()], members.filter((m) => m.kind === 'mate').map((m) => m.key.slice('mate:'.length)), dayStart) : [];
   const evBar = !evMember ? null
-    : evMember.kind === 'me' ? <SpaceBar m={evMember} onTab={(v) => { setView(v as View); setSelected(0); setMultiSel(new Set()); }}
-      tabs={INBOX_TABS.filter((t) => t.view !== 'inbox').map((t) => ({ id: t.view, label: t.label, on: view === t.view,
-        count: t.view === 'progress' ? shownCount(progressTab) : t.view === 'snoozed' ? shownCount(snoozed) : undefined }))} />
+    : evMember.kind === 'me' ? <SpaceBar m={evMember} tabs={[]} />
     : evMember.kind === 'chat' && !evMember.team ? <SpaceBar m={evMember} tabs={[]} slot={inTeamChat ? setTaskHeader : undefined} />
     : <SpaceBar m={evMember} onTab={(t) => pickMember(evMember.key, t as 'messages' | 'agents')} slot={inTeamChat ? setTaskHeader : undefined}
       tabs={[{ id: 'messages', label: 'Messages', on: evTab === 'messages' }, { id: 'agents', label: 'Agents', count: evMember.agents ?? undefined, on: evTab === 'agents' }]}
-      right={<>{teammatesShown ? teammatesUi.right : null}<AgentsLine n={evMember.agents} /></>} />;
+      right={<>{teammatesShown ? teammatesUi.right : null}<AgentsLine n={evMember.agents} starting={evMember.starting} /></>} />;
   // The tabs over a chat that is open under the cards, the same row the list draws.
   const needsYouCount = { inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length };
   const evTabsRow = teamTabs ? <StateTabs view={view} counts={needsYouCount}
     needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
   const evTop = evOn ? <>
-    <TeamStrip members={members} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
-      onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'} />
+    <CardsArea rows={evRows} onRows={setEvRows} picked={evKey} hidden={evSplit.hidden} onShow={showCard}>
+      <TeamStrip members={evSplit.shown} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
+        onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'}
+        onHide={hideCard} />
+    </CardsArea>
     {evBar}
   </> : null;
   // A person or an AI teammate that has no page of its own to open: its threads, or the way to start talking.
@@ -6784,6 +6832,7 @@ export default function App() {
                   onReorder={search === null && !run && !withOthers && inboxDisplay.sort === 'priority'
                     && (view === 'inbox' || view === 'snoozed') ? reorderThread : undefined}
                   items={list}
+                  stack={stacked ? { sections: stacked.sections, sectionOf: stacked.sectionOf, onFold: (key) => setStackFolded(toggleFolded(key)) } : undefined}
                   // Results are grouped and stamped like the inbox, whatever
                   // tab she opened search from. Scheduled would otherwise label
                   // every group "Returns …", which is a promise about rows that

@@ -11,9 +11,10 @@ import { GREETING, MAX_HOPS, STARTERS, TEAMMATE_EFFORT, starterAsks, yesFirst } 
 import { ModelPicker } from '../components/Model';
 import type { ModelChoice } from '../models';
 import { rememberedProject } from '../compose-project';
-import { answerTo, chatWith, clockOf, dayOf, firstSentence, sentTab, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, startWord, titleAside, workingLine, type ChatEntry } from './chat-lines';
+import { answerTo, chatEntries, chatWith, clockOf, dayOf, firstSentence, sentTab, goalLine, heldFor, heldTitle, logOf, longMessage, nameOf, SAVED_VERBS, startWord, titleAside, liveLine, pendingAsk, type ChatEntry } from './chat-lines';
 import { ChatsColumn } from './ChatsColumn';
 import { nowLine, TeammateMark } from './TeammatesRail';
+import { AskBeforeDeleting } from '../team/MessageMore';
 import './teammates.css';
 
 const MD = [remarkGfm];
@@ -25,6 +26,7 @@ const ICON = {
   plus: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>,
   reply: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 7 4 12l5 5" /><path d="M4 12h10a6 6 0 0 1 6 6" /></svg>,
   pause: <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true"><path d="M9 6v12M15 6v12" /></svg>,
+  stop: <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><rect x="7.5" y="7.5" width="9" height="9" fill="currentColor" /></svg>,
   doc: <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true"><path d="M4 1.8h5.2L12 4.6v9.6H4z" /><path d="M9 1.8v3h3M6 8h4M6 10.5h4" /></svg>,
   // Three square dots, the thread view's ⋯.
   more: <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="2.5" y="7" width="2" height="2" /><rect x="7" y="7" width="2" height="2" /><rect x="11.5" y="7" width="2" height="2" /></svg>,
@@ -85,9 +87,11 @@ function useDetailsShown(): [boolean, (on: boolean) => void] {
   return [on, set];
 }
 
-// About, Log, its details and Pause, behind one ⋯ like the thread view's.
-export function TeammateMenu({ t, shown, onOpen, call }: { t: Teammate; shown: Shown; onOpen: (open: string) => void; call: Call }) {
+// About, Log, its details, Pause and Delete, behind one ⋯ like the thread view's.
+export function TeammateMenu({ t, shown, onOpen, call, onDeleted }: { t: Teammate; shown: Shown; onOpen: (open: string) => void; call: Call; onDeleted?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [refused, setRefused] = useState<string | null>(null);
   const [details, setDetails] = useDetailsShown();
   const wrap = useRef<HTMLSpanElement>(null);
   useEffect(() => {
@@ -103,12 +107,23 @@ export function TeammateMenu({ t, shown, onOpen, call }: { t: Teammate; shown: S
     shown.kind === 'log' ? ['Hide its log', () => onOpen(t.id)] : ['Log', () => onOpen(`log:${t.id}`)],
     ...(shown.kind === 'chat' ? [[details ? 'Hide details' : 'Show details', () => setDetails(!details)] as [string, () => void]] : []),
     t.paused ? ['Resume', () => { void call('update', { id: t.id, patch: { paused: false } }); }] : ['Pause', () => { void call('update', { id: t.id, patch: { paused: true } }); }],
+    ['Delete', () => setAsking(true)],
   ];
+  // The menu's call says only yes or no, and a refusal has to be read, so the
+  // question comes back with the reason in it.
+  const remove = async () => {
+    const r = await api.teammates('remove', { id: t.id });
+    if (!r.ok) { setRefused(r.error); setAsking(true); return; }
+    onDeleted?.();
+  };
   return <span className="ts-more-wrap" ref={wrap}>
     <button type="button" className="ts-more" aria-label="Teammate options" title="More" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>{ICON.more}</button>
     {open && <div className="th-menu ts-more-menu tq-menu" role="menu" aria-label="Teammate options">
       {rows.map(([label, act]) => <button key={label} type="button" role="menuitem" className="row-i ts-more-row" onClick={() => { setOpen(false); act(); }}><span className="ts-more-label">{label}</span></button>)}
     </div>}
+    {asking && <AskBeforeDeleting title={`Delete ${t.name}?`} label={`Delete ${t.name}`}
+      body={refused ?? 'It stops working, and its open threads close.'}
+      onDelete={() => { void remove(); }} onClose={() => { setAsking(false); setRefused(null); }} />}
   </span>;
 }
 
@@ -211,11 +226,15 @@ function ChatColumn({ view, items, products, team, t, me, mePic, call, sessions,
   return <div className="gr-chat tq-chat">
     <div className="tq-lines" ref={scroller}>
       {rows.length ? rows : <p className="tq-empty">Nothing yet. Say hello to {t.name}.</p>}
-      {t.running && <LiveRow t={t} session={sessions.get(t.running.id)} onOpen={() => onOpenThread(t.running!.product, t.running!.id)} />}
+      {t.running && <LiveRow t={t} session={sessions.get(t.running.id)} asked={pendingAsk(chatEntries(view, t.id), t.id)} onOpen={() => onOpenThread(t.running!.product, t.running!.id)} />}
     </div>
     {error && <p className="tq-error" role="alert">{error}</p>}
     {!error && (view?.trouble || view?.error) && <p className="tq-error" role="status">{view?.trouble ?? `Teammates could not be read: ${view?.error}`}</p>}
-    <Composer placeholder={placeholder} onSend={async (text) => (await call('post', { text, to: [t.id] })) !== false} />
+    <Composer placeholder={placeholder} onSend={async (text) => (await call('post', { text, to: [t.id] })) !== false}
+      stop={t.running ? <button type="button" className="dock-stop" onClick={() => { void call('stop', { id: t.id }); }}
+        aria-label={`Stop ${t.name}`} title={`Stop what ${t.name} is doing. It waits for your next message.`}>
+        <svg viewBox="0 0 12 12" aria-hidden="true" focusable="false"><rect x="1.5" y="1.5" width="9" height="9" fill="currentColor" /></svg>Stop
+      </button> : null} />
   </div>;
 }
 
@@ -290,14 +309,14 @@ function Message({ m, team, me, mePic, lead, call, onOpenThread, answered }: { m
 
 // The foot of the chat while it works: the step it is on, or that it is
 // waiting for an agent. It moves with every snapshot, so a run never looks stuck.
-function LiveRow({ t, session, onOpen }: { t: Teammate; session: RunningSession | undefined; onOpen: () => void }) {
+function LiveRow({ t, session, asked, onOpen }: { t: Teammate; session: RunningSession | undefined; asked: string | null; onOpen: () => void }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15_000); return () => clearInterval(timer); }, []);
-  const line = workingLine(t, session, now);
+  const line = liveLine(t, session, now, asked);
   if (!line) return null;
   return <div className={`tq-act tq-live${line.state === 'working' ? ' on' : ''}`} role="status">
     {line.state === 'working' ? <i className="tq-dots tq-moving" aria-hidden="true" /> : ICON.dots}
-    <span>{line.state === 'working' ? <Inline onClick={onOpen}>{line.text}</Inline> : <span className="v">{line.text}</span>}{line.aside && <span className="tq-when">{line.aside}</span>}</span>
+    <span><span className="v">{line.lead}</span>{line.text && <> <Inline onClick={onOpen}>{line.text}</Inline></>}{line.aside && <span className="tq-when">{line.aside}</span>}</span>
   </div>;
 }
 
@@ -316,6 +335,7 @@ function Activity({ e, view, team, only, sessions, call, onOpenThread }: { e: Ch
     }
     if (r.verb === 'queued') return <div className="tq-act tq-next">{ICON.dots}<span><span className="v">Next</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
     if (r.verb === 'finished') return <div className="tq-act">{ICON.check}<span><span className="v">Finished</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
+    if (r.verb === 'stopped') return <div className="tq-act">{ICON.stop}<span><span className="v">You stopped</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
     return <div className="tq-act">{ICON.dots}<span><span className="v">{startWord(r, team, sessions)}</span> <Inline onClick={open}>{r.title}</Inline></span>{time}</div>;
   }
   const c = e as TeamChatLine;
@@ -340,8 +360,9 @@ function Activity({ e, view, team, only, sessions, call, onOpenThread }: { e: Ch
   return <div className="tq-act tq-note"><span>{c.text}</span>{time}</div>;
 }
 
-// The app's own chat box, the one groups use.
-function Composer({ placeholder, onSend }: { placeholder: string; onSend: (text: string) => Promise<boolean> }) {
+// The app's own chat box, the one groups use. While it works, the Send slot
+// is Stop until you type, as in a thread's reply box.
+function Composer({ placeholder, onSend, stop = null }: { placeholder: string; onSend: (text: string) => Promise<boolean>; stop?: ReactNode }) {
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const send = async () => {
@@ -357,7 +378,8 @@ function Composer({ placeholder, onSend }: { placeholder: string; onSend: (text:
       onChange={(e) => setText(e.target.value)}
       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} />
     <div className="rm-compose-bar"><span />
-      <button type="button" className="dock-send" disabled={!text.trim() || busy} onClick={() => void send()} title="Send · ↵">Send <kbd>↵</kbd></button>
+      {stop && !text.trim() ? stop
+        : <button type="button" className="dock-send" disabled={!text.trim() || busy} onClick={() => void send()} title="Send · ↵">Send <kbd>↵</kbd></button>}
     </div>
   </div>;
 }

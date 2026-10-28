@@ -249,6 +249,8 @@ describe('a cloud run with no repository', () => {
     const run = launch({ answer: { ok: false, error: 'bad-start', message: 'branch is required' }, heard });
     expect(await run.done).toBe(IMPORT_FAILED);
     expect(heard).toEqual([[]]);
+    // In the words the supervisor reads as the image, not the cloud failing.
+    expect(run.err()).toMatch(/cannot take a project with no repository/);
     expect(readMarker({ folder: docs, file: marker })).toBe(null);
   });
 

@@ -109,7 +109,7 @@ const NO_UPDATER = {
   move: () => ({ moved: false, error: null }),
 };
 
-const TEAMMATE_OPS = new Set(['create', 'describe', 'start', 'update', 'remove', 'post', 'goAhead', 'remember', 'forget']);
+const TEAMMATE_OPS = new Set(['create', 'describe', 'start', 'update', 'stop', 'remove', 'post', 'goAhead', 'remember', 'forget']);
 const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markUnread', 'react', 'edit', 'deleteMessage', 'putFile', 'file', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
 export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
@@ -888,6 +888,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     if (!alphaFeatures(config).teammates) return { ok: false, error: 'Teammates are an alpha feature. Turn them on in Settings, Alpha features.' };
     try {
       const a = args && typeof args === 'object' ? args : {};
+      const kill = (id) => supervisor.stopSession(id);
       let value;
       if (op === 'create') {
         value = mates.create({ ...a, engine: supervisor.engineOffered(a.engine) ?? null });
@@ -895,7 +896,8 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       } else if (op === 'describe') value = mates.describe({ ...a, engine: supervisor.engineOffered(a.engine) ?? null });
       else if (op === 'start') value = mates.start(a.id);
       else if (op === 'update') value = mates.update(a.id, { ...a.patch, ...(a.patch && 'engine' in a.patch ? { engine: supervisor.engineOffered(a.patch.engine) ?? null } : {}) });
-      else if (op === 'remove') value = mates.remove(a.id);
+      else if (op === 'stop') value = mates.stop(a.id, { kill });
+      else if (op === 'remove') value = mates.remove(a.id, { kill });
       else if (op === 'post') value = mates.post({ text: a.text, to: a.to, fresh: a.fresh === true });
       else if (op === 'goAhead') value = mates.goAhead(a.id, a.ref);
       else if (op === 'remember') value = mates.remember(a.id, a.text, { from: 'you' });
@@ -2265,7 +2267,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // read fresh: the renderer owns what they mean, this owns getting them across.
   ipcMain.handle('zero:item-history', async (_e, { product, id, before }) => {
     try {
-      return { ok: true, lines: store.readHistory(product, id, { before }) };
+      return { ok: true, lines: store.readHistory(product, id, { before, max: Number.MAX_SAFE_INTEGER }) };
     } catch (err) {
       return { ok: false, error: err.message, lines: [] };
     }

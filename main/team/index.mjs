@@ -228,6 +228,10 @@ export function createTeamService({
       runHome: phone.runHome ?? null,
       newThreadKits: phone.newThreadKits ?? null,
       adoptNew: phone.adoptNew ?? null,
+      asleep: phone.asleep ?? (() => false),
+      toCarry: phone.toCarry ?? null,
+      handedOver: phone.handedOver ?? (() => {}),
+      takenBack: phone.takenBack ?? (() => {}),
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
