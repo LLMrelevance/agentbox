@@ -51,7 +51,7 @@ describe('the sentence on a thread whose login ran out', () => {
     const said = limit({ account: 'alex@work.com', resetsAt: '6pm' });
     expect(said).toBe(
       'Claude Code is at its usage limit on alex@work.com, so nothing has been done on this task.'
-      + ' It starts again on its own at 6pm.',
+      + " It starts again on its own at 6pm, when your Claude plan's limit resets.",
     );
     expect(said).not.toContain('which has room');
   });
@@ -59,25 +59,26 @@ describe('the sentence on a thread whose login ran out', () => {
   it('names the account it ran out on while it waits for the reset', () => {
     expect(limit({ account: 'alex@work.com', resetsAt: '6pm' })).toBe(
       'Claude Code is at its usage limit on alex@work.com, so nothing has been done on this task.'
-      + ' It starts again on its own at 6pm.',
+      + " It starts again on its own at 6pm, when your Claude plan's limit resets.",
     );
   });
 
   it('says so on a run that had already done some work', () => {
     expect(limit({ account: 'alex@work.com', worked: true, resetsAt: '6pm' })).toBe(
       'Claude Code hit its usage limit on alex@work.com partway through, so this task is not finished.'
-      + ' It starts again on its own at 6pm.',
+      + " It starts again on its own at 6pm, when your Claude plan's limit resets.",
     );
   });
 
   // The one-login Mac, and every row written before this landed.
-  it('is word for word what it was when no account is named', () => {
+  it('opens word for word as it did when no account is named', () => {
     expect(limit({ resetsAt: '6pm' })).toBe(
-      'Claude Code is at its usage limit, so nothing has been done on this task. It starts again on its own at 6pm.',
+      'Claude Code is at its usage limit, so nothing has been done on this task.'
+      + " It starts again on its own at 6pm, when your Claude plan's limit resets.",
     );
     expect(limit({})).toBe(
       'Claude Code is at its usage limit, so nothing has been done on this task.'
-      + ' It starts again on its own when the limit resets.',
+      + " It starts again on its own when your Claude plan's limit resets.",
     );
   });
 

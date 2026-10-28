@@ -79,6 +79,8 @@ export interface ThreadEvent {
   // sentence someone rewords must never quietly turn that block off, because a
   // thread with no answer at the end of it still draws.
   field?: 'body' | 'answer' | 'result' | 'note';
+  /** The agent teammate who handed this over, on a reply the app wrote for it. */
+  from?: string;
   // The runs that began at this pickup, oldest first. Set by withRuns, and
   // an array because a session that never got its claim in still has to land
   // somewhere rather than disappear.
@@ -374,6 +376,13 @@ export function threadEvents(lines: LedgerLine[], engine?: string | null): Threa
 
     // Ranked, most newsworthy first. Her reply outranks anything an agent set
     // on the same line; an agent's finished word outranks its progress.
+    // A TEAMMATE'S HAND-OFF, which the app wrote as a reply on this thread
+    // (main/store.mjs, `tellItem`). It is theirs, and never drawn as yours.
+    const from = line.source === 'system' && has(patch, 'answer') ? (patch!.from as { name?: string } | undefined)?.name : undefined;
+    if (from && words(patch.answer)) {
+      events.push({ at, who: 'agent', said: `${from} handed this over`, words: words(patch.answer)!, message: true, field: 'answer', from });
+      continue;
+    }
     if (has(patch, 'answer')) {
       const said = words(patch.answer);
       replied = mine && said ? { at, by: markBy } : null;
