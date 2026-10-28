@@ -4056,9 +4056,10 @@ export class Supervisor {
   }
 
   // Each tick, as many as the cloud can start now. A pause not yet started in
-  // the cloud holds one of its starts. The youngest go first, as with an
-  // urgent row: least work in flight. A run asking for an approval waits,
-  // since a pause would throw away the card in front of the person.
+  // the cloud holds one of its starts. The ones someone asked for go first,
+  // then the youngest, as with an urgent row: least work in flight. A run
+  // asking for an approval waits, since a pause would throw away the card in
+  // front of the person.
   _moveRunsToTheCloud(items, now = Date.now()) {
     for (const id of [...(this._moveAsked ?? [])]) if (!this.sessions.has(id)) this._moveAsked.delete(id);
     for (const [id, at] of [...(this._toCloud ?? [])]) if (now - at > TO_CLOUD_PATIENCE_MS) this._toCloud.delete(id);
@@ -4069,12 +4070,13 @@ export class Supervisor {
     let room = this._maxCloud() - this._cloudLoad() - pausing;
     if (starts <= 0 || room <= 0) return;
     const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    const asked = (s) => !!this._moveAsked?.has(s.itemId);
     let asking = null;
     const candidates = [...this.sessions.values()]
       .filter((s) => this._movesToCloud(s, byId.get(s.itemId) ?? null))
-      .filter((s) => !(now - (this._movedToCloudAt?.[s.itemId] ?? 0) < MOVE_TO_CLOUD_AGAIN_MS))
+      .filter((s) => asked(s) || !(now - (this._movedToCloudAt?.[s.itemId] ?? 0) < MOVE_TO_CLOUD_AGAIN_MS))
       .filter((s) => !(asking ??= new Set(listPending(this.config.storeRoot).map((r) => r?.item))).has(s.itemId))
-      .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+      .sort((a, b) => asked(b) - asked(a) || (b.startedAt ?? 0) - (a.startedAt ?? 0));
     for (const s of candidates) {
       if (starts <= 0 || room <= 0) break;
       (this._toCloud ??= new Map()).set(s.itemId, now);
@@ -6562,7 +6564,17 @@ export class Supervisor {
     const s = this.sessions.get(itemId);
     if (!s || s.product !== product || s.remoteIdle) return null;
     const runId = s.cloud && s.cwd ? readMarker(this._cloudPlace(s.cwd, product, itemId))?.runId : null;
-    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', ...(runId ? { runId } : {}), doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
+    let movable = false;
+    try { movable = !s.cloud && this._movableNow().has(itemId); } catch { /* said as not movable */ }
+    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', ...(runId ? { runId } : {}), ...(movable ? { movable } : {}), doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
+  }
+
+  // The phone asks for each running thread on every pass, so one read serves a few seconds.
+  _movableNow(now = Date.now()) {
+    if (this._movableSeen && now - this._movableSeen.at < 5_000) return this._movableSeen.ids;
+    const ids = new Set(this.sessions.size && this._cloudUsable('claude') ? this._movableIds(this.store.listItems(now)) : []);
+    this._movableSeen = { at: now, ids };
+    return ids;
   }
 
   status() {

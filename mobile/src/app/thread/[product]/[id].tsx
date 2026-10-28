@@ -429,10 +429,11 @@ export default function ThreadScreen() {
         </ScrollView>
         <Dock thread={thread} offers={offers} busy={busy} setBusy={setBusy} setError={setError} stop={() => void press({ kind: 'stop' })} />
       </KeyboardAvoidingView>
-      <ThreadMenu open={menu} close={() => setMenu(false)} now={c.now} laterNow={offers.laterNow} runNow={offers.runNow}
+      <ThreadMenu open={menu} close={() => setMenu(false)} now={c.now} laterNow={offers.laterNow} runNow={offers.runNow} moveToCloud={offers.moveToCloud}
         onLater={(until, label) => void press({ kind: 'later', until, label }, item, back)}
         onBack={() => void press({ kind: 'later', until: 0 })}
         onRunNow={() => void press({ kind: 'run-now' })}
+        onMoveToCloud={() => void press({ kind: 'move-to-cloud' })}
         onClose={close} />
       {summary && <Summary thread={thread} now={c.now} close={() => setSummary(false)} />}
     </Wall>

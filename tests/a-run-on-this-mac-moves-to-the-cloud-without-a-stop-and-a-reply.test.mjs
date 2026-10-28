@@ -179,8 +179,7 @@ describe('with the cloud on "when this Mac is full"', () => {
     const cloud = { setUp: true, mode: 'full', projects: ['p'], movable: ['w-a'] };
     expect(threadPlace({ id: 'w-a', product: 'p' }, {}, cloud)).toBe('move');
     expect(threadPlace({ id: 'w-b', product: 'p' }, {}, cloud)).toBe('here');
-    // With Everything on it moves by itself, so the row offers keeping it here.
-    expect(threadPlace({ id: 'w-a', product: 'p' }, {}, { ...cloud, mode: 'all' })).toBe('here');
+    expect(threadPlace({ id: 'w-a', product: 'p' }, {}, { ...cloud, mode: 'all' })).toBe('move');
     expect(threadMenuRows({ change: false, terminal: null, finish: true, place: 'move' })[0]).toEqual({ id: 'place', ...PLACE_ROW.move, key: null });
     expect(PLACE_ROW.move.label).toBe('Move to the cloud');
   });

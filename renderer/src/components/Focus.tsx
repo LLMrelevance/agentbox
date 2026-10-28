@@ -1950,7 +1950,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             (w-6246b0c91f). Handing them to `Live` as
             well is what made one screen say "Codex" twice. */}
         {/* A chat says nothing about agents until one you called in is working. */}
-        {!heldByPerson && !(inChats && !session) && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }} />}
+        {!heldByPerson && !(inChats && !session) && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }}
+          onMoveToCloud={runsIn === 'move' && onPlace ? () => onPlace('move') : undefined} />}
 
         {/* NO LINE UNDER A CONVERSATION OFFERING TO HAND IT TO AN AGENT
             (w-2e8aa16f0f): it read as one more message, and it made the whole

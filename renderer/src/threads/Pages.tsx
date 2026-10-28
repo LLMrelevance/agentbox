@@ -93,6 +93,8 @@ export function inStep(el: Element | null) {
 export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
+/** Runs on this Mac the cloud could take now, and the press that moves one (CloudStatus `movable`). */
+export const MoveToCloudContext = createContext<{ ids: Set<string>; move: (id: string, product: string) => void } | null>(null);
 
 /**
  * The mark in the Status cell: the running one where an agent is on it, the
@@ -696,7 +698,13 @@ export function ThreadCells({ item, product, now, person, tab }: {
     const out = await api.threadEdit(item.product, item.id, patch);
     if (!out.ok) setFlipped(null);
   };
-  const action = seen ? (
+  // A run on this Mac the cloud could take: moving it is the press that matters now.
+  const mover = useContext(MoveToCloudContext);
+  const action = mover?.ids.has(item.id) ? (
+    <button type="button" className="th-row-act" onClick={(e) => { e.stopPropagation(); mover.move(item.id, item.product); }} title="Carry on in the cloud">
+      <CloudIcon />Move to cloud
+    </button>
+  ) : seen ? (
     <button type="button" className="th-row-act" onClick={(e) => { e.stopPropagation(); void flip(); }}
       title={seen === 'private' ? 'Show this thread to the team' : 'Stop showing this thread'}>
       <SharedMark className="th-row-act-mark" />{seen === 'private' ? 'Share' : 'Unshare'}

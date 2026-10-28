@@ -252,15 +252,16 @@ export function cloudMonthLine(month: CloudMonth): string {
  */
 export function threadPlace(
   item: { id: string; product: string; onMac?: boolean; labels?: string[] },
-  session: { where?: string } | null,
+  session: { where?: string; movable?: boolean } | null,
   cloud: CloudStatus | null,
 ): 'cloud' | 'here' | 'kept' | 'move' | null {
-  if (!cloud?.setUp) return null;
   if (teammateIdOf(item)) return null;
+  // The phone has no cloud status, only the computer's word on each run.
+  if (session?.movable && session.where !== 'cloud') return 'move';
+  if (!cloud?.setUp) return null;
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;
-  // With Everything it moves by itself, and the row offers keeping it here.
-  if (cloud.mode !== 'all' && cloud.movable?.includes(item.id)) return 'move';
+  if (cloud.movable?.includes(item.id)) return 'move';
   return cloud.projects?.includes(item.product) ? 'here' : null;
 }

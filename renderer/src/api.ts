@@ -874,10 +874,15 @@ export const api = {
     await window.zero.setThreadOnMac({ onMac });
   },
 
-  /** Move runs on this Mac to the cloud as it has room; how many will go. */
-  async moveToCloud(ids: string[]): Promise<number> {
+  /**
+   * Move runs on this Mac to the cloud as it has room; how many will go. One
+   * thread names its project too, which the phone's command needs.
+   */
+  async moveToCloud(ids: string[], product?: string): Promise<number> {
     if (useFixtures || !window.zero?.moveToCloud) return 0;
-    return (await window.zero.moveToCloud({ ids }))?.moving ?? 0;
+    const out = await window.zero.moveToCloud({ ids, ...(product && ids.length === 1 ? { product, id: ids[0] } : {}) });
+    // The phone leaves a command for the computer, which says nothing back yet.
+    return out?.moving ?? (out?.ok ? ids.length : 0);
   },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
