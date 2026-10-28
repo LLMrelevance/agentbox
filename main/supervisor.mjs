@@ -153,7 +153,7 @@ import { NAME, Name, envName, nameSlug, isOurSlug } from '../shared/product-name
 import { signInFiles, signInStamp } from './sign-in-files.mjs';
 import { runsOn } from './runs-on.mjs';
 import { MemoryGateServer, defaultSocketPath as memoryGateSocketPath, readMacPressure } from './memory-gate-server.mjs';
-import { startDecision, readMacPressureNow } from './start-hold.mjs';
+import { startDecision, readMacPressureNow, SETTLE_MS } from './start-hold.mjs';
 import { MemoryLog } from './memory-log.mjs';
 import { autoSlots, DEFAULTS as MEMORY_GATE } from './memory-gate.mjs';
 import { LeftoverCleaner } from './leftovers.mjs';
@@ -4668,10 +4668,18 @@ export class Supervisor {
   // could otherwise be read as no cap, and everything that asks the fleet as a
   // whole -- what the snapshot tells her, whether a resume has anywhere to go --
   // is asking about this Mac rather than about one subscription.
+  //
+  // AND THE COMPUTER'S NUMBER IS THE CEILING ON THAT SUM (w-9c7ca4b8a9). Each
+  // engine was held to the whole computer's number on its own, so Automatic's
+  // 6 on her 16 GB Mac, with Codex signed in too, was a fleet of 12: the
+  // minute log read "capacity 12" all evening on 2026-10-27, nine ran at
+  // once, and the Mac stopped answering. Either engine may still use all of
+  // it, so a Codex row still runs while Claude is quiet.
   _capacity() {
     let n = 0;
     for (const id of ENGINE_IDS) n += this._capacityFor(id);
-    return n;
+    const whole = this._machineTotalFor(DEFAULT_ENGINE);
+    return whole === null ? n : Math.min(n, whole);
   }
 
   // HOW MANY SESSIONS ONE ENGINE'S CAP IS COUNTING, and the number every spawn
@@ -5979,6 +5987,7 @@ export class Supervisor {
     const d = startDecision({
       on: !!this.config.memoryGate,
       reading: this._memReading,
+      recent: this._memRecent ?? [],
       now,
       running: this._load(),
       urgent: !!item && (isUrgent(item) || this._runNow.has(item.id)),
@@ -6020,7 +6029,11 @@ export class Supervisor {
     const asked = now;
     Promise.resolve().then(() => this._readPressure()).then((r) => {
       if (this._memReadingSince !== asked) return;
-      this._memReading = { level: r?.level ?? null, freePct: r?.freePct ?? null, at: Date.now() };
+      // The ones before are kept three minutes, so one normal reading between
+      // short ones does not open the door (main/start-hold.mjs).
+      const at = Date.now();
+      if (this._memReading) this._memRecent = [...(this._memRecent ?? []), this._memReading].filter((x) => at - x.at <= SETTLE_MS);
+      this._memReading = { level: r?.level ?? null, freePct: r?.freePct ?? null, at };
     }, () => {}).finally(() => {
       if (this._memReadingSince === asked) this._memReadingSince = null;
     });
