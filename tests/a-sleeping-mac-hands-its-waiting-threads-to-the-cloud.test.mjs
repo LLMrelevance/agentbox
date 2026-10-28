@@ -159,6 +159,24 @@ describe('a row handed to the cloud', () => {
     expect(real(sup)).toEqual(['w-1']);
   });
 
+  it('runs here once the Mac has been awake ten minutes with no phone pass to take it back', async () => {
+    const { sup } = makeSupervisor([fresh('w-1')]);
+    sup.handedOver({ project: 'alpha', item: 'w-1', command: 'c-1', kind: 'run-now' });
+    sup._bootAt = Date.now() - 11 * MIN;
+    await sup.tick();
+    expect(real(sup)).toEqual(['w-1']);
+    expect(sup._carried['w-1']).toBeUndefined();
+  });
+
+  it('is still held ten minutes on while the phone pass keeps coming', async () => {
+    const { sup } = makeSupervisor([fresh('w-1')]);
+    sup.handedOver({ project: 'alpha', item: 'w-1', command: 'c-1', kind: 'run-now' });
+    sup._bootAt = Date.now() - 11 * MIN;
+    sup.phoneCarrying({ device: DEV, slugs: ['alpha'] });
+    await sup.tick();
+    expect(real(sup)).toEqual([]);
+  });
+
   it('is remembered across a restart', () => {
     const { sup, root } = makeSupervisor([]);
     sup.handedOver({ project: 'alpha', item: 'w-1', command: 'c-1', kind: 'run-now' });

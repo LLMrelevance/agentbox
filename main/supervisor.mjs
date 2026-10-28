@@ -247,6 +247,8 @@ const HUNG_QUIET_MS = 10 * 60_000;
 // A pass this late was not late, the Mac was asleep (forgiveSleep). Eight
 // missed passes: past any slow pass, well under the ten minutes above.
 const SLEPT_GAP_MS = 2 * 60_000;
+// Awake this long with no phone pass, a row handed to the cloud runs here (`_carriedHolds`).
+const PHONE_QUIET_MS = 10 * 60_000;
 // Two hangs on one row inside this window and the app stops restarting it and
 // tells her instead, so a row that hangs every time is not killed forever.
 const HUNG_REPEAT_WINDOW_MS = 2 * 3_600_000;
@@ -695,6 +697,7 @@ export class Supervisor {
     this._tickAgain = false;
     this._lastTickAt = 0;
     this._carried ??= {};
+    this._bootAt = Date.now();
   }
 
   /**
@@ -7062,7 +7065,7 @@ export class Supervisor {
       // a special case.
       if (!this.store.isDue(item, now)) continue;
       // Handed to the cloud while asleep: the phone pass takes it back or joins its run.
-      if (this._carried?.[item.id]) continue;
+      if (this._carriedHolds(item.id, now)) continue;
       const continuation = this._isContinuation(item);
       if (!continuation && !this._isFreshWork(item, now, autonomous)) continue;
       // ONE OF CLAUDE CODE'S OWN EIGHT COMMANDS, typed into this row's reply
@@ -10556,6 +10559,23 @@ export class Supervisor {
   /** Which projects are on her phone, and this computer as it knows it (main/phone-inbox.mjs). */
   phoneCarrying({ device, slugs }) {
     this._phoneCarries = { device, slugs: new Set(slugs ?? []) };
+    this._phoneSeenAt = Date.now();
+  }
+
+  /**
+   * Whether a row handed to the cloud is still held from starting here. Only
+   * the phone pass takes one back, so with the Mac awake ten minutes and no
+   * pass in that time (signed out, the cloud unreachable) each is let go and
+   * runs here, said once in the log, rather than waiting for ever.
+   */
+  _carriedHolds(id, now = Date.now()) {
+    if (!this._carried?.[id]) return false;
+    const awakeSince = Math.max(this._wokeAt ?? 0, this._bootAt ?? 0);
+    if (this.asleep(now) || now - awakeSince < PHONE_QUIET_MS || now - (this._phoneSeenAt ?? 0) < PHONE_QUIET_MS) return true;
+    console.warn(`zero: ${id} was handed to the cloud and nothing has taken it back; it runs here`);
+    delete this._carried[id];
+    this._saveState();
+    return false;
   }
 
   _kitsPossible(engine = 'claude') {
