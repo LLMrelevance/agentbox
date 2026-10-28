@@ -33,7 +33,7 @@ import { phoneSender } from './phone-send';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
 import { cloudAlertsVia } from './cloud-alerts';
 import { computerOf, type Change, type SettingsRow } from './phone-settings-view';
-import { webSettingChange, webSettingsModel } from './web-settings';
+import { webSettingChange, webSettingsModel, phoneEngines, phoneModelRefusal } from './web-settings';
 
 export {
   NOT_HERE, UNDONE, approvalCommand, closeToTakeBack, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
@@ -100,7 +100,7 @@ const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
 
 export function installCloudBridge(cfg: CloudConfig | null = typeof document === 'undefined' ? null : readCloudConfig()): boolean {
   if (!cfg || typeof window === 'undefined' || (window as any).zero) return false;
-  const client: CloudClient = cloudClient(cfg, { storage: localStorage, fetchImpl: (u, i) => fetch(u, i) });
+  const client: CloudClient = cloudClient(cfg, { storage: localStorage, fetchImpl: (u, i) => fetch(u, { ...i, signal: AbortSignal.timeout(15_000) }) });
   const build = readBuildStamp();
   document.documentElement.dataset.door = 'phone';
   document.documentElement.dataset.via = 'cloud';
@@ -110,6 +110,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   try { localStorage.setItem('zero.firstRun.done', '1'); } catch { /* private mode */ }
 
   let rows: PhoneRows = EMPTY_ROWS;
+  let settingsRows: SettingsRow[] = [];
   // This phone's alerts go to every computer of the account, newest first (cloud-alerts.ts).
   const computers = () => [...rows.projects]
     .sort((a, b) => (Date.parse(b.updated_at ?? '') || 0) - (Date.parse(a.updated_at ?? '') || 0))
@@ -152,13 +153,18 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
   const PLAN_READ_MS = 60_000;
   let planReadAt = -Infinity;
   async function readPlan() {
-    if (!client.signedIn()) { planReadAt = -Infinity; setDictationAllowed(false); return; }
+    if (!client.signedIn()) { planReadAt = -Infinity; settingsRows = []; setDictationAllowed(false); return; }
     if (Date.now() - planReadAt < PLAN_READ_MS) return;
     planReadAt = Date.now();
     const asked = client.generation();
     try {
-      const paid = dictationAllowed(await readSettingsRows((table, query) => client.select(table, query)));
-      if (client.generation() === asked) setDictationAllowed(paid);
+      const next = await readSettingsRows((table, query) => client.select(table, query));
+      if (client.generation() === asked) {
+        const different = JSON.stringify(next) !== JSON.stringify(settingsRows);
+        settingsRows = next;
+        setDictationAllowed(dictationAllowed(next));
+        if (different) window.dispatchEvent(new Event('agent-models-changed'));
+      }
     } catch { /* the microphone stays as it was until the next read */ }
   }
 
@@ -173,7 +179,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     return reading;
   }
   async function readRows() {
-    void readPlan();
+    await readPlan();
     if (!client.signedIn()) { rows = EMPTY_ROWS; return; }
     const asked = client.generation();
     try {
@@ -198,7 +204,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     }
     // A run going stale changes nothing online, and still has to stop being drawn.
     const fresh = rows.threads.map((t) => !!t.snapshot?.live && Date.now() - Number(t.snapshot.live.at) < LIVE_FOR_MS);
-    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at, c.claimed_by ?? null]), rows.projects, error, client.signedIn(), phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) })]);
+    const key = JSON.stringify([rows.threads.map((t) => [t.item, t.updated_at]), fresh, links.size, rows.commands.map((c) => [c.id, c.taken_at, c.claimed_by ?? null]), rows.projects, settingsRows, error, client.signedIn(), phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) })]);
     if (key !== last) { last = key; changed(null); }
   }
 
@@ -233,20 +239,35 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     ? null
     : { configured: true, started, signedIn: false, signingIn: null, me: null, team: null, invites: [], sent: [], people: [], cards: [], lastSyncAt: null, error });
 
-  const sender = phoneSender({ client, rows: () => rows, setRows: (next) => { rows = next; }, aliases: () => aliases, changed: () => changed(null) });
+  const sender = phoneSender({ client: {
+    generation: () => client.generation(),
+    update: (table, query, patch) => client.update(table, query, patch),
+    insertCommand: async (row) => {
+      if (row.kind === 'new' || row.kind === 'reply') {
+        await readPlan();
+        const w = settingsRows.find(r => r.device === row.device)?.settings?.workspace;
+        const payload = row.payload as { engine?: string; model?: string | null };
+        const thread = rows.threads.find(t => t.device === row.device && t.project === row.project && t.item === row.item)?.snapshot?.item;
+        const engine = payload.engine ?? (w?.engines?.length === 1 ? w.engines[0] : thread?.engine);
+        const why = phoneModelRefusal(w, { ...thread, ...payload, engine });
+        if (why) throw new Error(why);
+      }
+      return client.insertCommand(row);
+    },
+  }, rows: () => rows, setRows: (next) => { rows = next; }, aliases: () => aliases, changed: () => changed(null) });
 
   // THE COMPUTER'S SETTINGS (web-settings.ts): its copy, read while Settings is
   // open, and the changes left for it, shown as waiting until it takes them.
-  let settingsRows: SettingsRow[] = [];
   let settingCommands: PhoneRows['commands'] = [];
   const sentSettings: PhoneRows['commands'] = [];
-  const failedSettings = (error: string) => ({ ...webSettingsModel(settingsRows, settingCommands, sentSettings), ok: false as const, error });
+  const failedSettings = (error: string) => ({ ...webSettingsModel(settingsRows, settingCommands, sentSettings, rows.projects), ok: false as const, error });
   async function readWebSettings() {
+    await boot;
     if (!client.signedIn()) return webSettingsModel([], [], []);
     try {
       [settingsRows, settingCommands] = await Promise.all([readSettingsRows((table, query) => client.select(table, query)), commands()]);
     } catch (err) { return failedSettings(String((err as Error)?.message ?? err)); }
-    return webSettingsModel(settingsRows, settingCommands, sentSettings);
+    return webSettingsModel(settingsRows, settingCommands, sentSettings, rows.projects);
   }
   async function changeSetting(change: Change) {
     const out = webSettingChange(computerOf(settingsRows), change);
@@ -287,7 +308,7 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
         phoneConnect: phoneConnectState({ signedIn: client.signedIn(), started, error, projects: rows.projects, email: client.session()?.user.email }),
         phoneAccount: client.signedIn() ? { email: client.session()?.user.email ?? null, seenAt: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects), build } : null,
         team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, queued: view.queued, productOrder: view.products.map((p) => p.slug) },
-        engines: null, runsOn: null, restartNeeded: null, cloud: null,
+        engines: phoneEngines(settingsRows, rows.projects, view.items), runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
     },
