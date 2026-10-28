@@ -6208,7 +6208,7 @@ export default function App() {
   const evTabsRow = teamTabs ? <StateTabs view={view} counts={needsYouCount}
     needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
   const evTop = evOn ? <>
-    <CardsArea rows={evRows} onRows={setEvRows} picked={evKey} grip={evFill} hidden={evSplit.hidden} onShow={showCard}>
+    <CardsArea rows={evRows} onRows={setEvRows} picked={evKey} hidden={evSplit.hidden} onShow={showCard}>
       <TeamStrip members={evSplit.shown} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
         onAdd={teammatesUi.live ? teammatesUi.onNew : undefined} adding={evKey === 'new'}
         onHide={hideCard} />
