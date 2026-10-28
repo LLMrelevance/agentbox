@@ -1521,10 +1521,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       key={`${item.product}:${item.id}`}
       change={changeFigures}
       onViewChange={() => onOpenDoc?.(changePathFor(item.id))}
-      terminal={direct ? null : terminalOpen ? 'open' : 'closed'}
+      /* A PHONE HAS NO TERMINAL AND NO ⌘J (QA batch 005, F-118), and it is the
+         only way it has of putting a thread off (F-117). */
+      terminal={direct || onPhone() ? null : terminalOpen ? 'open' : 'closed'}
       onToggleTerminal={() => window.dispatchEvent(new Event('task-terminal-toggle'))}
       onFinish={canFinish ? onResolve : null}
       onRunNow={waiting && onRunNow ? onRunNow : null}
+      onLater={onPhone() && canFinish ? onSnooze ?? null : null}
       // A finished thread has nothing to be pinned for.
       pinned={canFinish && onPin ? !!item.pinned : null}
       onPin={onPin}
@@ -2932,7 +2935,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     if (mode !== null && exactClear(q)) { pickMode(null); return; }
     setText(next);
   };
-  const talk = useWebDictation({ text, setText }, () => void send());
+  const talk = useWebDictation({ text, setText, field: ref }, () => void send());
+  // A box that is listening is in use before its first word arrives.
+  const held = hasDraft || talk.on;
   // Clicking away folds the composer, on EXACTLY the rule Escape already
   // follows: a draft holds it open. The modals already did this; the dock is
   // the one composer that is not a modal, so it never had a way out except a
@@ -2944,14 +2949,14 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // not happening. The draft survives either way (saveDraft runs on every
   // keystroke), but a box that vanishes mid-sentence still reads as loss.
   useEffect(() => {
-    if (hasDraft) return;
+    if (held) return;
     const away = (e: MouseEvent) => {
       const card = (e.target as HTMLElement)?.closest?.('.dock-card');
       if (!card) onClose();
     };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
-  }, [hasDraft, onClose]);
+  }, [held, onClose]);
   /*
    * THE CLICK-AWAY THAT SHUT THE MODE MENU IS GONE WITH THE CHIP THAT OPENED
      IT (2026-08-26). The menu is now only ever open because a slash is the
@@ -3025,7 +3030,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
     if (e.key === 'Escape') {
       e.stopPropagation();
-      if (hasDraft) ref.current?.blur();
+      if (held) ref.current?.blur();
       else onClose();
     }
   };

@@ -96,6 +96,8 @@ export function phoneSettingsOf(model, { version }) {
       permission: w.permission,
       codexMode: w.codexMode ?? null,
       engines: (w.engineChoices ?? []).map((e) => e.id),
+      claudeModels: (w.claudeModels ?? []).map(({ id, label, model, defaultLevel }) => ({ id, label, model, defaultLevel })),
+      codexFreePlan: !!w.codexFreePlan,
       // WHAT To AND Model OFFER ON THE PHONE AND THE WEB (w-24119e8784): the
       // agent a thread runs on when nobody picks, and Codex's models with their
       // own levels. Names and words only, never a path.
