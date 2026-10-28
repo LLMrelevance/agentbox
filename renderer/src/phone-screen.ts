@@ -213,12 +213,41 @@ export function installPictureZoom() {
   });
 }
 
+/** Is the page pinched in? Then what shows is not the page's size, and nothing should be fitted to it. */
+export const pagePinched = (scale = window.visualViewport?.scale ?? 1) => scale > 1.01;
+
+// A DESIGN IS ANOTHER PAGE IN A FRAME, so its fingers never reach this one and
+// only the browser's own pinch can enlarge it ("would be nice to be able to
+// zoom into ... designs, very hard to see on the small screen", 2026-10-28).
+// The app's page turns that pinch off, so it is let back on while a design is
+// open, and turning it off again fits the page back.
+let designsOpen = 0;
+let fixedViewport: string | null = null;
+
+/** Let the page be pinched while a design is open. Returns the call that puts it back. */
+export function letThePagePinch(): () => void {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+  if (!meta) return () => {};
+  if (designsOpen === 0) fixedViewport = meta.content;
+  designsOpen += 1;
+  meta.content = meta.content.replace(/maximum-scale=[\d.]+/, 'maximum-scale=5');
+  let done = false;
+  return () => {
+    if (done) return;
+    done = true;
+    designsOpen -= 1;
+    if (designsOpen === 0 && fixedViewport) meta.content = fixedViewport;
+  };
+}
+
 /** Keyboard, edge colour and the home-screen swipe. Called once by the bridge. */
 export function installPhoneScreen() {
   const root = document.documentElement;
   const vv = window.visualViewport;
   const fit = () => {
-    if (!vv) return;
+    // Pinched into a design, the visual viewport is the magnified part, and
+    // holding the page to it would shrink the page under the fingers.
+    if (!vv || pagePinched(vv.scale)) return;
     root.style.setProperty('--vvh', `${Math.round(vv.height)}px`);
     const kb = keyboardInset({ innerHeight: window.innerHeight, height: vv.height, offsetTop: vv.offsetTop });
     root.style.setProperty('--kb', `${kb}px`);

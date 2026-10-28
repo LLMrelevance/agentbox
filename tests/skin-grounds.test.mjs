@@ -149,6 +149,10 @@ const ANSWERS = {
   // A PHONE WHOSE KEY WAS RESET (renderer/src/browser-bridge.ts). It covers an
   // inbox that can no longer answer, so nothing of it may show through.
   '#phone-locked-out': 'opaque',
+  // A TAB WHOSE ADDRESS CARRIED NO KEY (renderer/src/browser-bridge.ts). The
+  // app is never drawn behind it, so there is nothing for a picture to show
+  // through to.
+  '#needs-its-key': 'opaque',
   // THE APP DRAWN BEHIND THE WALK'S THEME STEP. Shot that way once, on the
   // day it was built: the tab strip printed twice on one line.
   '.fr-look-app': 'photograph',
