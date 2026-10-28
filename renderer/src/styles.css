@@ -830,8 +830,8 @@ body {
 }
 
 /* The one sentence the boot screen says when nothing comes back. It stands
-   where the wordmark stood, in reading type rather than in the wordmark's
-   tracking. */
+   under the moving logo, in reading type. */
+.boot-stuck { gap: 28px; padding: 0 24px; }
 .boot-stuck p {
   margin: 0;
   max-width: 560px;
@@ -841,6 +841,37 @@ body {
   letter-spacing: normal;
   line-height: 1.6;
   color: var(--text-dim);
+}
+
+/* THE LOGO, ITS ORANGE DOT RUNNING ROUND THE RING (logo-orbit.ts). The app
+   icon's proportions at 90px: 24px dots, 9px gaps. Each dot is the logo's
+   grey under an orange layer whose opacity runs ORBIT_KEYS, and a test holds
+   the percentages below to them. The logo's own colours, so the same in
+   every theme. */
+.logo-orbit {
+  display: grid; grid-template-columns: repeat(3, 24px); gap: 9px;
+}
+.logo-orbit-dot {
+  position: relative; width: 24px; height: 24px; border-radius: 50%;
+  background: #5f5e5c;
+}
+.logo-orbit-dot::after {
+  content: ''; position: absolute; inset: 0; border-radius: 50%;
+  background: #ee6018; opacity: 0;
+  animation: logo-orbit 1488ms linear infinite;
+  animation-delay: var(--orbit-delay, 0ms);
+}
+.logo-orbit-dot[data-still]::after { animation: none; }
+@keyframes logo-orbit {
+  0% { opacity: 1; }
+  6% { opacity: 1; }
+  14% { opacity: 0.45; }
+  26% { opacity: 0; }
+  100% { opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .logo-orbit-dot::after { animation: none; opacity: 0; }
+  .logo-orbit-dot[data-corner]::after { opacity: 1; }
 }
 
 /* --read-w is the width of the sheet an opened task is set on: the reading
