@@ -252,6 +252,27 @@ export function picturesTheAppOwns({ config, store }) {
  */
 export const fileKey = (token) => crypto.createHmac('sha256', String(token ?? '')).update('agentbox-files').digest('base64url').slice(0, 32);
 
+/**
+ * THE PAGE SAYS WHICH DOOR IT CAME THROUGH.
+ *
+ * The screen draws its canned fixtures whenever it has no bridge
+ * (renderer/src/api.ts), which is what a design preview wants and was a lie in
+ * a tab opened here with no key: three products nobody owns and fifteen threads
+ * nobody wrote, with nothing saying they were invented. This mark is how the
+ * page tells the two apart. It rides in the html because a navigation cannot
+ * read a header, and it says a door is here rather than what opens it.
+ */
+export const DOOR_MARK = '<meta name="agentbox-door" content="this-computer">';
+
+export function markTheDoor(html) {
+  const text = typeof html === 'string' ? html : String(html);
+  if (text.includes('name="agentbox-door"')) return text;
+  const head = /<head[^>]*>/i.exec(text);
+  if (!head) return DOOR_MARK + text;
+  const after = head.index + head[0].length;
+  return text.slice(0, after) + DOOR_MARK + text.slice(after);
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.htm': 'text/html; charset=utf-8',
@@ -448,12 +469,13 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
             return;
           }
           res.writeHead(200, { 'content-type': MIME['.html'] });
-          res.end(index);
+          res.end(markTheDoor(index));
         });
         return;
       }
-      res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream' });
-      res.end(buf);
+      const type = MIME[path.extname(file)] ?? 'application/octet-stream';
+      res.writeHead(200, { 'content-type': type });
+      res.end(type === MIME['.html'] ? markTheDoor(buf) : buf);
     });
   };
 }
