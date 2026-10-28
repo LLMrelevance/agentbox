@@ -37,7 +37,7 @@ beforeEach(async () => {
   const channels = new Map([
     ['zero:answer', async (_e, args) => { calls.push(['zero:answer', args]); return { id: args.id }; }],
     ['zero:snooze', async (_e, args) => { calls.push(['zero:snooze', args]); return { id: args.id }; }],
-    ['zero:compose', async (_e, args) => { calls.push(['zero:compose', args]); return { id: 'w-new' }; }],
+    ['zero:compose', async (_e, args) => { calls.push(['zero:compose', args]); return store.composeItem(args.product, args); }],
   ]);
   service = createTeamService({
     session: memorySession(() => memoryBackend(cloud, me)),

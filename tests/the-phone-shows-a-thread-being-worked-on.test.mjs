@@ -91,6 +91,20 @@ describe('the Mac\'s copy of a thread being worked on', () => {
     await p.inbox.syncOnce();
     expect(p.sent.map((s) => s.item)).toEqual(['w-aaaaaaaaaa']);
   });
+
+  it('keeps the cloud run identity, including when it arrives after the initial running marker', async () => {
+    let runId;
+    const p = publisher({ live: (id) => id === 'w-aaaaaaaaaa' ? { since: T, where: 'cloud', doing: [], runId } : null });
+    await p.inbox.syncOnce();
+    runId = 'cloud-run-1';
+    p.tick(1000);
+    await p.inbox.syncOnce();
+    expect(p.sent.at(-1).live.runId).toBe('cloud-run-1');
+    runId = undefined;
+    p.tick(3 * 60_000);
+    await p.inbox.syncOnce();
+    expect(p.sent.at(-1).live.runId).toBe('cloud-run-1');
+  });
 });
 
 describe('what the supervisor tells the phone', () => {
