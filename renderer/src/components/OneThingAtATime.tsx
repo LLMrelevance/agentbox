@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import { api } from '../api';
 import { onPhone } from '../phone-screen';
 import { splitHeadline, type Spot } from '../one-thing-at-a-time';
+import { DocumentPreview } from './DocumentPreview';
 import '../one-thing-at-a-time.css';
 
 /** What this page reads in place rather than as a tile: a page an agent made, or a note. */
@@ -113,7 +114,7 @@ export function QueueFile({ product, path, md, onOpen }: { product: string; path
         <button type="button" className="one-fileopen" onClick={onOpen}>Open full screen</button>
       </div>
       {!folded && page && url && <iframe className="one-frame" src={url} title={path} sandbox={onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'} />}
-      {!folded && !page && text != null && <div className="markdown one-notebody">{md(text)}</div>}
+      {!folded && !page && text != null && <DocumentPreview key={`${product}:${path}`}><div className="markdown one-notebody">{md(text)}</div></DocumentPreview>}
     </section>
   );
 }
