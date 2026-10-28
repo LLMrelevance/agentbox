@@ -21,6 +21,7 @@ import {
   kitKey, replyPrompt, resultsInLines, runKey, serverRunKey, startPayload,
 } from '../../shared/cloud-kit.mjs';
 import { withCloudTurn } from '../../shared/phone-snapshot.mjs';
+import { cloudRunSnapshot } from './phone-status.mjs';
 import { fillNewThreadKit, newThreadKitKey } from '../../shared/cloud-kit.mjs';
 import { madeHere, newThreadSnapshot } from '../../shared/phone-snapshot.mjs';
 import { codexOpenLines, codexTurnLines, codexReadLines, codexAnswersIn } from '../../shared/cloud-kit.mjs';
@@ -91,6 +92,26 @@ export function supabaseRest({ url, serviceKey, fetchImpl = fetch, timeoutMs = D
       return Array.isArray(rows) && rows[0] ? rows[0] : null;
     },
     writeThread: (owner, device, project, item, snapshot) => call('PATCH', `phone_threads?${thread(owner, device, project, item)}`, { body: { snapshot, updated_at: iso(Date.now()) } }),
+    async runStatus(owner, phone, status) {
+      const where = thread(owner, phone.device, phone.project, phone.item);
+      const rows = await call('GET', `phone_threads?select=snapshot,updated_at&${where}`);
+      const row = rows?.[0];
+      if (!row) return status.at === null;
+      const snapshot = cloudRunSnapshot(row.snapshot, status);
+      if (!snapshot) return true;
+      const updated = await call('PATCH', `phone_threads?${where}&updated_at=eq.${q(row.updated_at)}`, {
+        body: { snapshot, updated_at: iso(Date.now()) }, prefer: 'return=representation',
+      });
+      return !!updated?.length;
+    },
+    async cloudRuns() {
+      const rows = [];
+      for (let offset = 0; ; offset += 500) {
+        const page = await call('GET', `phone_threads?select=owner,device,project,item,runId:snapshot->live->>runId,since:snapshot->live->>since&snapshot->live->>where=eq.cloud&snapshot->live->>runId=not.is.null&order=owner,device,project,item&limit=500&offset=${offset}`);
+        rows.push(...(page ?? []));
+        if (!page || page.length < 500) return rows;
+      }
+    },
     // A thread the cloud started from the phone; one already there is kept.
     newThread: (owner, device, project, item, snapshot) => call('POST', 'phone_threads?on_conflict=owner,device,project,item', { body: { owner, device, project, item, snapshot, updated_at: iso(Date.now()) }, prefer: 'resolution=ignore-duplicates,return=minimal' }),
     // A link the sandbox fetches one of her phone's files by, or null when it is not there.
@@ -816,6 +837,10 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
         if (rec.state === 'open' && t - rec.startedAt >= END_LOOK_AFTER_MS && (await objects.head(`runs/u-${rec.owner}/${rec.runId}/done.json`).catch(() => null))) {
           if (await runEnded(rec.owner, rec.runId)) out.ended += 1;
         }
+        await db.runStatus?.(rec.owner, { device: rec.device, project: rec.project, item: rec.item }, {
+          runId: rec.runId, since: rec.startedAt,
+          at: rec.state === 'open' && !rec.joined && busy(rec) ? t : null,
+        });
       } catch (err) { log(`phone: cloud run ${rec.runId} was passed: ${err?.message || err}`); }
     }
     return out;

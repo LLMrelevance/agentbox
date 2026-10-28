@@ -5422,7 +5422,9 @@ export class Supervisor {
   // before the app's quit could leave it going. It hears only the app.
   _spawnCloudRelay(args, { cwd, env: given, stdio = ['pipe', 'pipe', 'pipe'] }) {
     const { [CLOUD_ACCOUNT_ENV.claude]: _claude, [CLOUD_ACCOUNT_ENV.codex]: _codex, ...rest } = given;
-    const env = { ...rest, ...this._cloudAccountEnv() };
+    const env = { ...rest, ...this._cloudAccountEnv(),
+      ...(this._phoneCarries?.slugs.has(given.ZERO_PRODUCT) ? { AGENTBOX_PHONE_DEVICE: this._phoneCarries.device } : {}),
+    };
     const shim = unpacked(path.join(this.appDir, 'scripts', 'cloud-shim.pl'));
     const sock = this._cloudHostAvailable() ? this._cloudHost() : null;
     if (sock) {
@@ -6244,7 +6246,8 @@ export class Supervisor {
   liveFor(product, itemId) {
     const s = this.sessions.get(itemId);
     if (!s || s.product !== product || s.remoteIdle) return null;
-    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
+    const runId = s.cloud && s.cwd ? readMarker(this._cloudPlace(s.cwd, product, itemId))?.runId : null;
+    return { since: s.startedAt, where: s.cloud ? 'cloud' : 'mac', ...(runId ? { runId } : {}), doing: currentActivity(s).map((a) => ({ label: a.label, startedAt: a.startedAt })) };
   }
 
   status() {
@@ -10532,7 +10535,7 @@ export class Supervisor {
   // command line and brief, planned for a stand-in row whose id, title and
   // body are marks, packed from main. Left each pass of the phone at most
   // every NEW_KIT_EVERY_MS, and as soon as main has moved (looked at every
-  // NEW_KIT_LOOK_MS). A project with no repository gets none.
+  // NEW_KIT_LOOK_MS). A project without a repository uses its documents folder.
 
   /** The projects on her phone, from the phone's pass (main/phone-inbox.mjs). */
   leaveNewThreadKits({ slugs = [] } = {}) {
@@ -10546,19 +10549,20 @@ export class Supervisor {
       const was = left.get(slug);
       if (was?.child || was?.codexChild || was?.looking || (was && now - was.lookedAt < NEW_KIT_LOOK_MS)) return;
       const product = this.store.listProducts().find((p) => p.slug === slug);
-      const base = product?.repoPath ? this.productFolder(product) : null;
+      const base = product ? this.productFolder(product) : null;
       if (!base || !fs.existsSync(base)) return;
       const root = real(base);
       // Main, as a task folder is branched from it (main/task-folders.mjs baseRef).
       const looking = { ...(was ?? {}), looking: true, lookedAt: now };
       left.set(slug, looking);
       let main = null;
-      for (const ref of ['refs/heads/main', 'refs/heads/master']) {
+      const plain = root === real(product.dir);
+      for (const ref of plain ? [] : ['refs/heads/main', 'refs/heads/master']) {
         try { main = await gitAsync(root, ['rev-parse', '--verify', '-q', ref]); break; } catch { /* the next */ }
       }
       looking.looking = false;
-      if (!main) return;
-      if (was && was.main === main && now - was.at < NEW_KIT_EVERY_MS) return;
+      if (!plain && !main) return;
+      if (was && !was.failed && was.main === main && now - was.at < NEW_KIT_EVERY_MS) return;
       const stub = {
         id: NEW_ITEM_MARK, product: slug, title: NEW_TITLE_MARK, body: NEW_BODY_MARK, kind: 'directive', status: 'open', priority: 0,
         labels: ['founder'], createdAt: now, updatedAt: now, wrote: { title: { ts: now, source: 'founder' }, body: { ts: now, source: 'founder' } },
@@ -10567,7 +10571,7 @@ export class Supervisor {
       const defaultEngine = engineOf(this._engineFor(stub)) === 'codex' ? 'codex' : 'claude';
       const rec = { child: null, codexChild: null, main, at: now, lookedAt: now };
       left.set(slug, rec);
-      const ctx = { slug, stub, product, root: real(root), defaultEngine, rec };
+      const ctx = { slug, stub, product, root: real(root), defaultEngine, rec, plain };
       if (this._kitsPossible('claude')) this._writeClaudeNewThreadKit(ctx);
       if (this._kitsPossible('codex')) this._writeCodexNewThreadKit(ctx);
     } catch (error) {
@@ -10575,7 +10579,7 @@ export class Supervisor {
     }
   }
 
-  _writeClaudeNewThreadKit({ slug, stub, product, root, defaultEngine, rec }) {
+  _writeClaudeNewThreadKit({ slug, stub, product, root, defaultEngine, rec, plain }) {
     const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'claude' });
     if (plan.command || plan.resumeId) return;
     const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
@@ -10587,7 +10591,7 @@ export class Supervisor {
     const framed = kitFramePath(this.userDir, slug, NEW_THREAD);
     fs.writeFileSync(framed, JSON.stringify(frame), { mode: 0o600 });
     const asked = path.join(dir, `${slug.replace(/[^A-Za-z0-9_-]/g, '_')}--_new.asked.json`);
-    const cwd = path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
+    const cwd = plain ? root : path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
     fs.writeFileSync(asked, JSON.stringify({ cwd, brief: plan.prompt, model: plan.model ?? null, effort: plan.effort ?? null, defaultEngine }), { mode: 0o600 });
     const child = this._spawnCloudRelay(['--agentbox-kit', ...launch.args], {
       cwd: root,
@@ -10601,14 +10605,14 @@ export class Supervisor {
   // files read once, the thread to start for the stand-in (its folder and
   // names marked) with the turn's own settings, and its brief. Her title and
   // body go only into the first turn, so a start that carried them is none.
-  _writeCodexNewThreadKit({ slug, stub, product, root, defaultEngine, rec }) {
+  _writeCodexNewThreadKit({ slug, stub, product, root, defaultEngine, rec, plain }) {
     const plan = this.spawnPlan(stub, product, { continuation: false, engine: 'codex' });
     if (plan.command || plan.resumeId || plan.reviewTarget) return;
     const frame = replyFrame(this.replyBrief({ ...stub, answer: REPLY_MARK }, { product }));
     if (!frame) return;
     const profile = this._projectProfile(slug, 'codex') ?? 'default';
     const home = this._codexProfileHome(profile);
-    const cwd = path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
+    const cwd = plain ? root : path.join(root, '.claude', 'worktrees', NEW_ITEM_MARK);
     const start = this.codexThreadParamsFor(plan, cwd, [], this._codexStoreServer(stub), home, { cloud: true });
     const { input: _said, ...turn } = this.codexTurnParamsFor(plan);
     if ([NEW_TITLE_MARK, NEW_BODY_MARK].some((m) => JSON.stringify(start).includes(m))) { this._kitTrouble('new-codex', 'a new Codex thread\'s start would carry her words'); return; }
@@ -10641,7 +10645,7 @@ export class Supervisor {
     const done = (code) => {
       if (rec[field] !== child) return;
       rec[field] = null;
-      if (code !== 0) { this._kitTrouble(`new ${code}`, said.trim().split('\n').pop() || 'it ended without saying why'); rec.main = null; }
+      if (code !== 0) { this._kitTrouble(`new ${code}`, said.trim().split('\n').pop() || 'it ended without saying why'); rec.main = null; rec.failed = true; }
     };
     child.on('error', () => done(1));
     child.once('exit', done);
@@ -10702,10 +10706,12 @@ export class Supervisor {
       if (!base) return 'busy';
       const root = real(base);
       // Its branch at the main the kit saw, so the folder made next is on it.
-      try { await gitAsync(root, ['rev-parse', '--verify', '-q', `refs/heads/${kit.branch}`]); } catch {
-        await gitAsync(root, ['branch', kit.branch, filled.mainSha]);
+      if (!kit.plain) {
+        try { await gitAsync(root, ['rev-parse', '--verify', '-q', `refs/heads/${kit.branch}`]); } catch {
+          await gitAsync(root, ['branch', kit.branch, filled.mainSha]);
+        }
       }
-      const folder = await this._makeTaskFolder(base, itemId);
+      const folder = kit.plain ? base : await this._makeTaskFolder(base, itemId);
       if (!folder || real(folder) !== real(kit.cwd)) {
         this._kitTrouble('new-folder', `the folder for ${itemId} is not where its cloud run worked (${folder ?? 'none'})`);
         return 'busy';
