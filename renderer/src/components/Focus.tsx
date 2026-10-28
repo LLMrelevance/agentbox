@@ -3089,11 +3089,10 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         className={`dock-input${chat.live ? ' with-mentions' : ''} ${named.over}`}
         ref={ref}
         value={text}
-        onChange={(e) => { changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
+        onChange={(e) => { talk.typed(); changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
         onSelect={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onScroll={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onClick={(e) => { chat.click(e.currentTarget); named.track(e.currentTarget); }}
-        onFocus={() => { if (talk.on) talk.stop(); }}
         /* * ONE CLEAR SENTENCE. The old placeholder was unclear about what it even meant,
            and a reply box needs one simple sentence.
 
