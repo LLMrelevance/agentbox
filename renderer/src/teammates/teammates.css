@@ -60,6 +60,8 @@
 .tq-input { min-height: 40px; max-height: 200px; resize: none; padding: 11px 13px 4px; box-sizing: border-box; border: 0; outline: 0; background: none; font: inherit; color: var(--text); font-size: 15px; line-height: 22px; }
 .tq-input::placeholder { color: var(--text-faint); }
 .tq-compose .rm-compose-bar { justify-content: space-between; }
+/* Stop takes Send's slot while it works, so it has Send's edge and height. */
+.tq-compose .dock-stop { margin-right: 0; padding: 4px 12px; }
 .tq-compose .dock-send kbd { font: 400 10.5px/1 var(--mono); color: var(--text-faint); margin-left: 6px; }
 
 /* The panel beside a teammate's chat */
@@ -238,9 +240,9 @@ span.tq-link:focus-visible { outline: 1px solid var(--text-faint); outline-offse
 .tq-sent-bar { display: flex; align-items: center; padding: 6px 20px 0; border-bottom: 1px solid var(--line); }
 /* Its underline sits on the bar's line, as a tab's does over the inbox. */
 .tq-sent-bar .tm-tab { margin-bottom: -1px; }
+/* Its row keeps the inbox's own columns, which give up priority and then
+   project as the chat narrows: columns set here would outrank those steps. */
 .tq-inrows { --text-x: 20px; --row-r: 20px; --gutter: 20px; white-space: normal; }
-/* The chat is narrower than the inbox: status and time keep only the width their words need. */
-.tq-inrows .th-grid { grid-template-columns: minmax(0, 1fr) 104px 84px; column-gap: 16px; }
 .tq-inrows .row:focus-visible { outline: 1px solid var(--line-strong); outline-offset: -1px; }
 .tq-dot-need { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
 .tq-pick { position: relative; }
