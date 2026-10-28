@@ -5978,8 +5978,8 @@ export default function App() {
   // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
   // with two lessons left to give there.
   const [landOn, setLandOn] = useState<string | null>(null);
-  const finishFresh = useCallback((sent: string | null) => {
-    const to = firstRunLanding(sent);
+  const finishFresh = useCallback((sent: string | null, runAt = 0) => {
+    const to = firstRunLanding(sent, runAt);
     finishFirstRun(localStorage);
     setLessons(localStorage, ['open', 'pick']);
     setLessonList(['open', 'pick']);
