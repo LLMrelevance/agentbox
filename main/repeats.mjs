@@ -216,21 +216,11 @@ export class Repeats {
         }
       }
 
-      const { created } = workItemsDisk.createWorkItemIfAbsent(productDir, id, {
-        title: `${rule.title} · ${dayStamp(key)}`,
-        body: `${OCCURRENCE_PROTOCOL.replace('<REPEAT_LABEL>', repeatLabel(ruleId))}\n\n${standingInstruction(rule)}`,
-        kind: 'directive',
-        priority: rule.priority ?? 5,
-        labels: ['founder', repeatLabel(ruleId)],
-        // WHICH CODING AGENT AND WHICH MODEL, off the rule, at the moment the
-        // run is made. A run is an ordinary work item, so this is the same pair
-        // `composeItem` writes for a task she types by hand and it is read by
-        // the same `engineFor` -- the occurrence needs no rule-shaped special
-        // case anywhere downstream. Absent on a rule that names neither, which
-        // is every rule on her disk today.
-        ...(rule.engine ? { engine: rule.engine } : {}),
-        ...(rule.model ? { model: rule.model } : {}),
-      }, { source: 'system', now });
+      // WHICH CODING AGENT AND WHICH MODEL come off the rule at the moment the
+      // run is made (`occurrenceFields`). A run is an ordinary work item, so
+      // this is the same pair `composeItem` writes for a task she types by
+      // hand and it is read by the same `engineFor`.
+      const { created } = workItemsDisk.createWorkItemIfAbsent(productDir, id, occurrenceFields({ ...rule, id: ruleId }, key), { source: 'system', now });
 
       // Told once per streak, and that is a durable fact rather than an
       // intention: a crash after filing cannot file it twice, and one before it
@@ -246,6 +236,19 @@ export class Repeats {
       return { occurrenceId: id, created, superseded, misses, alert: alertNeeded ? missedKeys(key, misses) : null };
     }, { label: `repeat ${ruleId}` });
   }
+}
+
+/** The row a period's run is made as, before it exists (a sleeping Mac hands it over, shared/cloud-carry.mjs). */
+export function occurrenceFields(rule, key) {
+  return {
+    title: `${rule.title} · ${dayStamp(key)}`,
+    body: `${OCCURRENCE_PROTOCOL.replace('<REPEAT_LABEL>', repeatLabel(rule.id))}\n\n${standingInstruction(rule)}`,
+    kind: 'directive',
+    priority: rule.priority ?? 5,
+    labels: ['founder', repeatLabel(rule.id)],
+    ...(rule.engine ? { engine: rule.engine } : {}),
+    ...(rule.model ? { model: rule.model } : {}),
+  };
 }
 
 function dayStamp(key) {

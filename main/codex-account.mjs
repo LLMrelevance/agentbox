@@ -29,6 +29,17 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import {createHash} from 'node:crypto';
+
+const liveAccounts = new Map();
+const authFingerprint = text => createHash('sha256').update(text).digest('hex');
+export function rememberCodexAccount(home, account) {
+  const file = codexAuthFile(home);
+  try {
+    const fingerprint = authFingerprint(fs.readFileSync(file, 'utf8'));
+    liveAccounts.set(file, {fingerprint, account});
+  } catch { liveAccounts.delete(file); }
+}
 
 /** The claim OpenAI hangs its ChatGPT facts off, verbatim. */
 const AUTH_CLAIM = 'https://api.openai.com/auth';
@@ -94,14 +105,24 @@ export function codexAuthFile(home = null) {
 export function codexAccount(home = null, { file = null } = {}) {
   const at = file ?? codexAuthFile(home);
   let auth = null;
-  try { auth = JSON.parse(fs.readFileSync(at, 'utf8')); } catch { return null; }
+  let fingerprint;
+  try {
+    const text = fs.readFileSync(at, 'utf8');
+    auth = JSON.parse(text);
+    fingerprint = authFingerprint(text);
+  } catch { return null; }
   if (!auth || typeof auth !== 'object') return null;
 
   const id = claims(auth?.tokens?.id_token);
   const chatgpt = id?.[AUTH_CLAIM] ?? null;
   const email = typeof id?.email === 'string' && id.email.trim() ? id.email.trim() : null;
   const name = typeof id?.name === 'string' && id.name.trim() ? id.name.trim() : null;
-  const plan = planLabel(chatgpt?.chatgpt_plan_type);
+  const live = liveAccounts.get(at);
+  const hasLive = live?.fingerprint === fingerprint;
+  if (hasLive && !live.account) return null;
+  const current = hasLive ? live.account : null;
+  const planType = hasLive ? (current?.type === 'chatgpt' ? current.planType : null) : chatgpt?.chatgpt_plan_type;
+  const plan = planLabel(planType);
   // The uuid, which is nobody's name and is only worth drawing when there is no
   // email to draw instead. Claude Code's rows make the same choice.
   const accountId = typeof auth?.tokens?.account_id === 'string' && auth.tokens.account_id
@@ -110,7 +131,7 @@ export function codexAccount(home = null, { file = null } = {}) {
   const mode = typeof auth?.auth_mode === 'string' && auth.auth_mode ? auth.auth_mode : null;
 
   if (!email && !name && !plan && !accountId) return null;
-  return { email, name, plan, planNamed: planIsNamed(chatgpt?.chatgpt_plan_type), mode, accountId };
+  return { email: current?.email ?? email, name, plan, planNamed: planIsNamed(planType), mode, accountId };
 }
 
 /**

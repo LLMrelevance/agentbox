@@ -41,6 +41,7 @@ import { TeamContext, Face, firstName } from '../team/people';
 import { AgentFace } from '../components/AgentFace';
 import { AutoFace } from '../components/AutoFace';
 import { AUTO_LABEL } from '../../../shared/auto-route.mjs';
+import { readLastRecipient, writeLastRecipient } from './recipient';
 import { conversationWith } from './page-rules';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { AttachRow } from '../components/AttachRow';
@@ -108,8 +109,9 @@ export interface ComposeStart {
 }
 
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver, statusLine,
 }: {
+  statusLine?: string | null;
   /** On the page: whether the keyboard is in the box or words are left in it. */
   onWriting?: (writing: boolean) => void;
   /** On the page: filled with a reading of the box, for the dialog to open on. */
@@ -190,15 +192,16 @@ export function ThreadComposer({
   const others = useMemo(() => (team ? teammates(team.state.people, team.me) : []), [team]);
 
   /* ------------------------------- who ---------------------------------- */
-  const [to, setTo] = useState<string>(() => (initial?.to && others.some((p) => p.id === initial.to) ? initial.to : 'agent'));
+  const [recipient] = useState(() => initial?.to || initial?.mate
+    ? { to: initial.to && others.some(p => p.id === initial.to) ? initial.to : 'agent', mate: initial.mate ?? null, auto: false }
+    : readLastRecipient(others, agentMates, !!onToTeammate));
+  const [to, setTo] = useState<string>(recipient.to);
   const person = to === 'agent' ? null : others.find((p) => p.id === to) ?? null;
   // A teammate in To, or 'new' for Someone new: it takes the words in the team chat.
-  const [mate, setMate] = useState<string | null>(() => initial?.mate ?? null);
+  const [mate, setMate] = useState<string | null>(recipient.mate);
   const mateRow = mate && mate !== 'new' ? agentMates?.find((t) => t.id === mate) ?? null : null;
-  // AUTO: with AI teammates to give it to, a thread starts out going to
-  // whoever's work it is (shared/auto-route.mjs). Picking anyone in To leaves it.
   const autoHere = autoOffered(agentMates, !!onToTeammate);
-  const [auto, setAuto] = useState(() => !initial?.to && !initial?.mate);
+  const [auto, setAuto] = useState(recipient.auto);
   const onAuto = auto && autoHere && to === 'agent' && !mate;
   // A teammate who leaves the team while the card is open takes the To with them.
   useEffect(() => { if (to !== 'agent' && !person) setTo('agent'); }, [to, person]);
@@ -657,7 +660,7 @@ export function ThreadComposer({
     else { dropComposeDraft(taken); setText(''); onClose(); }
   };
   const send = () => (person && sendAs === 'message' ? sendMessage() : sendTask());
-  const talk = useWebDictation({ text, setText }, () => void send());
+  const talk = useWebDictation({ text, setText, field: textRef }, () => void send());
   // ⌘↵ SENDS WHEREVER THE CURSOR IS while the card is open (w-9f6975906c).
   // It used to be heard only inside the card, so once a menu or a click had
   // taken focus out of it the key did nothing: "Command+Enter in the tutorial
@@ -694,10 +697,11 @@ export function ThreadComposer({
     setAdding(false);
     setMate(null);
     setAuto(false);
+    writeLastRecipient({ to: id, mate: null, auto: false });
     setTo(id); setAlso([]); setError(null); close('text');
   };
-  const chooseMate = (id: string) => { setAdding(false); setAuto(false); setTo('agent'); setAlso([]); setMate(id); setError(null); close('text'); };
-  const chooseAuto = () => { setAdding(false); setMate(null); setTo('agent'); setAlso([]); setAuto(true); setError(null); close('text'); };
+  const chooseMate = (id: string) => { setAdding(false); setAuto(false); setTo('agent'); setAlso([]); setMate(id); writeLastRecipient({ to: 'agent', mate: id, auto: false }); setError(null); close('text'); };
+  const chooseAuto = () => { setAdding(false); setMate(null); setTo('agent'); setAlso([]); setAuto(true); writeLastRecipient({ to: 'agent', mate: null, auto: true }); setError(null); close('text'); };
 
   const toMenu = (
     <div className="tc-menu tc-drop tc-to-menu" role="listbox" aria-label="To" onKeyDown={menuKeys}>
@@ -1105,15 +1109,15 @@ export function ThreadComposer({
         )}
 
         {named.chips}
+        {statusLine && <div className="tc-note tc-connection-status" role="status">{statusLine}</div>}
         <textarea
           ref={textRef}
           className={`tc-text ${named.over}`}
           rows={inline ? 1 : undefined}
           value={text}
-          onChange={(e) => { setText(e.target.value); named.track(e.target); }}
+          onChange={(e) => { talk.typed(); setText(e.target.value); named.track(e.target); }}
           onSelect={(e) => named.track(e.currentTarget)}
           onScroll={(e) => named.track(e.currentTarget)}
-          onFocus={() => { if (talk.on) talk.stop(); }}
           onKeyDown={(e) => { named.keyDown(e); }}
           placeholder={mate === 'new' ? 'What should they do? They set themselves up from it and ask what they need' : mateRow ? `What should ${mateRow.name} do?` : person ? `Message ${names}` : placeholderFor(null)}
           onPaste={async (e) => {

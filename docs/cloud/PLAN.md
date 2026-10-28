@@ -522,6 +522,32 @@ input. In order:
    the Mac writes after every turn, and a lease so one executor at a time owns
    a thread.
 
+   **Built for the Mac's own work, 2026-10-28 (w-10990b7de2).** Overnight on
+   10-26 the lid was shut from 10:07pm to 12:23pm; the Mac woke for 2 to 21 s
+   every quarter hour, started due rows in those wakes, and each died at the
+   next wake with a fetch timeout. Now (shared/cloud-carry.mjs):
+   - A pass after a two-minute gap counts as asleep until a minute passes or
+     someone touches the keyboard or mouse. Asleep, nothing starts: the queue,
+     `spawnWorker` and the wake sweep all hold.
+   - The phone pass writes each row the queue would have started into
+     `phone_commands`, marked `carried: 'computer'`: a fresh row as `run-now`,
+     one with a reply as that reply. It also writes what comes due in the next
+     12 h with `notBefore`: rows with a `runAt`, and each repeating task's next
+     run under its occurrence id with `repeat: { rule, key }`. A hand-over
+     older than 12 h is marked taken and written again.
+   - The server (cloud/gateway/phone.mjs) starts a carried row at once, or at
+     `notBefore`: a fresh one from the project's new-thread kit under the row's
+     own id, a reply from the thread's kit. The phone's own Run now is still
+     the computer's. A phone thread with a `runAt` now starts at that time.
+   - Awake, the Mac takes back what the cloud did not claim and joins what it
+     did (a repeating task's run is made by serving its period). The phone
+     does not draw a hand-over as a reply she sent. No database change:
+     `run-now` was already a kind.
+   It needs a project on the phone (that is where kits come from), the managed
+   cloud on, and a thread not kept on this Mac. A row that has had a run of
+   its own still waits for the Mac: a new-thread kit does not carry its
+   conversation.
+
 ## Releasing the cloud to everyone (w-6633e825a7, 2026-10-19)
 
 Everything above runs in the owner's own AWS account, set up by a script with
@@ -642,7 +668,10 @@ runtime (`cloud/gateway/`). The Mac's two interfaces (transport and storage,
   kept and made on wake (step 3), but a read or an approval is not made: it is
   told so and says it in its last message. A kept write turned down on wake
   (another session holds the row) is said on the run's log, not retried.
-  Starting new runs with the Mac shut is step 4 of "Next" above.
+  Starting new runs with the Mac shut is step 4 of "Next" above: built for
+  phone replies and new threads, and for the Mac's own fresh rows, replies,
+  schedules and repeating tasks on projects on the phone; not for a row that
+  has had a run of its own, nor for a Mac on its own AWS.
 - A run whose folder changed on this Mac while it was away, that ended on
   another branch, or that would not lay in three times, goes on a branch
   `cloud/<item>`; the row gets a note, moves to Needs you and loses `ship`

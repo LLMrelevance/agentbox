@@ -31,7 +31,8 @@ import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings 
 import { onCloudPhone, onPhone, phoneSized } from '../phone-screen';
 import { computerSays, type PhoneRows } from '../phone-rows';
 import { changesOn, readingOf, type Reading, type SettingsRow } from '../phone-settings-view';
-import { lastAccountAsk, webSettingsPages } from '../web-settings';
+import { lastAccountAsk, webProjectRow, webSettingsGroups, webSettingsPages } from '../web-settings';
+import { whatTakesEscape } from '../settings-escape';
 import { WebAlertsGroup } from './WebAlerts';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
@@ -1723,8 +1724,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     // A search with words in it is emptied by its own Escape (`searchKeys`).
     const clearing = (e: KeyboardEvent) => !!queryRef.current && e.target === searchBox.current;
     const onKey = (e: KeyboardEvent) => {
-      // A screen over this one, such as the cloud's sign-in, takes its own keys.
-      if (document.querySelector('.ps-over')) return;
+      // A screen over this one, such as the cloud's sign-in, takes its own
+      // keys; so does an open menu inside it (../settings-escape.ts).
+      const takes = whatTakesEscape(document);
+      if (takes === 'over') return;
+      if (e.key === 'Escape' && takes === 'menu') return;
       if (e.key === 'Escape' && !clearing(e)) { e.preventDefault(); e.stopPropagation(); onClose(); return; }
       // ⌘F, or / from anywhere that is not a box being typed in, goes to the search.
       const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, [contenteditable="true"]');
@@ -1853,7 +1857,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const tiles = accounts.map((a) => {
       const tile = accountTile(a, {
         many: agent.accounts.length > 1, now,
-        onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
+        onUse: (profile) => {
+          void (async () => {
+            const saved = await api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } });
+            await write(Promise.resolve(saved));
+            if (!saved.ok) return;
+            try {
+              await api.agentUpdate(engine, 'refresh');
+              await write(api.settings());
+            } catch (error) {
+              setError(error instanceof Error ? error.message : String(error));
+            } finally {
+              window.dispatchEvent(new Event('agent-models-changed'));
+            }
+          })().catch(error => setError(error instanceof Error ? error.message : String(error)));
+        },
         // Signing in to the cloud from a tile is Claude's alone.
         cloud: !!cloud?.setUp, onCloudSignIn: engine === 'claude' ? onCloudSignIn : undefined,
       });
@@ -2678,10 +2696,18 @@ function WebComputerPane({ pane, web, onWorkspace, onProject, onOpenProject }: {
     const claude = pane === 'claude';
     const mode = read(claude ? 'permission' : 'codexMode', claude ? w.permission : (w.codexMode ?? 'auto'));
     const account = read('activeAccount', null);
-    const found = claude ? w.claude?.found : w.codex?.found;
+    // Nothing installed is one answer, not one answer and two more under it
+    // (QA batch 005, F-119).
+    const groups = webSettingsGroups(w, claude ? 'claude' : 'codex');
+    if (!groups.includes('accounts')) {
+      return (
+        <Page title={claude ? 'Claude Code' : 'Codex'}>
+          <Group id="status" label="Status"><Row label={`${claude ? 'Claude Code' : 'Codex'} is not on this computer`} /></Group>
+        </Page>
+      );
+    }
     return (
       <Page title={claude ? 'Claude Code' : 'Codex'}>
-        {!found && <Group id="status" label="Status"><Row label={`${claude ? 'Claude Code' : 'Codex'} is not on this computer`} /></Group>}
         <Group id="accounts" label="Signed in">
           <WebAccounts engine={claude ? 'claude' : 'codex'} list={(claude ? w.accounts : w.codexAccounts) ?? []} reading={account} refusedAsk={lastAccountAsk(web.commands, web.computer.device)}
             onUse={(id) => onWorkspace('activeAccount', { engine: claude ? 'claude' : 'codex', account: id })} />
@@ -2745,7 +2771,7 @@ function WebComputerPane({ pane, web, onWorkspace, onProject, onOpenProject }: {
       </Page>
     );
   }
-  const projects: Array<{ slug: string; name: string; running?: number; autonomous: boolean; permission: string; codexMode: string; account: string }> = s.projects ?? [];
+  const projects: Array<{ slug: string; name: string; running?: number; onPhone?: boolean; autonomous: boolean; permission: string; codexMode: string; account: string }> = s.projects ?? [];
   const p = typeof pane === 'object' ? projects.find((x) => x.slug === pane.project) : undefined;
   if (p) {
     const own = (key: string, copy: unknown) => readingOf(changes, 'project', key, copy, p.slug);
@@ -2788,7 +2814,7 @@ function WebComputerPane({ pane, web, onWorkspace, onProject, onOpenProject }: {
       <Page title="Projects">
         <Group id="projects">
           {projects.length ? projects.map((x) => (
-            <Row key={x.slug} label={x.name} desc={x.running ? `${x.running} running` : undefined}>
+            <Row key={x.slug} label={x.name} desc={webProjectRow(x).desc}>
               <button type="button" className="set-ghost" onClick={() => onOpenProject(x.slug)}>Open</button>
             </Row>
           )) : <Row label="No projects yet." />}

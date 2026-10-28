@@ -15,9 +15,12 @@ import { ago } from '../format';
 import { MAC } from '../this-keyboard';
 import { taskTitle } from '../team/agent-mentions';
 import { projectSwatch } from '../threads/composer-rules';
+import { WhenPicker, WHEN_NOW, type WhenValue } from './When';
+import FolderPicker from './FolderPicker';
+import { checkProjectFolder } from '../../../shared/project-folder-check.mjs';
 import {
   chatChoices, chatsHeadline, firstRunOf, folderChoices, ideasFor, isSend, listKey, projectsToMake, stepsFor,
-  type FolderChoice, type Idea, type Step,
+  type FolderChoice, type Step,
 } from '../first-run';
 import './first-run.css';
 
@@ -53,6 +56,15 @@ const RepeatIcon = () => (
     <path d="M17 3l3 3-3 3" /><path d="M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3" /><path d="M20 13v2a3 3 0 0 1-3 3H4" />
   </svg>
 );
+
+export function FirstTaskSchedule({ value, onChange }: { value: WhenValue; onChange: (v: WhenValue) => void }) {
+  if (!value.repeat && !value.runAt) return null;
+  return <span className="ob-chip ob-repeat">
+    <RepeatIcon />
+    <WhenPicker value={value} onChange={onChange} />
+    <button type="button" className="ob-x" aria-label="Remove schedule" onClick={() => onChange(WHEN_NOW)}>×</button>
+  </span>;
+}
 
 function Legend({ pairs }: { pairs: Array<[string[], string]> }) {
   return (
@@ -91,7 +103,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   snap: Snapshot | null;
   home: string;
   /** Called once, with the task that was sent, or null when none was. */
-  onDone: (sent: string | null) => void;
+  onDone: (sent: string | null, runAt?: number, draft?: string) => void;
 }) {
   const [screen, setScreen] = useState<Screen>('welcome');
   const [leaving, setLeaving] = useState(false);
@@ -106,12 +118,14 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const [place, setPlace] = useState<string | null>(null);
   // The row the keyboard is on in the project menu; null while it is shut.
   const [menu, setMenu] = useState<number | null>(null);
+  const [browsing, setBrowsing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [text, setText] = useState('');
-  const [repeat, setRepeat] = useState<Idea['repeat'] | null>(null);
+  const [when, setWhen] = useState<WhenValue>(WHEN_NOW);
   const [idea, setIdea] = useState(-1);
   const [busy, setBusy] = useState(false);
   const field = useRef<HTMLTextAreaElement | null>(null);
+  const folderButton = useRef<HTMLButtonElement | null>(null);
 
   // WHAT IS ON THIS COMPUTER, asked once.
   useEffect(() => {
@@ -186,8 +200,8 @@ export function FirstRunFlow({ snap, home, onDone }: {
   }, []);
   const leave = useCallback((sent: string | null) => {
     setLeaving(true);
-    setTimeout(() => onDone(sent), LEAVE_MS);
-  }, [onDone]);
+    setTimeout(() => onDone(sent, when.runAt, sent ? undefined : text), LEAVE_MS);
+  }, [onDone, when.runAt, text]);
 
   const start = useCallback(() => {
     if (ready && threads) go(chats.length ? 'chats' : 'task');
@@ -198,18 +212,21 @@ export function FirstRunFlow({ snap, home, onDone }: {
     setSetup({ engine, phase: s?.phase ?? 'installing', error: s?.error ?? null });
   }, []);
 
-  const chooseAnother = useCallback(async (): Promise<string | null> => {
+  const chooseAnother = useCallback(() => {
     setMenu(null);
-    const r = await api.chooseFolder(home || undefined);
-    if (r.refused) { setProblem(r.refused); return null; }
-    if (!r.path) return null;
+    setBrowsing(true);
+  }, []);
+
+  const chooseFolder = useCallback((picked: string) => {
+    const folder = bare(picked);
+    const verdict = checkProjectFolder(folder, { home });
+    if (!verdict.ok) { setProblem(verdict.say ?? 'Choose a project folder.'); setBrowsing(false); return; }
+    setBrowsing(false);
     setProblem(null);
-    const folder = bare(r.path);
     const choice: FolderChoice = { folder, name: projectNameFor({ name: folder.split('/').pop() ?? '' }), short: shortPath(folder, home), chats: 0, when: Date.now() };
     setExtra((had) => (had.some((f) => f.folder === folder) ? had : [...had, choice]));
     setPlace(folder);
     field.current?.focus();
-    return folder;
   }, [home]);
 
   /** The folder's project, made now if it has none. `counted` says this press was already counted once. */
@@ -247,28 +264,32 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const send = useCallback(async () => {
     const said = text.trim();
     if (!said || busy) return;
-    const folder = at ?? await chooseAnother();
-    if (!folder) return;
+    if (!at) { folderButton.current?.focus(); return; }
+    const folder = at;
     setBusy(true);
     const p = await projectFor(folder);
     if (!p) { setBusy(false); setProblem('That folder could not be used. Choose another.'); return; }
-    const body = said.includes('\n') ? said : undefined;
+    const body = said;
     let first: string | null = null;
-    if (repeat) {
-      const { short: _short, label: _label, ...rule } = repeat;
+    if (when.repeat) {
+      const rule = when.repeat;
       const made = await api.composeRepeat({ product: p.slug, title: taskTitle(said), body, priority: 5, rule }).catch(() => null);
       first = made?.id ? firstRunOf(made) : null;
     } else {
-      const item = await api.compose({ product: p.slug, title: taskTitle(said), body, kind: 'directive', priority: 5 }).catch(() => null);
+      const item = await api.compose({ product: p.slug, title: taskTitle(said), body, kind: 'directive', priority: 5, runAt: when.runAt }).catch(() => null);
       first = item?.id ?? null;
     }
     if (!first) { setBusy(false); setProblem('That did not send. Try again.'); return; }
     leave(first);
-  }, [text, repeat, busy, at, chooseAnother, projectFor, leave]);
+  }, [text, when, busy, at, projectFor, leave]);
 
   const pickIdea = useCallback((i: number) => {
     setText(IDEAS[i].text);
-    setRepeat(IDEAS[i].repeat ?? null);
+    const suggested = IDEAS[i].repeat;
+    if (suggested) {
+      const { short: _short, label: _label, ...rule } = suggested;
+      setWhen({ runAt: 0, repeat: rule });
+    } else setWhen(WHEN_NOW);
     setIdea(-1);
     setTimeout(() => { const f = field.current; if (f) { f.focus(); f.setSelectionRange(f.value.length, f.value.length); } }, 0);
   }, []);
@@ -290,6 +311,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   // THE KEYBOARD, for every screen.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (browsing || (e.target as Element | null)?.closest('.when-wrap')) return;
       e.stopPropagation();
       if (leaving) return;
       if (screen === 'welcome') {
@@ -337,9 +359,12 @@ export function FirstRunFlow({ snap, home, onDone }: {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [screen, leaving, ready, chats, cursor, menu, places, idea, text, go, start, startSetup, bringIn, send, skip, pickPlace, pickIdea]);
+  }, [screen, leaving, ready, chats, cursor, menu, places, idea, text, browsing, go, start, startSetup, bringIn, send, skip, pickPlace, pickIdea]);
 
-  useEffect(() => { if (screen === 'task' && !leaving) field.current?.focus(); }, [screen, leaving]);
+  useEffect(() => {
+    if (browsing) document.querySelector<HTMLInputElement>('.first-run .fp-path')?.focus();
+    else if (screen === 'task' && !leaving) field.current?.focus();
+  }, [screen, leaving, browsing]);
 
   // The field grows with what is typed in it.
   useEffect(() => {
@@ -352,7 +377,8 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const cls = `ob-screen${leaving ? ' ob-leaving' : ''}`;
 
   return (
-    <div className="first-run" role="dialog" aria-label="Set up">
+    <div className="first-run" role="dialog" aria-label="Set up" onKeyDown={(e) => e.stopPropagation()}>
+      {browsing && <FolderPicker title="Choose your project folder" startIn={at ?? home} onPick={chooseFolder} onClose={() => setBrowsing(false)} />}
       {screen === 'welcome' && (
         <div className={cls} key="welcome">
           <div className="ob-col ob-mid ob-center">
@@ -429,9 +455,10 @@ export function FirstRunFlow({ snap, home, onDone }: {
               <div className="ob-bar">
                 <div className="ob-chips">
                   <span className="ob-anchor">
-                    <button type="button" className={`ob-chip${menu !== null ? ' ob-open' : ''}`} aria-haspopup="listbox" aria-expanded={menu !== null}
+                    <button ref={folderButton} type="button" className={`ob-chip${menu !== null ? ' ob-open' : ''}`} aria-haspopup="listbox" aria-expanded={menu !== null}
+                      aria-describedby={!at ? 'ob-folder-note' : undefined}
                       onMouseDown={(e) => e.preventDefault()} onClick={openMenu}>
-                      {at ? <><span className="ob-sw" style={{ background: swatchOf(at) }} />{nameOf(at)}</> : <><span className="ob-plus">+</span>Choose a folder</>}
+                      {at ? <><span className="ob-sw" style={{ background: swatchOf(at) }} />{nameOf(at)}</> : <><span className="ob-plus">+</span>Choose project folder</>}
                     </button>
                     {menu !== null && (
                       <div className="ob-menu" role="listbox" aria-label="Project">
@@ -453,18 +480,14 @@ export function FirstRunFlow({ snap, home, onDone }: {
                       </div>
                     )}
                   </span>
-                  {repeat && (
-                    <button type="button" className="ob-chip ob-repeat" title="Run it once instead"
-                      onMouseDown={(e) => e.preventDefault()} onClick={() => setRepeat(null)}>
-                      <RepeatIcon />{repeat.label}<span className="ob-x" aria-label="Run it once instead">×</span>
-                    </button>
-                  )}
+                  <FirstTaskSchedule value={when} onChange={setWhen} />
                 </div>
                 <div className="ob-actions">
                   <button type="button" className="ob-btn ob-quiet" onClick={skip}>Not now <Key k="esc" /></button>
-                  <button type="button" className="ob-btn" disabled={!text.trim() || busy} onClick={send}>Send <Keys ks={SEND} /></button>
+                  <button type="button" className="ob-btn" disabled={!at || !text.trim() || busy} onClick={send}>Send <Keys ks={SEND} /></button>
                 </div>
               </div>
+              {!at && <p id="ob-folder-note" className="ob-folder-note">Choose the folder containing the project you want the agent to work on.</p>}
             </div>
             {problem && <p className="ob-refused">{problem}</p>}
             <div className="ob-ideas ob-in" style={{ animationDelay: '0.2s' }}>

@@ -33,6 +33,7 @@ import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
+import { phoneWaitsOf } from '../shared/phone-snapshot.mjs';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
 import { newUserWindow } from './new-user-window.mjs';
@@ -421,6 +422,8 @@ async function createWindow() {
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   // THAT agents start and stop work (main/analytics.mjs checks the switch).
   supervisor.count = (name, props) => analytics.track(name, props);
+  // Whether anyone has touched the Mac since a wake (Supervisor#asleep).
+  supervisor.idleMs = () => powerMonitor.getSystemIdleTime() * 1000;
   const stalls = stallWatch();
   supervisor.stalls = stalls;
   // AND WHICH OF OUR FUNCTIONS HELD THE THREAD, each time it froze.
@@ -473,6 +476,8 @@ async function createWindow() {
       readSettings: () => phoneSettings?.() ?? null,
       version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
+      // Why each thread nothing runs on is waiting, so the phone does not read it as "Nothing running".
+      waits: () => phoneWaitsOf(supervisor.status()),
       // The cards waiting on her, each with the fingerprint her answer must carry back.
       approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
@@ -491,6 +496,11 @@ async function createWindow() {
       // And a new thread she starts with the lid shut.
       newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
       adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
+      // And this Mac's own waiting rows, handed over in its dark wakes (shared/cloud-carry.mjs).
+      asleep: () => supervisor.asleep(),
+      toCarry: () => supervisor.carryWhileAsleep(),
+      handedOver: (c) => supervisor.handedOver(c),
+      takenBack: (c) => supervisor.takenBack(c),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),

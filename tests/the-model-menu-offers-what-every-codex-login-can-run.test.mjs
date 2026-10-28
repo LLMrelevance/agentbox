@@ -144,6 +144,7 @@ describe('every signed-in login\'s catalog is refreshed, and one failing does no
   const client = (answer) => ({
     initialize: async () => ({}),
     request: async (method) => {
+      if (method === 'account/read') return {account:null};
       if (method !== 'model/list') throw new Error(`unexpected ${method}`);
       if (answer instanceof Error) throw answer;
       return { data: answer.map((model) => ({ model, displayName: model, hidden: false, supportedReasoningEfforts: [] })), nextCursor: null };

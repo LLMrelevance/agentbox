@@ -62,6 +62,9 @@ function General() {
           desc={agreedAt ? `On since ${agreedAt}. What you write goes through your computer to Claude Code, by Anthropic, or Codex, by OpenAI, on your own account.` : 'Off. Replies and new threads wait until you turn this on.'}
           control={agreedAt ? <Button title="Turn off" onPress={() => c.withdrawNotice()} /> : <Button title="Turn on" onPress={() => router.push('/ai-notice')} />} />
       </Group>
+      <Group label="Feedback">
+        <Row first label="Send feedback" desc={`Tell us what works and what does not. It goes straight to the people who make ${NAME}.`} control={<Button title="Send feedback" onPress={() => router.push('/settings/feedback')} />} />
+      </Group>
       {site ? (
         <Group label="About">
           <NavRow first label="Privacy policy" onPress={() => void WebBrowser.openBrowserAsync(`${site}/privacy`)} />

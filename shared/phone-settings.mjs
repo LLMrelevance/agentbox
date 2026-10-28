@@ -96,6 +96,16 @@ export function phoneSettingsOf(model, { version }) {
       permission: w.permission,
       codexMode: w.codexMode ?? null,
       engines: (w.engineChoices ?? []).map((e) => e.id),
+      claudeModels: (w.claudeModels ?? []).map(({ id, label, model, defaultLevel }) => ({ id, label, model, defaultLevel })),
+      codexFreePlan: !!w.codexFreePlan,
+      // WHAT To AND Model OFFER ON THE PHONE AND THE WEB (w-24119e8784): the
+      // agent a thread runs on when nobody picks, and Codex's models with their
+      // own levels. Names and words only, never a path.
+      engine: typeof w.engine === 'string' ? w.engine : null,
+      codexModels: (Array.isArray(w.codexModels) ? w.codexModels : [])
+        .filter((m) => typeof m?.id === 'string' && m.id)
+        .map((m) => ({ id: m.id, label: typeof m.label === 'string' ? m.label : m.id, levels: Array.isArray(m.levels) ? m.levels.filter((l) => typeof l === 'string') : [], defaultLevel: typeof m.defaultLevel === 'string' ? m.defaultLevel : null })),
+      codexModelDefault: typeof w.codexModelDefault === 'string' && w.codexModelDefault ? w.codexModelDefault : null,
       claude: { found: !!w.claudeFound },
       codex: { found: !!w.codex?.found },
       agentsAuto: !!w.agentsAuto,
