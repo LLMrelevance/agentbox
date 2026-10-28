@@ -3,7 +3,7 @@
 .list-pane.ev-open { display: flex; flex-direction: column; overflow: hidden; }
 .ev-scroll { flex: 1; min-height: 0; overflow-y: auto; }
 
-.ev-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; padding: 14px var(--row-r, 24px) 4px var(--text-x, 32px); flex: none; }
+.ev-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 10px; padding: 10px var(--row-r, 24px) 4px var(--text-x, 32px); flex: none; }
 .ev-card { box-sizing: border-box; min-width: 0; display: grid; grid-template-columns: 52px minmax(0, 1fr); column-gap: 14px; align-items: center; padding: 13px 15px; background: var(--wash); border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; position: relative; user-select: none; -webkit-user-select: none; }
 .ev-card:hover { border-color: var(--line-strong); }
 .ev-card.on { background: var(--wash-strong); border-color: var(--text-faint); }
@@ -61,9 +61,35 @@
 .ev-empty .rm-btn { margin-left: 12px; }
 
 /* Needs you's corner: one face per member, its agents on its corner. */
-.ev-corner { display: flex; align-items: center; gap: 16px; margin-left: auto; margin-right: 10px; }
-.ev-cgap { width: 6px; }
+.ev-corner { display: flex; align-items: center; gap: 10px; margin-left: auto; margin-right: 0; }
 .ev-cf { position: relative; display: inline-flex; padding: 0; background: none; border: 0; cursor: pointer; }
 .ev-cf:hover .rm-pic, .ev-cf:hover .ev-ai { border-color: var(--text-dim); }
-.ev-cn { position: absolute; right: -8px; bottom: -6px; box-sizing: border-box; min-width: 15px; height: 13px; padding: 0 3px; font: 9px/11px var(--mono); text-align: center; color: var(--text-dim); background: var(--bg); border: 1px solid var(--line-strong); }
-.th-bar .ev-corner + .th-search { margin-left: 0; }
+.ev-cn { position: absolute; right: -5px; bottom: -5px; box-sizing: border-box; min-width: 15px; height: 13px; padding: 0 3px; font: 9px/11px var(--mono); text-align: center; color: var(--text-dim); background: var(--bg); border: 1px solid var(--line-strong); }
+/* The row's 24px gap less the magnifier's inset in a 24px square: the same 10px as between two faces. */
+.th-bar .ev-corner + .th-search { margin-left: -22px; width: 24px; }
+
+/* Two rows of cards unless you choose otherwise (CardsArea); the rest scroll, a whole row at a time.
+   The strip's top padding inside the box equals the gap, so a scrolled row sits where the first one does. */
+.ev-cards { flex: none; margin-top: 4px; overflow-y: auto; scroll-snap-type: y mandatory; }
+.ev-cards .ev-card { scroll-snap-align: start; scroll-margin-top: 10px; }
+.ev-under { display: flex; align-items: center; gap: 16px; flex: none; margin: 8px 0 0 var(--text-x, 32px); }
+.ev-grip { position: relative; flex: none; height: 12px; margin: 2px var(--row-r, 24px) 0 var(--text-x, 32px); cursor: row-resize; outline: none; }
+.ev-grip::after { content: ""; position: absolute; left: 50%; top: 5px; width: 36px; height: 2px; margin-left: -18px; background: var(--line-strong); }
+.ev-grip:hover::after, .ev-grip:focus-visible::after { background: var(--text-faint); }
+.ev-grip + .ev-bar { margin-top: 2px; }
+
+/* A chat or a person put away: a quiet × on the card, and "N hidden" under the cards. */
+.ev-x { position: absolute; top: 6px; right: 6px; display: none; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box; border: 0; border-radius: 0; background: none; color: var(--text-faint); font: inherit; font-size: 15px; line-height: 20px; cursor: pointer; }
+.ev-card:hover .ev-x, .ev-x:focus-visible { display: block; }
+.ev-x:hover { color: var(--text); background: var(--wash-strong); }
+.ev-hidden-at { position: relative; flex: none; display: flex; }
+.ev-more, .ev-hidden { padding: 0; border: 0; background: none; color: var(--text-faint); font: inherit; font-size: 12.5px; line-height: 18px; cursor: pointer; }
+.ev-more:hover, .ev-hidden:hover, .ev-hidden[aria-expanded="true"] { color: var(--text-dim); }
+/* Over the page, so looking at what is hidden takes no room from anything. Drawn as the chat's more menu is. */
+.ev-hidden-menu { position: absolute; z-index: 20; top: 24px; left: 0; box-sizing: border-box; width: 240px; max-height: 280px; overflow-y: auto; padding: 4px 0; border: 1px solid var(--line-strong); background: var(--skin-solid, var(--surface)); box-shadow: 0 8px 28px #0006; }
+.ev-hidden-row { display: flex; align-items: center; gap: 12px; height: 30px; padding: 0 6px 0 12px; font-size: 13px; color: var(--text-dim); }
+.ev-hidden-row:hover { background: var(--wash); color: var(--text); }
+.ev-hidden-row .rm-one { flex: 1; min-width: 0; }
+.ev-hidden-row button { padding: 2px 6px; border: 0; background: none; color: var(--text-faint); font: inherit; font-size: 12.5px; cursor: pointer; }
+.ev-hidden-row button:hover { color: var(--text); }
+

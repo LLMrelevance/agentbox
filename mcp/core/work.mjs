@@ -176,7 +176,7 @@ export function privacyFrom(items) {
 
 // A teammate's run is known by these labels, and labels are written whole, so
 // a run that closes with ["clean"] would stop being its teammate's run.
-const RUN_LABELS = ['teammate:', 'hop:', 'from:'];
+const RUN_LABELS = ['teammate:', 'hop:', 'from:', 'work:'];
 function keepRunLabels(had, patch) {
   if (!Array.isArray(patch.labels)) return patch;
   const before = had?.labels ?? [];

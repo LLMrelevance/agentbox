@@ -421,6 +421,8 @@ async function createWindow() {
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   // THAT agents start and stop work (main/analytics.mjs checks the switch).
   supervisor.count = (name, props) => analytics.track(name, props);
+  // Whether anyone has touched the Mac since a wake (Supervisor#asleep).
+  supervisor.idleMs = () => powerMonitor.getSystemIdleTime() * 1000;
   const stalls = stallWatch();
   supervisor.stalls = stalls;
   // AND WHICH OF OUR FUNCTIONS HELD THE THREAD, each time it froze.
@@ -491,6 +493,11 @@ async function createWindow() {
       // And a new thread she starts with the lid shut.
       newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
       adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
+      // And this Mac's own waiting rows, handed over in its dark wakes (shared/cloud-carry.mjs).
+      asleep: () => supervisor.asleep(),
+      toCarry: () => supervisor.carryWhileAsleep(),
+      handedOver: (c) => supervisor.handedOver(c),
+      takenBack: (c) => supervisor.takenBack(c),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),
