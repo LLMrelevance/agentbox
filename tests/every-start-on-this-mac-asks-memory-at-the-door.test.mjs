@@ -87,10 +87,26 @@ describe('what was already let through upstream', () => {
     expect(launched).toHaveLength(1);
   });
 
-  it('a digest the ten-minute rule let through launches', () => {
-    const { launched, memory, go } = fleet();
+  it('a digest the ten-minute rule let through launches, and one it did not waits', () => {
+    const { sup, launched, memory, go } = fleet();
     memory(CRITICAL);
     go({ id: 'digest-abc', product: 'p' });
+    expect(launched).toHaveLength(0);
+    sup._memHeldSince = Date.now() - 11 * 60_000;
+    sup._lastStartAt = 0;
+    expect(sup._memoryLetsStart(null)).toBe(true);
+    go({ id: 'digest-def', product: 'p' });
+    expect(launched).toHaveLength(1);
+  });
+
+  it('a row she resumed by name keeps that through the wait for its leftovers', async () => {
+    const { sup, launched, memory } = fleet();
+    memory(TIGHT);
+    sup._leftoverCleaner = { holdMs: (id) => (sup._heldOnce ? 0 : 50) };
+    try { sup._spawnResume(row()); } catch (e) { if (e.message !== 'stop before the process') throw e; }
+    expect(launched).toHaveLength(0);
+    sup._heldOnce = true;
+    await new Promise((r) => setTimeout(r, 400));
     expect(launched).toHaveLength(1);
   });
 

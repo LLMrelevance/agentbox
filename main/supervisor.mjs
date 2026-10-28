@@ -299,6 +299,7 @@ const PREEMPTION_HOLD_MS = 15 * 60_000;
 // How long the row the ten-minute rule let through keeps that pass for its
 // launch: long enough to make its folder, too short to pass a second time.
 const OVERDUE_PASS_MS = 2 * 60_000;
+const DIGEST_PASS = 'digest';
 
 // HOW LONG FRESH WORK RESTS AFTER A RUN THAT MOVED NOTHING.
 //
@@ -6022,11 +6023,10 @@ export class Supervisor {
         this._lastStartAt = now;
         // Remembered for its launch, which asks again (`_memoryLetsLaunch`)
         // and would otherwise be held by the very clock this just restarted.
-        if (item?.id) {
-          this._letThroughOverdue ??= new Map();
-          for (const [id, at] of this._letThroughOverdue) if (now - at > OVERDUE_PASS_MS) this._letThroughOverdue.delete(id);
-          this._letThroughOverdue.set(item.id, now);
-        }
+        // A digest is asked before it has an id, so it is remembered as one.
+        this._letThroughOverdue ??= new Map();
+        for (const [id, at] of this._letThroughOverdue) if (now - at > OVERDUE_PASS_MS) this._letThroughOverdue.delete(id);
+        this._letThroughOverdue.set(item?.id ?? DIGEST_PASS, now);
       }
     } else {
       this._memHeldSince ??= now;
@@ -6047,10 +6047,10 @@ export class Supervisor {
    */
   _memoryLetsLaunch(item, { asked = false } = {}) {
     if (!this.config.memoryGate) return true;
-    // A digest asked in the same breath it was made (the digest pass), and its
-    // id did not exist yet to remember a ten-minute pass by.
-    if (String(item?.id ?? '').startsWith('digest-')) return true;
-    const passed = this._letThroughOverdue?.get(item?.id);
+    const key = String(item?.id ?? '').startsWith('digest-') ? DIGEST_PASS : item?.id;
+    const passed = this._letThroughOverdue?.get(key);
+    // Kept for the whole window, not spent on first use: one launch can ask
+    // twice (`_mayRunHereInstead`, then the door itself).
     if (passed !== undefined && Date.now() - passed <= OVERDUE_PASS_MS) return true;
     return this._memoryLetsStart(item, { asked });
   }
@@ -9450,7 +9450,7 @@ export class Supervisor {
     const hold = this._leftoverCleaner?.holdMs?.(item.id) ?? 0;
     if (hold > 0) {
       this._preparing ??= new Map();
-      const opts = { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, shipFailure };
+      const opts = { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, shipFailure, asked };
       const held = this._preparing.get(item.id);
       if (held) { held.item = item; held.opts = opts; this._saveState(); return; }
       const entry = { item, opts, engine };
