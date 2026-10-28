@@ -132,11 +132,6 @@ const signIns = [
     fix: () => live('gh', ['auth', 'login', '--web']),
   },
   {
-    name: 'npm, to publish the package',
-    ok: () => quiet('npm', ['whoami', '--fetch-timeout=20000'], 30_000).ok,
-    fix: () => live('npm', ['login']),
-  },
-  {
     name: 'AWS, to update the cloud server',
     ok: () => quiet('aws', ['sts', 'get-caller-identity', '--cli-connect-timeout', '10', '--cli-read-timeout', '20']).ok,
     fix: () => live('aws', ['login', '--region', REGION]),
@@ -152,16 +147,23 @@ const signIns = [
     },
   },
 ];
+const npmSignIn = {
+  name: 'npm, to publish the package',
+  ok: () => quiet('npm', ['whoami', '--fetch-timeout=20000'], 30_000).ok,
+  fix: () => live('npm', ['login']),
+};
 const signedOut = [];
-for (const s of signIns) {
-  if (s.ok()) { console.log(`  ✓ ${s.name}`); continue; }
-  if (checkOnly) { console.log(`  ✗ ${s.name}: signed out; a real run signs you in here`); signedOut.push(s.name); continue; }
+function signIn(s) {
+  if (s.ok()) { console.log(`  ✓ ${s.name}`); return; }
+  if (checkOnly) { console.log(`  ✗ ${s.name}: signed out; a real run signs you in here`); signedOut.push(s.name); return; }
   say(`signing in to ${s.name}`);
   if (!s.fix() || !s.ok()) stop(`Still not signed in to ${s.name}. Run npm run deploy again to retry.`);
   console.log(`  ✓ ${s.name}`);
 }
+signIns.forEach(signIn);
 
 if (checkOnly) {
+  signIn(npmSignIn);
   console.log(`\nA real run would put out ${version} from ${commit.slice(0, 8)}${signedOut.length ? `, after signing in to ${signedOut.length === 1 ? 'one thing' : `${signedOut.length} things`}` : ''}.`);
   console.log('Nothing was changed. Run npm run deploy to do it.');
   process.exit(0);
@@ -193,6 +195,8 @@ if (spawnSync('node', ['scripts/release.mjs'], { cwd: repo, stdio: 'inherit', en
 // 5. NPM. The checks before-publish.mjs makes were made at step 1, against
 // the commit this run pinned; main has moved on since, which is not a reason
 // to publish something else.
+// npm sessions expire, and publishing can require its own approval after login.
+signIn(npmSignIn);
 say(`publishing ${PACKAGE}@${version} to npm (it may ask for a one-time code)`);
 if (!live('npm', ['publish'], { AGENTBOX_PUBLISH_ANYWAY: '1' })) {
   stop('npm did not publish, so nothing was put out yet: the Mac app is built but not uploaded.', 'Run npm run deploy again; it builds the Mac app again first.');
