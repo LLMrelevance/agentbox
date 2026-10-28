@@ -1853,7 +1853,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const tiles = accounts.map((a) => {
       const tile = accountTile(a, {
         many: agent.accounts.length > 1, now,
-        onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
+        onUse: (profile) => {
+          void (async () => {
+            const saved = await api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } });
+            await write(Promise.resolve(saved));
+            if (!saved.ok) return;
+            try {
+              await api.agentUpdate(engine, 'refresh');
+              await write(api.settings());
+            } catch (error) {
+              setError(error instanceof Error ? error.message : String(error));
+            } finally {
+              window.dispatchEvent(new Event('agent-models-changed'));
+            }
+          })().catch(error => setError(error instanceof Error ? error.message : String(error)));
+        },
         // Signing in to the cloud from a tile is Claude's alone.
         cloud: !!cloud?.setUp, onCloudSignIn: engine === 'claude' ? onCloudSignIn : undefined,
       });

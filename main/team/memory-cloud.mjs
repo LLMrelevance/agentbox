@@ -363,11 +363,12 @@ export function memoryBackend(cloud, personId) {
       cloud.pushDevices?.delete(`${personId}:${token}`);
     },
     // What her phone does: a command, as herself, for one computer, not yet taken.
-    async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
+    async addPhoneCommand({ id = null, device, project = null, item = null, kind, payload = {} }) {
       if (!/^[0-9a-f]{12}$/.test(String(device))) refuse('a command for no computer');
       if (!PHONE_COMMANDS.includes(kind)) refuse(`a ${kind} command`);
       if ((kind === 'setting') !== (project == null) || (kind === 'setting' && item != null)) refuse(`a ${kind} command for ${project == null ? 'no project' : 'a project'}`);
-      const row = { id: crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, claimedBy: null, takenAt: null, outcome: null };
+      if (id && (cloud.phoneCommands ?? []).some((c) => c.id === id)) refuse('a command already sent');
+      const row = { id: id || crypto.randomUUID(), owner: personId, device, project, item, kind, payload, createdAt: new Date(cloud.now()).toISOString(), claimedAt: null, claimedBy: null, takenAt: null, outcome: null };
       (cloud.phoneCommands ??= []).push(row);
       cloud.events.emit('phone', 1);
       return { ...row };
