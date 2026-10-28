@@ -4,20 +4,13 @@
 // plans, which the phone app does not (docs/mobile/PLAN.md, 3.1).
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import { ago } from '../../../renderer/src/phone-rows';
+import { computerLine, versionLine } from '../lib/computer-line';
 import { useCloud } from '../state/cloud';
 import { useSettings, type SettingsState } from '../state/settings';
 import { GROUPS, SETTINGS_PAGES, type PageId } from './SettingsPages';
 import { Aside, Group, NavRow } from './SettingsParts';
 
-// The computer sends its copy at least every five minutes (main/phone-inbox.mjs).
-const AWAY_MS = 15 * 60_000;
-
-export function computerLine(s: SettingsState, now: number) {
-  if (!s.computer) return s.loaded || s.error ? 'Your computer’s settings appear here once Agentbox on it is up to date and signed in to this account.' : undefined;
-  const at = Date.parse(s.computer.updated_at) || 0;
-  return now - at > AWAY_MS ? `From ${s.computer.name}, last online ${ago(now - at)}. What you change waits for it.` : `From ${s.computer.name}.`;
-}
+export { computerLine };
 
 function asideOf(id: PageId, s: SettingsState, email: string | undefined) {
   const w = s.settings?.workspace;
@@ -47,7 +40,7 @@ export function PageList() {
           </Group>
         ) : null;
       })}
-      <Aside>Version {Constants.expoConfig?.version}</Aside>
+      <Aside>{versionLine(Constants.expoConfig?.version, Constants.nativeBuildVersion)}</Aside>
     </>
   );
 }

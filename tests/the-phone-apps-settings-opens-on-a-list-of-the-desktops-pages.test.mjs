@@ -32,7 +32,8 @@ describe('the pages', () => {
 describe('the layout chosen', () => {
   it('opens on the list, and each page is its own screen', () => {
     const dir = new URL('../mobile/src/app/settings/', import.meta.url);
-    expect(fs.readdirSync(dir).sort()).toEqual(['[page].tsx', '_layout.tsx', 'index.tsx', 'project']);
+    // feedback.tsx is opened from General's Feedback row and is not one of the desktop's pages.
+    expect(fs.readdirSync(dir).sort()).toEqual(['[page].tsx', '_layout.tsx', 'feedback.tsx', 'index.tsx', 'project']);
     expect(fs.readFileSync(new URL('index.tsx', dir), 'utf8')).toMatch(/<PageList \/>/);
     expect(fs.readFileSync(new URL('../mobile/src/ui/SettingsHome.tsx', import.meta.url), 'utf8')).toMatch(/router\.push\(`\/settings\/\$\{p\.id\}`\)/);
   });
