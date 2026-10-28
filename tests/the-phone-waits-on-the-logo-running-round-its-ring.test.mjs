@@ -1,9 +1,8 @@
 // THE PHONE WAITS ON THE LOGO, RUNNING ROUND ITS RING.
 //
-// What she asked (w-eb1e55360c): "The load time on mobile is often very long
-// so I'd recommend having a more interesting loading animation. Like our logo
-// animating or something (it's natural for that to logo since it was taken
-// from our thinking animation anyway)." Of five drawn ideas she picked Orbit:
+// Why (w-eb1e55360c): phone loads are often long, and the wait showed nothing
+// worth watching. The ask was to animate the logo, which was drawn from the
+// thinking animation in the first place. Of five drawn ideas, Orbit was picked:
 // the logo's one orange dot leaves its corner and runs round the ring of eight
 // at the thinking mark's own 186ms step, the centre staying grey.
 //
