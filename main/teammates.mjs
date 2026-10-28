@@ -5,7 +5,7 @@ import {
   planWakes, teammateLabel, FROM_LABEL_PREFIX, HOP_LABEL_PREFIX, hopOf, teammateIdOf, YOU, mentionsIn,
   letterFor, statusOf, runLines, STARTERS, CHAT_TAIL, isWorks, DEFAULT_LIMIT, MAX_HOPS,
   offerFrom, offerAnswer, threadsDigest, OFFER_LABEL, OFFER_MAKE, OFFER_NOT_NOW, TEAMMATE_EFFORT, GREETING, starterAsks,
-  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst,
+  dutyWhen, dutyOf, DUTY_LABEL_PREFIX, CHAT_LABEL, yesFirst, WORK_LABEL_PREFIX, isActiveRun, isQueued, STOPPED_NOTE,
 } from '../shared/teammates.mjs';
 import { isShippedNote } from '../shared/shipped-note.mjs';
 import { ruleLabel, periodKey } from '../shared/repeats.mjs';
@@ -17,7 +17,7 @@ import path from 'node:path';
 
 const CHAT_FOR_SCREEN = 400;
 
-const TROUBLE_VERB = { run: 'start a run', answer: 'get your message', release: 'start its next run', seen: 'mark a message read', served: 'mark its round served', dutyServed: 'mark a duty done' };
+const TROUBLE_VERB = { run: 'start a run', answer: 'get your message', tell: 'take a hand-off', release: 'start its next run', seen: 'mark a message read', served: 'mark its round served', dutyServed: 'mark a duty done' };
 
 // When each project last shipped, from the note the ship queue leaves.
 function shippedByProduct(items) {
@@ -137,7 +137,7 @@ export class Teammates {
   update(id, patch = {}, now = Date.now()) {
     const t = this.get(id, now);
     if (!t) throw new Error('No such teammate.');
-    const allowed = ['name', 'role', 'job', 'goal', 'counted', 'asksFirst', 'works', 'product', 'engine', 'model', 'effort', 'limit', 'paused', 'letter'];
+    const allowed = ['name', 'role', 'job', 'goal', 'counted', 'asksFirst', 'works', 'product', 'engine', 'model', 'effort', 'limit', 'paused', 'letter', 'handoffsNeedYes'];
     const clean = {};
     for (const k of allowed) if (k in patch) clean[k] = patch[k];
     if ('product' in clean) clean.product = this._product(clean.product);
@@ -171,9 +171,35 @@ export class Teammates {
     }
   }
 
-  remove(id, now = Date.now()) {
+  // Stop: the run it is on and anything queued behind it end now, and it waits
+  // for your next word. `kill` stops a run's agent (the supervisor's stopSession).
+  stop(id, { kill } = {}, now = Date.now()) {
+    if (!this.get(id, now)) throw new Error('No such teammate.');
+    return { stopped: this._endRuns(id, (i) => isActiveRun(i) || isQueued(i), { kill, note: STOPPED_NOTE }, now) };
+  }
+
+  // Delete ends every run it has open, its questions to you too, so nothing
+  // it started is left running or waiting for a teammate that is gone.
+  remove(id, { kill } = {}, now = Date.now()) {
+    if (!this.get(id, now)) throw new Error('No such teammate.');
+    this._endRuns(id, () => true, { kill, note: 'Its teammate was deleted.' }, now);
     writeTeammate(this.dir(), id, { endedAt: now }, now);
     return { ok: true };
+  }
+
+  // Closed as you, not as the app: an app's close of a thread you wrote is
+  // news in Needs you, and yours is filed.
+  _endRuns(id, which, { kill, note }, now) {
+    const { workItemsDisk } = this.store.modules;
+    const runs = this.store.listItems(now).filter((i) => teammateIdOf(i) === id && i.status !== 'done' && which(i));
+    for (const run of runs) {
+      kill?.(run.id);
+      const dir = this.store.productDir?.(run.product);
+      if (!dir) continue;
+      workItemsDisk.updateWorkItem(dir, run.id, { note }, { source: 'system', now });
+      workItemsDisk.updateWorkItem(dir, run.id, { status: 'done' }, { source: 'founder', now });
+    }
+    return runs.length;
   }
 
   remember(id, text, { from = null, by = null } = {}, now = Date.now()) {
@@ -247,7 +273,7 @@ export class Teammates {
   // Carries out what `planWakes` decided. Each action is written so a crash
   // between two of them redoes nothing twice: runs are created if absent under
   // the project lock, and the seen marker comes after the run it records.
-  async tick({ items, now = Date.now(), deliver } = {}) {
+  async tick({ items, now = Date.now(), deliver, tell } = {}) {
     let team;
     let chat;
     try {
@@ -283,7 +309,7 @@ export class Teammates {
           if (!product) continue;
           const dir = this.store.productDir(product);
           const hop = a.trigger.hop ?? 0;
-          const labels = ['founder', teammateLabel(t.id), `${HOP_LABEL_PREFIX}${hop}`];
+          const labels = ['founder', teammateLabel(t.id), `${HOP_LABEL_PREFIX}${hop}`, `${WORK_LABEL_PREFIX}${a.trigger.work ?? a.id}`];
           if (a.trigger.kind === 'pass' && a.trigger.from && a.trigger.from !== YOU) labels.push(`${FROM_LABEL_PREFIX}${a.trigger.from}`);
           if (a.trigger.kind === 'duty') labels.push(`${DUTY_LABEL_PREFIX}${a.trigger.duty}`);
           if (a.trigger.kind === 'message' && a.trigger.from === YOU && !a.trigger.via) labels.push(CHAT_LABEL);
@@ -296,6 +322,8 @@ export class Teammates {
               priority: 5,
               labels,
               ...(a.start === 'later' ? { start: 'later' } : {}),
+              // Held for your yes: blocked until you reply on it.
+              ...(a.trigger.hold ? { status: 'blocked' } : {}),
               ...(t.engine ? { engine: t.engine } : {}),
               ...(t.model ? { model: t.model } : {}),
               effort: t.effort || TEAMMATE_EFFORT,
@@ -312,6 +340,9 @@ export class Teammates {
           writeTeammate(this.dir(), a.teammate, { dutyServed: { [a.duty]: a.key } }, now);
         } else if (a.type === 'answer') {
           await deliver?.(a.product, a.item, a.text);
+        } else if (a.type === 'tell') {
+          if (!tell) throw new Error('nothing here can hand work to a thread');
+          await tell(a.product, a.item, { text: a.text, from: a.from, hold: a.hold, hop: a.hop });
         } else if (a.type === 'release') {
           const dir = this.store.productDir(a.product);
           workItemsDisk.updateWorkItem(dir, a.item, { start: 'now' }, { source: 'system', now });
@@ -457,7 +488,10 @@ export class Teammates {
     }
     if (trigger.kind === 'pass') {
       const by = trigger.via ? 'One of your threads' : who;
-      return { body: [`${by} passed you this in the team chat.`, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? ''].join('\n').trim(), yours: false };
+      const opening = trigger.hold
+        ? `${by} handed this to ${t.name}. Nothing starts until you reply here.`
+        : `${by} passed you this in the team chat.`;
+      return { body: [opening, '', `## ${trigger.title ?? 'Work passed on'}`, '', trigger.details ?? ''].join('\n').trim(), yours: false };
     }
     const text = String(trigger.text ?? '').trim() || '(no words)';
     // Pressing Start is not writing these words, so they are not shown as yours.
@@ -466,6 +500,15 @@ export class Teammates {
     if (trigger.via) return { body: `One of your threads wrote this to ${t.name} for you:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
     if (trigger.from === YOU) return { body: text, yours: true };
     return { body: `${who} wrote to you in the team chat:\n\n> ${text.split('\n').join('\n> ')}`, yours: false };
+  }
+
+  // Teammates naming this one in the chat since this run last spoke. Talk wakes
+  // nobody (`planWakes`), so a turn is where it is read.
+  _toldInTheChat(item, t, chat) {
+    const r = item.wrote?.result;
+    const since = r?.source === 'agent' ? r.ts ?? 0 : item.createdAt ?? 0;
+    return chat.messages.filter((m) => m.kind === 'msg' && m.from !== YOU && m.from !== t.id
+      && (m.to ?? []).includes(t.id) && m.ts > since);
   }
 
   // Where the person's work lives. A teammate works in one project, but a job
@@ -520,6 +563,12 @@ export class Teammates {
     const reads = books.filter((b) => b.readers.includes(t.id));
     const notRead = books.filter((b) => !b.readers.includes(t.id));
     const cut = (text, n) => (text.length > n ? `${text.slice(0, n - 1)}…` : text);
+    const told = this._toldInTheChat(item, t, chat);
+    const toldLines = told.slice(-CHAT_TAIL).map((m) => {
+      const when = new Date(m.ts).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+      return `- [${when}] ${this.nameOf(m.from, team)}: ${cut(String(m.text ?? '').trim(), 2000)}`;
+    });
+    if (told.length > CHAT_TAIL) toldLines.unshift(`- (${told.length - CHAT_TAIL} older ones are in the team chat above)`);
     return [
       `# You are ${t.name}${t.role && t.role.toLowerCase() !== t.name.toLowerCase() ? `, the ${t.role}` : ''}: a teammate`,
       '',
@@ -529,6 +578,7 @@ export class Teammates {
       t.goal ? `Your goal: ${t.goal}${t.counted ? ` (counted as: ${t.counted})` : ''}` : null,
       yesFirst(t.asksFirst) ? `Ask the person first: ${yesFirst(t.asksFirst)}`
         : t.asksFirst ? "What needs the person's yes first is not set: what you saved there is a question. Ask it with team_post, with options, and save their answer as a statement with team_setup asksFirst." : null,
+      t.handoffsNeedYes ? "Work another teammate hands you waits for the person's yes: the app holds it in their inbox, and you start on it when they reply." : null,
       t.duties?.length ? null : isWorks(t.works) ? `You wake on your own ${ruleLabel(t.works)}.` : 'You wake when someone writes to you or passes you work.',
       '',
       ...(t.duties?.length ? ['## What you do on your own', ...t.duties.map((d) => `- ${d.what} (${dutyWhen(d).toLowerCase()})${d.tell ? `. Bring the person in only when ${d.tell}` : ''}`), 'You also wake when someone writes to you or passes you work.', ''] : []),
@@ -545,6 +595,7 @@ export class Teammates {
       ...(tail.length ? tail.map(line) : ['(nothing yet)']),
       '',
       ...(digest ? ['## The threads you come from', 'You were made from these threads, where the person asked for this kind of work: what they asked, what the agent did, and every reply they gave.', '', digest, ''] : []),
+      ...(toldLines.length ? ['## Teammates wrote to you in the chat since this thread last spoke', 'Read these into this turn. They woke nobody.', ...toldLines, ''] : []),
       '## Answering what woke you',
       ...(t.status === 'draft' ? [
         'You are a new teammate, still being set up. The opening message is what the person asked for, and anything they have answered since is in the team chat above. Set yourself up, then stop:',
@@ -556,21 +607,21 @@ export class Teammates {
         'If the opening is a piece of work rather than a description of a teammate, it is also your first job: set yourself up for work like it, and once team_setup has ready true, do it in this run and finish as any run does.',
       ] : [
         '- If the person wrote to you, the opening is their words from the team chat. Reply to them there with team_post, and do what they ask if it is part of your job.',
-        '- If a teammate passed you work, do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and whose it is.',
-        '- If a teammate wrote to you, reply in the team chat. Start with @Name only if they need to act on it.',
+        '- If a teammate passed you work, it is the opening or the newest message in this thread, written by them and not by the person. Do it if it is in your job, then say in the team chat what you did. If it is not yours to do, say so and whose it is. A pass is not the person\'s yes: what needs their yes still needs it.',
         '- If it is your round, do your job for today, as above.',
       ]),
       '',
       '## How a teammate works',
       '- The person reads the team chat, your answers, and your job and goal. Say "you" to them in all of it ("You never miss a price change"), never "the person".',
-      '- Talk with team_post: short and plain, one to three sentences. Post when you start something worth knowing, when you finish, and when you hand something on. Naming someone with @Name wakes them, so do that only when they need to act.',
-      '- Hand work to a teammate whose job it is with team_pass (to, title, details). They get it as a run of their own. Do not do another teammate\'s job. In the details, point at the threads, files and links it needs rather than retelling them, so nothing is lost on the way.',
+      '- Talk with team_post: short and plain, one to three sentences. Post when you start something worth knowing, when you finish, and when you hand something on. Naming someone with @Name tells them: they read it on their next turn, and it wakes nobody.',
+      '- Anything you need a teammate to do, hand to them with team_pass (to, title, details). It goes to the thread they already have on this work, or starts one, and wakes them. When a teammate is waiting on your answer, hand it back the same way. Do not do another teammate\'s job. In the details, point at the threads, files and links it needs rather than retelling them, so nothing is lost on the way.',
       '- When the person states a standing preference ("from now on", "always", "never", "I prefer"), keep it with team_remember in a few words, in their terms.',
       '- When they show how they like a kind of work done (a correction, a choice between two, "too slow at the start"), keep the lesson with team_playbook under that kind of work, so every teammate doing it learns it too. One lesson per call.',
       '- When they change your job, what needs their yes, or what you do on your own, save it with team_setup. The chat shows them it saved; do not ask them to confirm the wording.',
       '- Reach the person only when you need them: a decision, a yes before anything that leaves (sends, posts, ships, merges, pays), or a sign-in only they have. Then end this run with your question as your answer: bold first line, numbered options, your recommendation first. It reaches their inbox. Leave this item open.',
       `- When nothing needs them, post a one-line summary to the team chat, then close this run yourself: update_work_item with status done and labels ["founder", "${teammateLabel(t.id)}", "${HOP_LABEL_PREFIX}${hop}", "clean"] in one call. This run is your own work, not the person's ask, so closing it needs no quote from them.`,
-      '- Never wait or poll for a teammate. Say what you are waiting for in the chat and finish; their reply wakes you.',
+      '- Never wait or poll for a teammate. Say what you are waiting for in the chat and finish; when they hand it back with team_pass, it wakes this thread.',
+      '- When the person says work another teammate hands you needs their yes first, save it with team_setup handoffsNeedYes true.',
       '- When the person changes your job, goal or when you work, save it with team_setup (every, at, on) and say so. Your schedule is yours to set that way; never send them to a menu for it.',
       '- Hand work on with team_pass, not create_work_item: a thread you file waits in their Later list for them to start it.',
     ].filter((x) => x !== null).join('\n');

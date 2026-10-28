@@ -14,6 +14,8 @@ export type Talk = Heard & {
   start: () => void;
   stop: () => void;
   send: () => void;
+  /** The person typed while it listens: off, with the words already in the box. */
+  typed: () => void;
 };
 
 /** Dictation into `box`; `send` runs once the last words are in it. */
@@ -44,10 +46,12 @@ export function useWebDictation(box: { text: string; setText: (text: string) => 
     ...now,
     allowed: !!ctl && paid,
     on: now.phase !== 'idle',
-    // The keyboard goes down, as the phone app's does; tapping the box again stops.
+    // The keyboard goes down, as the phone app's does. Tapping the box brings it
+    // back and listening goes on; typing stops it, so the two never write over each other.
     start: () => { (document.activeElement as HTMLElement | null)?.blur?.(); void ctl?.start(); },
     stop: () => ctl?.stop(),
     send: () => { void ctl?.finish().then(() => setSending(true)); },
+    typed: () => { if (ctl?.now.phase !== 'idle') ctl?.leave(); },
   };
 }
 

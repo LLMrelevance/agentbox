@@ -62,7 +62,7 @@ describe('a cloud with two Claude accounts signed in', () => {
     expect([first.inUse, first.about]).toEqual([true, ['At its limit, back at 5:10pm']]);
     expect([second.inUse, second.about]).toEqual([false, ['Signed in']]);
     expect(cloudFootLine(cloud(onScreen(), 2), now))
-      .toBe('Your cloud account is at its usage limit until 5:10pm. Threads run on this Mac until then.');
+      .toBe('The Claude account the cloud runs on is at its usage limit until 5:10pm. Threads run on this Mac until then.');
   });
 
   it('must NOT say the cloud is out when the one it runs on has room', () => {

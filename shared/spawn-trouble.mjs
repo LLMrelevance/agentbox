@@ -118,7 +118,17 @@ const SIGNED_OUT = [
   /invalid api key/i,
   /unauthoriz/i,
   /subscription access/i,
+  // Claude Code 2.1.310's other refusals, which fell to 'unknown'
+  // (tests/every-way-claude-code-says-its-login-ran-out-reads-as-signed-out).
+  /login expired/i,
+  /session has expired/i,
+  /sign in again to continue/i,
+  /\brun \/login\b/i,
 ];
+
+// ANOTHER CLAUDE CODE REFRESHING THE SAME LOGIN, which the CLI calls
+// transient. Before SIGNED_OUT, whose /oauth/ would bench the account for it.
+const LOGIN_BUSY = [/another claude code process is refreshing/i];
 
 const AT_LIMIT = [
   /usage limit/i,
@@ -279,6 +289,7 @@ export function troubleCause(raw) {
   if (MODEL_NOT_ON_PLAN.some((re) => re.test(text))) return 'model-not-on-plan';
   if (LEVEL_NOT_OFFERED.some((re) => re.test(text))) return 'level-not-offered';
   if (OPEN_ELSEWHERE.some((re) => re.test(text))) return 'open-elsewhere';
+  if (LOGIN_BUSY.some((re) => re.test(text))) return 'interrupted';
   if (SIGNED_OUT.some((re) => re.test(text))) return 'signed-out';
   if (AT_LIMIT.some((re) => re.test(text))) return 'at-limit';
   // BEFORE WORKSPACE, whose /untrusted/ would read a certificate as a folder,
@@ -755,6 +766,18 @@ const UNNAMED_CHECK = {
   'Claude Code': 'Check that your Claude plan is active at claude.ai, or run claude in a terminal to see what it says. ',
 };
 
+// Named on a limit, because with the cloud on "its usage limit" read as the
+// cloud's hours.
+const PLAN_WORD = { Codex: 'ChatGPT plan', 'Claude Code': 'Claude plan' };
+
+function limitNext(engineWord, resetsAt) {
+  const plan = PLAN_WORD[engineWord];
+  if (!plan) return resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.';
+  return resetsAt
+    ? ` It starts again on its own at ${resetsAt}, when your ${plan}'s limit resets.`
+    : ` It starts again on its own when your ${plan}'s limit resets.`;
+}
+
 function dayWords(ms) {
   return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
@@ -766,7 +789,11 @@ function fixBeforeReplying({ cause, engineWord, resetsAt, model, planEnded }) {
   if (cause === 'no-plan') return `Set up a plan ${SET_UP_A_PLAN}.`;
   if (cause === 'org-blocked') return 'Only an admin of that Claude workspace can turn it back on.';
   if (cause === 'subscription-ended') return 'Renew it at claude.ai.';
-  if (cause === 'at-limit') return resetsAt ? `The limit resets at ${resetsAt}.` : 'Wait for the limit to reset.';
+  if (cause === 'at-limit') {
+    const plan = PLAN_WORD[engineWord];
+    if (!resetsAt) return plan ? `Wait for your ${plan}'s limit to reset.` : 'Wait for the limit to reset.';
+    return plan ? `Your ${plan}'s limit resets at ${resetsAt}.` : `The limit resets at ${resetsAt}.`;
+  }
   if (cause === 'too-old') return `To update it, ${UPDATE}.`;
   if (cause === 'api-key') return 'Run codex login in a terminal to sign in with your ChatGPT plan.';
   if (cause === 'codex-config') return 'Run codex in a terminal to see the line it points at and fix it.';
@@ -841,7 +868,7 @@ export function deadRunSentence({ engineWord = 'The agent', cause = 'unknown', r
       : cause === 'subscription-ended'
       ? ' Renew it at claude.ai and it picks straight up.'
       : cause === 'at-limit'
-      ? (resetsAt ? ` It starts again on its own at ${resetsAt}.` : ' It starts again on its own when the limit resets.')
+      ? limitNext(engineWord, resetsAt)
       : cause === 'too-old'
       ? ` To update it, ${UPDATE}, and it starts again on its own.`
       : cause === 'api-key'

@@ -20,7 +20,8 @@ import { splitHits } from '../search';
 import type { ThreadSearchDetails } from '../threads/search';
 import { clockLabel, isCleanRun, nextRunAt } from '../../../shared/repeats.mjs';
 import { Face, TeamRowEnd, type TeamView } from '../team/people';
-import { CloudOfferRow, RepeatMark, RowCells, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
+import { CloudOfferRow, RepeatMark, RowCells, SectionHead, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
+import type { StackKey, StackSection } from '../threads/stack-rules';
 import { FleetContext } from '../fleet';
 import { cardStatus, factsFor, statusCell } from '../status-word';
 import { toApproveWords } from '../threads-made';
@@ -141,7 +142,9 @@ export function dayGroups(
   return groups;
 }
 
-export function List({ items, view, keyView, hoveredId, selected, seen, unread, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder, lead = null }: {
+export function List({ items, view, keyView, hoveredId, selected, seen, unread, running, engineChoice, engines, stalled, queued, signInNeeded, atLimit, shipping, silent, paused, multiSel, snoozes, repeats, allItems, terms, phrase, summaries, searchDetails, ranked, emptyText, walk, onSelect, onOpen, onOpenRepeat, onToggle, onRange, onHover: hoverTo, onAnswerImport, team = null, table = false, products = [], mixed = null, personCell, onOpenCard, selectedCard = null, onEnd, onReorder, lead = null, stack }: {
+  /** Your threads as one list in sections (../threads/stack-rules): each section's header, and which section a row is in. */
+  stack?: { sections: StackSection[]; sectionOf: (item: WorkItem) => StackKey; onFold: (key: StackKey) => void };
   /** Rows drawn above the list's own, under its head: a mention in a room (team/rooms/MentionRows.tsx). */
   lead?: ReactNode;
   items: WorkItem[];
@@ -263,7 +266,8 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
   // The hover does not move while a row is carried: each row crossed would
   // redraw the whole app under the drag (w-6e5b532a95).
   const onHover = (id: string | null) => { if (!drag.carrying()) hoverTo?.(id); };
-  const rules = view === 'snoozed' ? (repeats ?? []) : [];
+  const rules = !stack && view === 'snoozed' ? (repeats ?? []) : [];
+  const laterRules = stack ? (repeats ?? []) : [];
   // The keys the rows in THIS list offer, drawn on the row under the pointer.
   // One list, one set: they are a property of the view, not of the message.
   // EXCEPT WHILE THE WALK IS ON, when they are also a property of the row,
@@ -294,7 +298,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
   //
   // `emptyText` survives because search is the one case that is NOT an empty
   // page: something was typed and the app has to say what it matched.
-  if (items.length === 0 && rules.length === 0 && !mixed?.length && !lead) {
+  if (items.length === 0 && rules.length === 0 && !mixed?.length && !lead && !stack?.sections.length) {
     return emptyText ? <div className="empty">{emptyText}</div> : null;
   }
 
@@ -370,14 +374,35 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
   // your rows keeps the index the keyboard selects it by.
   type Entry = { item: WorkItem; index: number; card?: undefined } | { card: ThreadCard; item?: undefined; index?: undefined };
   const at = new Map(items.map((item, index) => [item.id, index]));
-  const shown: { key: string; label: string; items: Entry[] }[] = table && mixed
+  const shown: { key: string; label: string; items: Entry[]; section?: StackSection }[] = stack
+    ? stack.sections.map((section) => ({ key: section.key, label: '', section, items: items.flatMap((item, index): Entry[] => (stack.sectionOf(item) === section.key ? [{ item, index }] : [])) }))
+    : table && mixed
     ? [{ key: 'mixed', label: '', items: mixed.flatMap((r): Entry[] => (r.card ? [{ card: r.card }] : at.has(r.item.id) ? [{ item: r.item, index: at.get(r.item.id)! }] : [])) }]
     : groups;
   const withPerson = table && !!mixed;
 
+  // A repeating rule's own state is its last run's: the mark turns only
+  // where an agent really is on that one (w-ec2b04d449).
+  const ruleRows = (list: RepeatRule[]) => list.map((rule) => {
+    const pool = allItems ?? items;
+    const last = rule.lastOccurrence ? pool.find((i) => i.id === rule.lastOccurrence) ?? null : null;
+    const live = !!last && (last.status === 'open' || last.status === 'claimed');
+    return (
+      <div key={rule.id} data-repeat-id={rule.id} className="row" title={repeatRow(rule, last).last}
+        onClick={() => onOpenRepeat?.(rule)}>
+        <span className="mark" aria-hidden="true" />
+        <RowCells status={last ? statusCell(last, { ...factsFor(fleet, last.id), inProgress: live, now: Date.now() }) : undefined}
+          lead={<RepeatMark />} title={rule.title} aside={repeatTag(rule)} where={rule.productName}
+          person={withPerson ? personCell?.(team?.me ?? null) : undefined}
+          priority={rule.priority ?? 5} updatedAt={rule.updatedAt ?? rule.createdAt}
+          when={nextRunWords(rule)} now={Date.now()} />
+      </div>
+    );
+  });
+
   return (
     <div className={`list${table ? ' th-table' : ''}`} ref={drag.listRef}>
-      {table && <TableHead person={withPerson} tab={view} />}
+      {table && !stack && <TableHead person={withPerson} tab={view} />}
       {lead}
       {/* Repeating tasks sit above the deferred rows, in the tab that already
           holds work with a moment attached. They are RULES, not items, so they
@@ -390,24 +415,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
           runs in the time column. How the last run went is in the hover title
           and on the task itself; a run that needs a look is its own row in
           Needs you. */}
-      {table && rules.map((rule) => {
-        const pool = allItems ?? items;
-        const last = rule.lastOccurrence ? pool.find((i) => i.id === rule.lastOccurrence) ?? null : null;
-        // A repeating rule's own state is its last run's: the mark turns only
-        // where an agent really is on that one (w-ec2b04d449).
-        const live = !!last && (last.status === 'open' || last.status === 'claimed');
-        return (
-          <div key={rule.id} data-repeat-id={rule.id} className="row" title={repeatRow(rule, last).last}
-            onClick={() => onOpenRepeat?.(rule)}>
-            <span className="mark" aria-hidden="true" />
-            <RowCells status={last ? statusCell(last, { ...factsFor(fleet, last.id), inProgress: live, now: Date.now() }) : undefined}
-              lead={<RepeatMark />} title={rule.title} aside={repeatTag(rule)} where={rule.productName}
-              person={withPerson ? personCell?.(team?.me ?? null) : undefined}
-              priority={rule.priority ?? 5} updatedAt={rule.updatedAt ?? rule.createdAt}
-              when={nextRunWords(rule)} now={Date.now()} />
-          </div>
-        );
-      })}
+      {table && ruleRows(rules)}
       {!table && rules.length > 0 && (
         <div>
           <div className="day-label">Repeating</div>
@@ -438,6 +446,8 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
       )}
       {shown.map((group) => (
         <div key={group.key}>
+          {group.section && <SectionHead label={group.section.label} count={group.section.count} tab={group.section.tab} folded={group.section.folded} onFold={() => stack?.onFold(group.section!.key)} />}
+          {group.section?.key === 'later' && !group.section.folded && ruleRows(laterRules)}
           {/* An empty label is a ranked list or the row that says nothing is
               running, and it draws NOTHING: an empty div here still spends the
               day label's whole height and leaves a band of nothing above the
@@ -459,6 +469,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
               );
             }
             const { item, index } = entry;
+            const tab = group.section?.tab ?? view;
             const session = running.find((r) => r.itemId === item.id);
             const checked = multiSel.has(item.id);
             // THE TWO ROWS THIS APP MAKES ITSELF. Neither is in a ledger, so
@@ -486,10 +497,10 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
                    COME IN: its Y and N are already drawn on the row, which is
                    the rule for the whole set, that a component already
                    showing its key gets no plate. */
-                {...(view === 'inbox' && !isImportRow(item)
+                {...(tab === 'inbox' && !isImportRow(item)
                   ? { 'data-hint': 'row', 'data-hint-text': '.subject' }
                   : {})}
-                className={`row ${made ? 'trouble-row ' : ''}${index === selected && !selectedCard ? 'selected' : ''} ${checked ? 'checked' : ''}${view === 'inbox' && unread?.(item) ? ' unread' : ''}`}
+                className={`row ${made ? 'trouble-row ' : ''}${index === selected && !selectedCard ? 'selected' : ''} ${checked ? 'checked' : ''}${tab === 'inbox' && unread?.(item) ? ' unread' : ''}`}
                 /*
                  * ON MOUSE MOVE, NOT ON MOUSE ENTER. A pointer parked over the
                    list while she walks it with J and K would otherwise claim
@@ -544,7 +555,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
                   // THE TABLE ROW (the team version): the same row, its select
                   // box and its keys, with the approved columns instead of a
                   // title over a summary.
-                  <ThreadCells item={item} product={products.find((p) => p.slug === item.product)} now={Date.now()} tab={view}
+                  <ThreadCells item={item} product={products.find((p) => p.slug === item.product)} now={Date.now()} tab={tab}
                     person={withPerson ? personCell?.(team?.me ?? null) : undefined} />
                 ) : <>
                 <div className="row-main">
@@ -573,7 +584,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
                       rows' usual openings is a list of rows that look unrelated
                       to what was typed. */}
                   <div className="preview">
-                    <Hits text={summaries?.get(item.id) ?? rowSummary(item, view)} terms={terms} phrase={phrase} />
+                    <Hits text={summaries?.get(item.id) ?? rowSummary(item, tab)} terms={terms} phrase={phrase} />
                   </div>
                 </div>
                 {/* Everything that is not the message itself lives at the right end, on the
@@ -670,7 +681,7 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
                       it and `item.agent` went truthy. */}
                   {/* THE WAY BACK, on the row itself: a conversation declined
                       for now offers Import from Closed (w-319289046e). */}
-                  {view === 'done' && isNotImportedRow(item) ? (
+                  {tab === 'done' && isNotImportedRow(item) ? (
                     <span className="row-keys import-keys import-key">
                       {NOT_IMPORTED_KEYS.map((k) => (
                         <button type="button" className="row-key" key={k.key} title={k.word}
@@ -783,9 +794,9 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
                           ? <span className="time" title="The app is shipping this. It comes back to you once it is live, or goes back to its agent if it fails.">shipping</span>
                         : queued?.includes(item.id)
                           ? <span className="time">queued</span>
-                          : paused && view === 'progress'
+                          : paused && tab === 'progress'
                             ? <span className="time">paused</span>
-                            : <span className="time">{view === 'snoozed' ? wake(wakeTs(item)) : view === 'inbox' ? stamp(item.updatedAt) : ago(item.updatedAt)}</span>}
+                            : <span className="time">{tab === 'snoozed' ? wake(wakeTs(item)) : tab === 'inbox' ? stamp(item.updatedAt) : ago(item.updatedAt)}</span>}
                   </>
                   )}
                   </>}
@@ -794,9 +805,10 @@ export function List({ items, view, keyView, hoveredId, selected, seen, unread, 
               </div>
             );
           })}
+          {group.section?.key === 'progress' && !group.section.folded && !ranked && <CloudOfferRow />}
         </div>
       ))}
-      {table && view === 'progress' && !ranked && <CloudOfferRow />}
+      {table && !stack && view === 'progress' && !ranked && <CloudOfferRow />}
       {onEnd && <ListFoot onEnd={onEnd} />}
     </div>
   );

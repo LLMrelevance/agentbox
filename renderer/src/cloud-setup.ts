@@ -20,7 +20,8 @@ export const SETUP = {
   homeHead: 'Run your agents in the cloud',
   // NOT "Add more any time" (w-dac993a554): the cloud runs on one account, so
   // inviting a second one was the screen asking for something it will not use.
-  homeLede: 'Add the account it should use.',
+  // Named, because right after the Agentbox sign-in "the account" read as that one.
+  homeLede: 'Add the Claude or Codex account your agents run on.',
   addClaude: 'Add Claude account',
   addCodex: 'Add Codex account',
   addOne: 'Add account',
