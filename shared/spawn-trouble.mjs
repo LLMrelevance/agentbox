@@ -179,6 +179,9 @@ const INTERRUPTED = [
   // Match the request failure itself so incomplete responses keep their limit.
   /error sending request for url/i,
   /failed to send websocket request/i,
+  // Node's fetch: a deadline passed (often while the Mac slept), or the request failed on the way.
+  /aborted due to timeout/i,
+  /\bfetch failed\b/i,
   /unable to connect/i,
   /can.{0,3}t reach the api/i,
   /timed out/i,
