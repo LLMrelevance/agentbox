@@ -199,13 +199,16 @@
      383px there, inside a 402px phone. */
   :root:root:root .tm-tabs { flex: none; justify-content: flex-start; gap: 18px; flex-wrap: nowrap; white-space: nowrap; height: 100%; align-items: stretch; }
   /* Each word's box is the bar's full 44px, a thumb's size (F-121), and the
-     picked one's mark is the foot of that box, so it lies on the bar's line. */
+     picked one's mark is the foot of that box, so it lies on the bar's line.
+     The count sits on its word's line, as the phone app's does: centred
+     beside the word it sat 2px high, "the numbers are misaligned". The 42px
+     line (44 less the mark) keeps the word where centring put it. */
   :root:root:root .tm-tab {
-    white-space: nowrap; flex: none; height: 100%; padding: 0; display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
+    white-space: nowrap; flex: none; height: 100%; padding: 0; display: flex; align-items: baseline; line-height: 42px; gap: 6px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
     font-family: inherit; text-transform: none; letter-spacing: 0; font-size: calc(15px * var(--phone-type, 1)); color: var(--text-dim);
   }
   :root:root:root .tm-tab.on { color: var(--text); font-weight: 500; border-bottom-color: var(--accent); }
-  :root:root:root .tm-tab b { font-size: calc(11.5px * var(--phone-type, 1)); font-weight: 500; margin: 0; padding: 0; color: var(--text-faint, var(--text-dim)); }
+  :root:root:root .tm-tab b { font-size: calc(11.5px * var(--phone-type, 1)); font-weight: 500; line-height: 1; margin: 0; padding: 0; color: var(--text-faint, var(--text-dim)); }
 
   /* A row: its title over two lines, then the project and the age together
      on one quiet line under it. */
