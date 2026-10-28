@@ -32,6 +32,8 @@
 import { spanLabel } from './notes';
 import { Name } from '../../shared/product-name.mjs';
 import { resetDay } from '../../shared/usage.mjs';
+import { MAC } from './this-keyboard';
+import { whyWords, type WhyCard } from './where-why';
 import type { RunningSession, WhyNotCloud, WorkItem } from './types';
 
 // THE FIFTH STATE, AND IT IS THE ONE SOMEBODY OUTSIDE THIS BUILDING ASKED FOR.
@@ -191,6 +193,32 @@ export function shortSpan(ms: number): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+export interface LivePlace {
+  /** Said after the time: "on this Mac", "in the cloud". */
+  word: string;
+  /** Why it is not in the cloud, on hover; null on a cloud run. */
+  why: WhyCard | null;
+}
+
+// A phone or a browser tab (browser-bridge.ts, cloud-bridge.ts) is not the
+// machine the run is on, so "this Mac" there would name the wrong one.
+const inATab = () => typeof document !== 'undefined' && document.documentElement.dataset.shell === 'tab';
+
+/**
+ * Where a run is, for the working line of an open thread. Said only where it
+ * is news: a cloud run, or a local one while the cloud takes Everything, the
+ * only time the supervisor gives a reason.
+ */
+export function livePlace(facts: LiveFacts, { mac = MAC, tab = inATab() }: { mac?: boolean; tab?: boolean } = {}): LivePlace | null {
+  const session = facts.session;
+  if (!session) return null;
+  if (session.where === 'cloud') return { word: 'in the cloud', why: null };
+  const away = facts.whyNotCloud;
+  if (away?.at !== 'mac') return null;
+  const machine = tab ? 'your computer' : mac ? 'this Mac' : 'this computer';
+  return { word: `on ${machine}`, why: { head: `Running on ${machine}`, body: whyWords(away).body } };
 }
 
 /**

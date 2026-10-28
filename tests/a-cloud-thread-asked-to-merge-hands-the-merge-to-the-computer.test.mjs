@@ -19,7 +19,10 @@ describe('what a cloud run is told about branches', () => {
     expect(CLOUD_NOTE).toMatch(/main or any other branch[^.]*thrown away/i);
     expect(CLOUD_NOTE).toContain(`${HAND_BACK} merging into main`);
     // The hand-back paragraph stays last, where the plain note takes it from.
-    expect(CLOUD_NOTE.split('\n\n').at(-1)).toMatch(/^If this request needs something only their computer has/);
+    const handback = CLOUD_NOTE.split('\n\n').at(-1);
+    expect(handback).toMatch(/^For a missing installed skill or task file, first use the store tool request_cloud_resource/);
+    expect(handback).toContain('Do not transfer the whole thread solely for a missing skill or task file.');
+    expect(handback).toContain(`End your turn with one line and nothing else: ${HAND_BACK}`);
   });
 
   // A cloud run asked about the project's branches listed two; the computer

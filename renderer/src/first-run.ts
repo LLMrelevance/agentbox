@@ -132,8 +132,8 @@ export function firstRunOf(rule: RepeatShape & { id: string }, now = Date.now())
 }
 
 /** Where the first run leaves you: on the task you sent, or in Needs you. */
-export function landing(sent: string | null): { view: 'inbox' | 'progress'; select: string | null } {
-  return sent ? { view: 'progress', select: sent } : { view: 'inbox', select: null };
+export function landing(sent: string | null, runAt = 0): { view: 'inbox' | 'progress' | 'snoozed'; select: string | null } {
+  return sent ? { view: runAt > Date.now() ? 'snoozed' : 'progress', select: sent } : { view: 'inbox', select: null };
 }
 
 /** The one-time lessons left after the first run: the key beside the first thread, and the lit 1. */

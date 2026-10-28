@@ -2557,11 +2557,11 @@ body {
 /* One card in front, the queue as stacked edges peeking above it. The ghosts
    are pure chrome: depth without height, so ten pending asks occupy the same
    screen as one. */
-/* AND THE LIST SCROLLS CLEAR OF IT. The card is fixed over the bottom-right
-   corner, so the last rows of Needs you sat behind it with nothing below them
-   to scroll. The height is measured off the card itself
-   (room-for-the-card.ts); the fallback is a card with no description. */
-.app.asking .list-pane { padding-bottom: calc(var(--approval-room, 149px) + 16px); }
+/* Extra scroll room belongs after the inbox, never inside an opened thread. */
+.app.asking .list-pane:not(.pinned)::after {
+  content: ''; display: block;
+  height: calc(var(--approval-room, 149px) + 16px);
+}
 .approval-stack { position: relative; }
 .approval-ghost {
   position: absolute; left: 0; right: 0; height: 40px;
@@ -2770,6 +2770,9 @@ body {
 .approval-card.answered .approval-opens,
 .approval-card.answered .approval-meta { animation: approval-recede 420ms ease-out forwards; }
 .approval-card.answered.allow { border-color: var(--text-faint); }
+/* Deny moves its edge too (F-115): Allow lightened the card and Deny changed
+   nothing, so the quieter decision was the one with no sign it had landed. */
+.approval-card.answered.deny { border-color: var(--line-strong); }
 
 .approval-verdict {
   position: absolute; inset: 0; z-index: 1;
@@ -2778,8 +2781,8 @@ body {
 }
 .approval-verdict-mark { font-size: 21px; line-height: 1; color: var(--text); }
 .approval-verdict-word { font-size: 13.5px; font-weight: 650; letter-spacing: 0.2px; color: var(--text); }
-.approval-card.answered.deny .approval-verdict-mark,
-.approval-card.answered.deny .approval-verdict-word { color: var(--text-dim); }
+/* Both verdicts are stamped in the card's own ink. Deny had --text-dim here, a
+   step quieter than a mark already on screen for a sixth of a second (F-115). */
 
 /* The press, then a beat holding the verdict, then away. The hold is the whole
    point: an exit that starts fading immediately is the same abrupt
@@ -8790,6 +8793,11 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .live-mark { width: 14px; height: 14px; gap: 1.5px; }
 .live-disclosure { gap: 6px; line-height: 20px; }
 .live-disclosure .live-span { flex: none; }
+/* Where it runs, with the list's why card (threads/pages.css) on hover,
+   opening upward because the reply box sits right under this line. */
+.live-place.has-card { position: relative; cursor: help; }
+.live-place .th-why-card { top: auto; bottom: calc(100% + 10px); }
+.live-place.has-card:hover .th-why-card { display: block; }
 .live-details { margin: 8px 0 0; }
 .live-command { margin: 0; color: var(--text-dim); }
 .live-command summary { display: flex; align-items: center; gap: 7px; height: 28px; cursor: pointer; list-style: none; }
@@ -9180,6 +9188,13 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 /* THE PHONE WHOSE KEY WAS RESET (renderer/src/browser-bridge.ts). */
 #phone-locked-out { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); font: 16px/1.45 system-ui, sans-serif; text-align: center; }
 #phone-locked-out p { margin-top: 8px; opacity: .8; }
+/* THE TAB WHOSE ADDRESS NEVER HAD A KEY ON IT (renderer/src/browser-bridge.ts).
+   The app is not drawn at all behind this one, so it is the whole page. */
+#needs-its-key { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); text-align: center; }
+#needs-its-key > div { max-width: 30em; }
+#needs-its-key strong { display: block; font-size: 17px; font-weight: 600; }
+#needs-its-key p { margin-top: 10px; color: var(--text-dim); font-size: 14px; line-height: 1.5; }
+#needs-its-key code { font-family: var(--mono); font-size: .95em; }
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
 
@@ -9190,7 +9205,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
    whatever is painted on them. It wins because the view is the last thing on the page. */
 .picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
   background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out;
-  -webkit-app-region: no-drag; }
+  -webkit-app-region: no-drag; touch-action: none; }
+/* Fingers belong to the view (PictureView.tsx fingerDown); only the strip of pictures scrolls. */
+.pv-strip { touch-action: pan-x; }
+.pv-chrome button, .pv-tools button { touch-action: manipulation; }
 @keyframes pv-in { from { opacity: 0; } }
 .pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
 .pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;

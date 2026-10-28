@@ -15,6 +15,7 @@ import { api } from '../api';
 import type { FolderListing } from '../types';
 
 type Props = {
+  title?: string;
   startIn?: string | null;
   onPick: (path: string) => void;
   onClose: () => void;
@@ -26,7 +27,7 @@ function shortPath(at: string, home: string): string {
   return at === home ? '~' : `~${at.slice(home.length)}`;
 }
 
-export default function FolderPicker({ startIn, onPick, onClose }: Props) {
+export default function FolderPicker({ title, startIn, onPick, onClose }: Props) {
   const [listing, setListing] = useState<FolderListing | null>(null);
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(true);
@@ -58,12 +59,13 @@ export default function FolderPicker({ startIn, onPick, onClose }: Props) {
         className="modal fp-card"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
-        aria-label="Choose a folder"
+        aria-label={title ?? 'Choose a folder'}
         onKeyDown={(e) => {
           if (e.key === 'Escape') { e.stopPropagation(); onClose(); }
           if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') use();
         }}
       >
+        {title && <h2 className="fp-title">{title}</h2>}
         <div className="fp-head">
           <button
             className="fp-up"

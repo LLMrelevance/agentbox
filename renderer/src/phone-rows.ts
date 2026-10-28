@@ -4,8 +4,9 @@
 // one copy of every rule.
 
 import { REQUEST_CHANNELS } from '../../shared/bridge-map.mjs';
-import { madeHere, phoneChoices } from '../../shared/phone-snapshot.mjs';
+import { madeHere, phoneChoices, WAIT_STATES } from '../../shared/phone-snapshot.mjs';
 import { runOfClaim } from '../../shared/cloud-kit.mjs';
+import { isCarried } from '../../shared/cloud-carry.mjs';
 import { Name } from '../../shared/product-name.mjs';
 import { statusForReply } from './list-rules';
 import { cloudPlaces } from './cloud-files';
@@ -82,7 +83,8 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   const taken = new Set<string>([...rows.threads.map((t) => t.item), ...rows.commands.filter((c) => c.kind === 'new').map((c) => madeHere(c.id))]);
   const used = new Set<string>();
   const running: any[] = [];
-  const threads = [...rows.threads].sort((a, b) => `${a.device}/${a.project}`.localeCompare(`${b.device}/${b.project}`));
+  const waits = new Map<string, { state: string; tool?: string; until?: number }>();
+  const threads =[...rows.threads].sort((a, b) => `${a.device}/${a.project}`.localeCompare(`${b.device}/${b.project}`));
   for (const t of threads) {
     const slug = phoneSlug(t.device, t.project);
     if (!names.has(slug) || !t.snapshot?.item) continue;
@@ -110,14 +112,34 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
         activity: (Array.isArray(live.doing) ? live.doing : []).map((d: any, i: number) => ({ id: `live-${i}`, label: String(d?.label ?? ''), detail: '', startedAt: Number(d?.startedAt) || 0 })),
       });
     }
+    // Why the computer has not started it, in its own words (shared/phone-snapshot.mjs phoneWaitsOf).
+    const wait = t.snapshot.wait;
+    if (wait && typeof wait === 'object' && WAIT_STATES.includes(wait.state)) waits.set(id, wait);
   }
   const waiting: Waiting[] = [];
-  // Threads that start when the computer takes what was sent: "Queued", not "Nothing running".
+  // Threads that start when the computer takes what was sent, or that the
+  // computer says are waiting their turn: "Queued", not "Nothing running".
   const queued: string[] = [];
   const queue = (id: string) => { if (!queued.includes(id)) queued.push(id); };
+  const runNow: string[] = [];
+  const stalled: string[] = [];
+  const shipping: string[] = [];
+  const signInNeeded: Record<string, string> = {};
+  const atLimit: Record<string, { tool: string; until: number }> = {};
+  let paused = false;
+  for (const [id, w] of waits) {
+    if (w.state === 'queued' || w.state === 'next') queue(id);
+    if (w.state === 'next') runNow.push(id);
+    if (w.state === 'stalled') stalled.push(id);
+    if (w.state === 'shipping') shipping.push(id);
+    if (w.state === 'signin') signInNeeded[id] = String(w.tool ?? '');
+    if (w.state === 'limit') atLimit[id] = { tool: String(w.tool ?? ''), until: Number(w.until) || 0 };
+    if (w.state === 'paused') paused = true;
+  }
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const c of ordered) {
-    if (c.kind === 'setting' || c.project === null) continue;
+    // Her computer's own hand-over to the cloud is not something she sent.
+    if (c.kind === 'setting' || c.project === null || isCarried(c)) continue;
     const at = Date.parse(c.created_at) || now;
     const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
     const takenAt = c.taken_at ? Date.parse(c.taken_at) || at : null;
@@ -157,7 +179,15 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
       });
     }
   }
-  return { products, items: [...items.values()], waiting, aliases, running, queued, places, approvals, cards };
+  return { products, items: [...items.values()], waiting, aliases, running, queued, runNow, stalled, shipping, signInNeeded, atLimit, paused, places, approvals, cards };
+}
+
+/** What one thread's live line is told of the computer's queue, off the view (the phone app's thread page). */
+export function waitFacts(view: Pick<ReturnType<typeof phoneView>, 'queued' | 'runNow' | 'stalled' | 'shipping' | 'signInNeeded' | 'atLimit' | 'paused'>, id: string) {
+  return {
+    queued: view.queued, runNow: view.runNow, signInNeeded: view.signInNeeded, atLimit: view.atLimit, paused: view.paused,
+    stalled: view.stalled.includes(id), shipping: view.shipping.includes(id),
+  };
 }
 
 const THREADS_MAX = 3000;
@@ -278,9 +308,8 @@ export const ago = (ms: number) => {
   const d = Math.round(h / 24);
   return `${d} day${d === 1 ? '' : 's'} ago`;
 };
-// Her Mac writes its projects again every five minutes (main/phone-inbox.mjs),
-// so one quiet for longer than this is away.
-const MAC_AWAY_MS = 15 * 60_000;
+// Allow missed heartbeats before declaring the computer away.
+const MAC_AWAY_MS = 90_000;
 /** The line over her inbox when what it shows may be out of date, or null. */
 export function phoneStatusLine({ error, fetchedAt, macSeen, cloud = false }: { error: string | null; fetchedAt: number; macSeen: number; cloud?: boolean }, now = Date.now()): string | null {
   if (error) return `Can't reach your inbox online.${fetchedAt ? ` This is how it was ${ago(now - fetchedAt)}.` : ''}`;

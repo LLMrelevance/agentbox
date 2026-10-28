@@ -131,9 +131,15 @@ const PREVIEW_TEAM = {
 /** A stand-in for the sign-in client (renderer/src/cloud-rest.ts), signed in. */
 export function previewCloud(now = () => Date.now()) {
   const rows = previewRows(now());
+  // `?scene=clear` draws an empty inbox, `?scene=connect` an account no computer has joined, `?scene=signed-out` the sign-in page.
+  const scene = typeof location === 'undefined' ? null : new URLSearchParams(location.search).get('scene');
+  if (scene === 'clear' || scene === 'connect') { rows.threads = []; rows.commands = []; }
+  if (scene === 'connect') rows.projects = [];
+  // `?scene=queued`: a reply on a thread nothing is running, which reads Queued.
+  if (scene === 'queued') rows.commands.push({ id: 'c-preview-q', device: DEV, project: 'film', item: 'w-5e6f7a8b9c', kind: 'reply', payload: { text: 'Open on the inbox.' }, created_at: new Date(now() - 30_000).toISOString(), claimed_at: null, taken_at: null, outcome: null } as PhoneRows['commands'][number]);
+  let signedIn = scene !== 'signed-out';
   const settings = previewSettings(now());
   const team = { ...PREVIEW_TEAM, members: [...PREVIEW_TEAM.members], invites: [...PREVIEW_TEAM.invites] };
-  let signedIn = true;
   // The Mac takes a change a moment later and sends its settings again.
   const takeSetting = (c: PhoneRows['commands'][number]) => setTimeout(() => {
     const { scope, key, value, product } = c.payload ?? {};

@@ -215,6 +215,7 @@ export function createTeamService({
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
       historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines * 4 }); } catch { return []; } },
       apply: phone.apply,
+      waitsOf: () => phone.waits?.() ?? null,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
       approvalsOf: () => phone.approvals?.() ?? [],
       readSettings: phone.readSettings ?? null,
@@ -228,6 +229,10 @@ export function createTeamService({
       runHome: phone.runHome ?? null,
       newThreadKits: phone.newThreadKits ?? null,
       adoptNew: phone.adoptNew ?? null,
+      asleep: phone.asleep ?? (() => false),
+      toCarry: phone.toCarry ?? null,
+      handedOver: phone.handedOver ?? (() => {}),
+      takenBack: phone.takenBack ?? (() => {}),
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),
