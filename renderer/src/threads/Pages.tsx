@@ -303,7 +303,6 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
       <div className="th-cloud-invite-head">{SETUP.inviteHead}</div>
       <p className="th-cloud-invite-line">{SETUP.inviteLine}</p>
       <button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
-      <span className="th-cloud-invite-note">{SETUP.inviteNote}</span>
     </div>}
     {open && !nobodyReady && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
       {setup && <div className="th-cloud-banner">
