@@ -4,12 +4,12 @@
 import Constants from 'expo-constants';
 import { Redirect } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Image, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Name } from '../../../shared/product-name.mjs';
 import { appleAvailable, appleSignIn, googleSignIn } from '../platform/sign-in';
 import { useCloud } from '../state/cloud';
-import { AppleMark, GoogleMark } from '../ui/icons';
+import { AppleMark, AppMark, GoogleMark } from '../ui/icons';
 import { T, Wall } from '../ui/parts';
 import { color, font } from '../ui/theme';
 
@@ -19,14 +19,24 @@ const phoneSite: string | undefined = Constants.expoConfig?.extra?.cloud?.phoneS
 type Mode = 'sign-in' | 'sign-up' | 'check-email';
 const smallCaps = { fontFamily: font.mono, fontSize: 10.5, letterSpacing: 0.84, textTransform: 'uppercase' as const, color: color.faint };
 
-function Field({ label, ...rest }: { label: string } & React.ComponentProps<typeof TextInput>) {
+function Field({ label, secureTextEntry, ...rest }: { label: string } & React.ComponentProps<typeof TextInput>) {
   const [focused, setFocused] = useState(false);
+  // A password can be shown, as the web app's sign-in offers (team/SignInPage.tsx).
+  const [shown, setShown] = useState(false);
   return (
     <View style={{ gap: 6 }}>
       <T style={smallCaps}>{label}</T>
-      <TextInput placeholderTextColor={color.faint} autoCapitalize="none" autoCorrect={false} {...rest}
-        onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-        style={[{ height: 38, paddingHorizontal: 11, borderWidth: 1, borderColor: focused ? color.accent : color.lineStrong, backgroundColor: color.field, fontFamily: font.regular, fontSize: 14, color: color.text }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]} />
+      <View style={{ justifyContent: 'center' }}>
+        <TextInput placeholderTextColor={color.faint} autoCapitalize="none" autoCorrect={false} {...rest} secureTextEntry={secureTextEntry && !shown}
+          onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+          style={[{ height: 38, paddingLeft: 11, paddingRight: secureTextEntry ? 60 : 11, borderWidth: 1, borderColor: focused ? color.accent : color.lineStrong, backgroundColor: color.field, fontFamily: font.regular, fontSize: 14, color: color.text }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]} />
+        {secureTextEntry && (
+          <Pressable onPress={() => setShown(!shown)} accessibilityRole="button" accessibilityLabel={shown ? 'Hide password' : 'Show password'} hitSlop={6}
+            style={{ position: 'absolute', right: 0, height: 38, paddingHorizontal: 11, justifyContent: 'center' }}>
+            <T style={{ fontSize: 12.5, color: color.dim }}>{shown ? 'Hide' : 'Show'}</T>
+          </Pressable>
+        )}
+      </View>
     </View>
   );
 }
@@ -77,7 +87,7 @@ export default function SignIn() {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingHorizontal: 22, paddingTop: inset.top + 40, paddingBottom: inset.bottom + 22 }} keyboardShouldPersistTaps="handled">
           <View style={{ backgroundColor: color.card, borderWidth: 1, borderColor: color.lineStrong, paddingTop: 30, paddingHorizontal: 22, paddingBottom: 22 }}>
-            <Image source={require('../../assets/icon.png')} style={{ width: 40, height: 40, borderRadius: 9, marginLeft: -4, marginBottom: 18 }} accessibilityLabel={Name} />
+            <View style={{ marginBottom: 20 }} accessible accessibilityRole="image" accessibilityLabel={Name}><AppMark size={28} /></View>
             <T style={{ fontFamily: font.medium, fontSize: 20, lineHeight: 26, letterSpacing: -0.3, marginBottom: 8 }}>{heading}</T>
             <T style={{ fontSize: 13.5, lineHeight: 20, color: color.dim, marginBottom: 24 }}>{lede}</T>
             {!c.cloud && !c.preview && <T style={{ fontSize: 13, color: color.dim, marginBottom: 16 }}>This build was made without the cloud's address, so it cannot sign in.</T>}

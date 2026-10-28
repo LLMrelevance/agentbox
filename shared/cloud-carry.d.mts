@@ -18,9 +18,9 @@ export function macAsleep(options?: {
 export interface CarryItem {
   id?: string;
   product?: string;
-  title?: string;
-  body?: string;
-  answer?: string;
+  title?: unknown;
+  body?: unknown;
+  answer?: unknown;
   model?: string | null;
   effort?: string | null;
 }

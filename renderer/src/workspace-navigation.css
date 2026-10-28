@@ -104,9 +104,9 @@
    are the detail on the code row of the thread's menu, so the 8 point drop
    that gave them air under the corner marks (w-299ee43d2e) went with them. The
    words under her title keep their 7 from `.keep-line > .focus-meta`. */
-/* Interact with HTML via its filename/Open control in the document pane.
-   An opaque sandbox cannot forward its key events to the task's shortcuts. */
+/* Message embeds stay passive; the HTML file reader accepts input. */
 .workspace-layout .focus-pane iframe { pointer-events: none; }
+.workspace-layout .focus-pane .one-frame { pointer-events: auto; }
 
 /* THE INBOX COUNT IS DRAWN IN THE TAB'S OWN TYPE (w-5f02e7b525, option C2:
    the number is the label's type exactly).

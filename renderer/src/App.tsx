@@ -22,6 +22,7 @@ import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRu
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
+import { codexFromSettings } from './web-settings';
 import { advanceAfter, advanceLandsHere, replyMovesOn, opensIntoNeedsYou, nextAfterAdvance, type Advance } from './advance';
 import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
@@ -1082,9 +1083,11 @@ export default function App() {
       setClaudeModels(s.workspace?.claudeModels);
       setCodexFreePlan(s.workspace?.codexFreePlan);
       // And Codex's models, in the same trip rather than in one of their own.
-      const models = s.workspace?.codexModels;
-      if (Array.isArray(models)) setCodexModels(models);
-      setCodexModelDefault(s.workspace?.codexModelDefault ?? null);
+      // On the web app, which has no desktop model, they come off the
+      // computer's settings copy (w-24119e8784).
+      const codex = codexFromSettings(s as Parameters<typeof codexFromSettings>[0]);
+      if (Array.isArray(codex.models)) setCodexModels(codex.models);
+      setCodexModelDefault(codex.defaultModel);
     }).catch(() => { /* nothing here stops because a setting did not read */ });
     void readModels();window.addEventListener('agent-models-changed',readModels);
     return()=>window.removeEventListener('agent-models-changed',readModels);
@@ -5978,7 +5981,7 @@ export default function App() {
   // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
   // with two lessons left to give there.
   const [landOn, setLandOn] = useState<string | null>(null);
-  const finishFresh = useCallback((sent: string | null, runAt = 0) => {
+  const finishFresh = useCallback((sent: string | null, runAt = 0, draft?: string) => {
     const to = firstRunLanding(sent, runAt);
     finishFirstRun(localStorage);
     setLessons(localStorage, ['open', 'pick']);
@@ -5988,6 +5991,10 @@ export default function App() {
     setFocused(null);
     setSelected(0);
     setLandOn(to.select);
+    if (draft?.trim()) {
+      setComposeInitial({ body: draft });
+      setModal('compose');
+    }
   }, []);
   // Its row arrives with a snapshot or two after the send.
   const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
@@ -6008,7 +6015,8 @@ export default function App() {
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
-    setLessonAt({ left: r.right + 20, top: r.top + r.height / 2 - 17 });
+    const next = { left: r.right + 20, top: r.top + r.height / 2 - 17 };
+    setLessonAt((had) => had?.left === next.left && had?.top === next.top ? had : next);
   }, [lessons, focused, fresh, view, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
