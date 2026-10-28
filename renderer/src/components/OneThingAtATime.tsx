@@ -22,6 +22,18 @@ export function QueueSummary({ title, context, earlier, steps = false, open, onT
   open: boolean;
   onToggle: () => void;
 }) {
+  const summary = useRef<HTMLDivElement>(null);
+  const opening = useRef(false);
+  const toggleHistory = () => {
+    opening.current = !open;
+    onToggle();
+  };
+  useLayoutEffect(() => {
+    if (!open || !opening.current) return;
+    opening.current = false;
+    const box = summary.current?.closest('.focus-scroll');
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [open]);
   const toggle = earlier > 0
     ? (open ? 'Hide earlier messages' : `Show ${earlier} earlier ${earlier === 1 ? 'message' : 'messages'}`)
     : steps ? (open ? 'Hide what the agent did' : 'Show what the agent did') : null;
@@ -40,11 +52,11 @@ export function QueueSummary({ title, context, earlier, steps = false, open, onT
   const opens = cut || whole;
   const flip = () => setWhole((w) => !w);
   return (
-    <div className="one-sum">
+    <div className="one-sum" ref={summary}>
       {title && <h2 className="one-title">{title}</h2>}
       {toggle && (
         <div className="one-head">
-          <button type="button" className="one-earlier" onClick={onToggle}>{toggle}</button>
+          <button type="button" className="one-earlier" onClick={toggleHistory}>{toggle}</button>
         </div>
       )}
       {context && (
