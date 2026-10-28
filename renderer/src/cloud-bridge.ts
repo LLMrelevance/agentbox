@@ -16,7 +16,7 @@
 // The desktop window and the Mac's own phone page never have that.
 
 import { REQUEST_CHANNELS, PUSH_CHANNELS, DESKTOP_ONLY } from '../../shared/bridge-map.mjs';
-import { feedbackPayload, sendFeedback } from '../../shared/feedback.mjs';
+import { feedbackAddressOn, sendPhoneFeedback, type FeedbackFiles } from './phone-feedback';
 import { cloudClient, type CloudClient, type CloudConfig } from './cloud-rest';
 import { installPhoneScreen } from './phone-screen';
 import { atMostEvery } from './phone-polls';
@@ -86,14 +86,8 @@ export function readBuildStamp(doc: Pick<Document, 'querySelector'> = document):
   return m && Number.isFinite(at) ? { sha: m[1].slice(0, 7), at } : null;
 }
 
-// The same server function the Mac's card posts to (main/feedback.mjs), on the
-// cloud this site was built for, which is also the one origin its page may reach.
-export const feedbackAddressOn = (cfg: CloudConfig) => new URL('/functions/v1/feedback', cfg.url).href;
-
-type FeedbackFiles = { name: string; type: string; data: string }[];
-export function sendPhoneFeedback(cfg: CloudConfig, { text, files }: { text: string; files: FeedbackFiles }, fetchImpl: (url: string, init: RequestInit) => Promise<{ ok: boolean }> = (u, i) => fetch(u, i)) {
-  return sendFeedback({ url: feedbackAddressOn(cfg), payload: feedbackPayload({ text, files, app: { version: '', os: 'phone website' } }), fetchImpl });
-}
+// The cloud this site was built for is also the one origin its page may reach.
+export { feedbackAddressOn, sendPhoneFeedback };
 
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
 const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
