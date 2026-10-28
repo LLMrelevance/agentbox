@@ -91,8 +91,11 @@ describe('the tabs on the web app on a phone', () => {
     expect(tabs).toMatch(/--phone-tabs:\s*0px/);
   });
   it('paint one line at their foot, and the picked one\'s mark is the foot of its box', () => {
-    expect(last('.list-pane > .th-bar', 'background')).toMatch(/linear-gradient\(var\(--line\), var\(--line\)\) bottom \/ 100% 1px no-repeat/);
-    expect(last('.list-pane > .th-bar', 'border')).toBe('0');
+    // A shadow and not a border, so the bar stays the wall's own colour and
+    // has no border for the tab's mark to sit above.
+    expect(last('.list-pane > .th-bar', 'background')).toBe('var(--bg)');
+    expect(last('.list-pane > .th-bar', 'box-shadow')).toBe('inset 0 -1px var(--line)');
+    expect(last('.list-pane > .th-bar', 'border-bottom')).toBe('0');
     expect(last('.tm-tab', 'height')).toBe('100%');
     expect(last('.tm-tab', 'border-bottom')).toBe('2px solid transparent');
     expect(last('.tm-tab.on', 'border-bottom-color')).toBe('var(--accent)');

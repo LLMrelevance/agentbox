@@ -179,9 +179,9 @@
     padding: 0 calc(16px + env(safe-area-inset-right, 0px)) 0 calc(16px + env(safe-area-inset-left, 0px));
     align-items: stretch; gap: 12px; overflow-x: auto; scrollbar-width: none;
     /* The wall's own colour, so the bar and the list never disagree ("a tad
-       bit different", 2026-10-11), with its one line painted at its foot where
-       the picked tab's mark can lie over it. */
-    background: linear-gradient(var(--line), var(--line)) bottom / 100% 1px no-repeat, var(--bg); border: 0;
+       bit different", 2026-10-11), with its one line a shadow at its foot,
+       not a border, so the picked tab's mark can lie over it. */
+    background: var(--bg); box-shadow: inset 0 -1px var(--line); border-top: 0; border-bottom: 0;
   }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
   /* SEARCH GOES UP INTO THE TOP BAR, left of the gear. At the end of the
