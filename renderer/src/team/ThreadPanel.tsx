@@ -127,14 +127,6 @@ export function ThreadPanel({ product, id, people, parent, replies, md, width, r
     if (el) el.scrollTop = el.scrollHeight;
   }, [parent.uid, shown]);
 
-  // The box grows with what is typed, to a point, then scrolls.
-  useBeforePaint(() => {
-    const el = box.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
-  }, [draft]);
-
   // The words, then a link to each file, the way the chat's box sends them.
   // Send while a note records finishes it and sends it with the words. A send
   // that fails puts everything back in the box rather than dropping it.
