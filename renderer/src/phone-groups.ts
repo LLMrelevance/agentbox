@@ -8,9 +8,11 @@
 // Both phone apps use it: the web app answers the desktop's `rooms` door with
 // it (cloud-bridge.ts), and the iPhone app draws its Groups tab from it.
 import type { cloudClient } from './cloud-rest';
-import type { Room, RoomMention, RoomMessage, RoomProfile, RoomsState } from './types';
+import type { Room, RoomCard, RoomMention, RoomMessage, RoomProfile, RoomsState } from './types';
 import { computerOf, type SettingsRow } from './phone-settings-view';
-import { displayNameOf, wallCards } from '../../shared/room-cards.mjs';
+import { displayNameOf, wallCards as wallCardsJs } from '../../shared/room-cards.mjs';
+
+const wallCards = wallCardsJs as unknown as (o: Record<string, unknown>) => RoomCard[];
 
 export type GroupsRest = Pick<ReturnType<typeof cloudClient>, 'session' | 'select' | 'insert' | 'rpc'>;
 

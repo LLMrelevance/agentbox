@@ -45,6 +45,21 @@ export function startsRun(list: readonly RoomMessage[], i: number): boolean {
   return !before || before.by !== m.by || m.at - before.at > 5 * 60_000 || new Date(before.at).toDateString() !== new Date(m.at).toDateString();
 }
 
+/** You first; then working, most agents first; then the rest; people not on yet last (renderer GroupPage `inGroupOrder`). */
+export function peopleInOrder(cards: readonly RoomCard[]): RoomCard[] {
+  const rank = (c: RoomCard) => (c.me ? -1 : c.away ? 2 : (c.agents ?? 0) > 0 ? 0 : 1);
+  return [...cards].sort((a, b) => rank(a) - rank(b) || (b.agents ?? 0) - (a.agents ?? 0));
+}
+
+/** The label over a day's first message. */
+export function dayWords(at: number, now: number): string {
+  const day = (ms: number) => new Date(ms).setHours(0, 0, 0, 0);
+  const days = Math.round((day(now) - day(at)) / 86_400_000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return new Date(at).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
 /** What the People list says under a name (renderer GroupPage `onWords`). */
 export function onWords(c: RoomCard): string {
   if (c.away) return 'Not on Groups yet';
