@@ -1,6 +1,7 @@
 import { previewFocus } from './preview-focus';
 import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
+import { lessonPosition } from './lesson-position';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
 import type {FocusControlStyle} from './focus-control';
@@ -73,9 +74,9 @@ import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
 } from './drafts';
-import { approvalStage } from './approval-stage';
+import { approvalStage, approvalClickAllowed } from './approval-stage';
 import { roomForTheCard } from './room-for-the-card';
-import { approvalReads } from './approval-card';
+import { approvalAnswered, approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
@@ -280,6 +281,9 @@ const liveAnswer = (i: WorkItem) => (i.answer && i.answer !== '(withdrawn)' ? i.
 // on every snapshot.
 const NO_ORDER: string[] = [];
 const NO_RUNNING: RunningSession[] = [];
+// How soon a first read that missed is asked again, as the relay's own
+// patience does for the page (relay/phone/tunnel.mjs GAP_MS).
+const FIRST_READ_AGAIN_MS = 1_500;
 
 // THE SCREEN BEFORE THERE IS A SCREEN. The app's name in the faintest grey
 // there is, which is right for the half second it is usually up and reads as
@@ -688,6 +692,8 @@ export default function App() {
   const [signInSkipped, setSignInSkipped] = useState(() => localStorage.getItem(SIGN_IN_SKIPPED) === '1');
   const signInAsked = signInAsk({ team: snap?.team, fixtures: api.isFixtures, skipped: signInSkipped, canSkip: !onCloudPhone() });
   const signInGate = signInAsked.page;
+  const phoneWasSigningIn = useRef(signInGate);
+  const [phoneSignInSettling, setPhoneSignInSettling] = useState(onPhone);
   // AND THE FIRST-RUN WALK WAITS FOR SOMEBODY TO BE SIGNED IN (2026-10-04).
   // It used to run underneath the sign-in page, invisible but live: on its
   // guided steps it holds every press not on what it points at, so Continue
@@ -930,6 +936,12 @@ export default function App() {
   // leave. Cmd+Y is caught in the main process, so this is the renderer's only
   // evidence the press landed at all.
   const [answered, setAnswered] = useState<{ id: string; allow: boolean } | null>(null);
+  const approvalPress = useRef<string | null>(null);
+  const clickCard = (id: string, allow: boolean, detail: number) => {
+    const fresh = approvalClickAllowed(onPhone(), detail, approvalPress.current, `${id}:${allow}`);
+    approvalPress.current = null;
+    if (fresh) void answerCard(id, allow);
+  };
   // An answer that did not go (the phone's database, a card that moved) puts the card back and says why.
   const answerCard = async (id: string, allow: boolean) => {
     setAnswered({ id, allow });
@@ -937,6 +949,9 @@ export default function App() {
     if (r && (r as { ok?: boolean }).ok === false) {
       setAnswered(null);
       showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    } else if (onPhone()) {
+      // The stamp on the leaving card is a flash on a phone screen (./approval-card.ts).
+      showToast(approvalAnswered(allow));
     }
     await refresh();
   };
@@ -944,6 +959,7 @@ export default function App() {
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
   const frontApproval = useRef<Approval | null>(null);
+  const [minimizedApproval, setMinimizedApproval] = useState<string | null>(null);
   // Which option (by its number) the arrows have highlighted in focus mode.
   // A task always opens with NOTHING selected: Enter can only ever send a
   // choice the user visibly made.
@@ -1710,11 +1726,19 @@ export default function App() {
   const refreshRef = useRef<() => Promise<unknown>>();
   refreshRef.current = refresh;
 
+  // THE FIRST READ IS ASKED AGAIN UNTIL IT LANDS (w-f430aa863d). Missed, the
+  // boot screen used to wait for the next poll, which on a phone is 30 seconds,
+  // or for something to change, and said the app was not answering meanwhile.
   useEffect(() => {
-    refresh();
+    let gone = false;
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const first = () => {
+      refresh().catch(() => { if (!gone) again = setTimeout(first, FIRST_READ_AGAIN_MS); });
+    };
+    first();
     const off = api.onChanged(refresh);
     const poll = setInterval(refresh, pollEvery(10_000, onPhone()));
-    return () => { off(); clearInterval(poll); };
+    return () => { gone = true; clearTimeout(again); off(); clearInterval(poll); };
   }, [refresh]);
 
   // Dev aid: ?focus=1 opens the first inbox item on load (screenshot runs).
@@ -3856,7 +3880,7 @@ export default function App() {
 
   // Whether a reply from inside this thread moves her on to the next (./advance).
   const movesOn = useCallback((item: WorkItem) => replyMovesOn({
-    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), searching: search !== null,
+    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), searching: search !== null, phone: onPhone(),
   }), [view, onBoard, shownInbox, search]);
 
   // Every resolving action goes through here: the UI advances instantly, the
@@ -6015,8 +6039,7 @@ export default function App() {
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
-    const next = { left: r.right + 20, top: r.top + r.height / 2 - 17 };
-    setLessonAt((had) => had?.left === next.left && had?.top === next.top ? had : next);
+    setLessonAt((previous) => lessonPosition(previous, { left: r.right + 20, top: r.top + r.height / 2 - 17 }));
   }, [lessons, focused, fresh, view, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
@@ -6028,6 +6051,21 @@ export default function App() {
     if (on && document.querySelector('.opt-row')) pickSeen.current = true;
     if (!focused && pickSeen.current) dropLesson('pick');
   });
+
+  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };
+  useEffect(() => {
+    if (!onPhone()) return;
+    if (signInGate) {
+      phoneWasSigningIn.current = true;
+      setPhoneSignInSettling(true);
+      return;
+    }
+    if (phoneWasSigningIn.current) openView('inbox');
+    phoneWasSigningIn.current = false;
+    // Keep pending approvals out of the sign-in transition.
+    const timer = setTimeout(() => setPhoneSignInSettling(false), 800);
+    return () => clearTimeout(timer);
+  }, [signInGate]);
 
   // THE SAME SCREEN, held for the beat it takes ⌘R to put her back where she
   // was, so the reload never shows her the inbox on its way to the task. Its
@@ -6222,7 +6260,6 @@ export default function App() {
           : <PersonThreads cards={evCards} name={evMember.name.split(' ')[0]} now={now} onOpen={openTeammateCard} />)
       : <p className="ev-empty">No messages with {evMember.name.split(' ')[0]} yet.
         <button type="button" className="rm-btn" onClick={() => { setComposeInitial({ to: evMember.key.slice(evMember.key.indexOf(':') + 1) }); setModal('compose'); }}>Message {evMember.name.split(' ')[0]}</button></p>;
-  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };
   // BACK LANDS ON THE TAB THE BAR NAMED (w-474ac45a33). The thread may have
   // moved tabs while it was open, and closing it onto the tab it has left is
   // how Esc landed on "Nothing is running." The cursor follows by id, the same
@@ -6238,7 +6275,7 @@ export default function App() {
   // approval card stands in the corner the toast stands in and under it, so the
   // toast covered Allow and Deny. Read off the same stage the card is drawn
   // from below, so the class and the card cannot disagree about what is asked.
-  const stage = approvalStage(snap?.approvals, answered, frontApproval.current);
+  const stage = approvalStage(snap?.approvals, answered, frontApproval.current, signInGate || phoneSignInSettling);
   const cardOnScreen = !!stage.card;
 
   return (
@@ -6394,6 +6431,9 @@ export default function App() {
            One rule now decides both.
          */}
         {!searchFieldInStrip({ searching: search !== null, focused: !!focused, settingsOpen }) && <div className="topbar-right">
+          {onPhone() && stage.card && minimizedApproval === stage.card.id && (
+            <button type="button" className="approval-review" aria-label="Review permission" onClick={() => setMinimizedApproval(null)}>Review ({stage.waiting + 1})</button>
+          )}
           {/* THE HINT THAT USED TO SIT HERE IS GONE (w-2f7fac6027). It printed a
               cap and a word in the strip's own gap, which is the app changing
               under the pointer, and the corner's two buttons are not in the set
@@ -6726,7 +6766,7 @@ export default function App() {
                   pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
                   onAsked={() => setThreadAsk(null)}
                   onShown={setOpenShows}
-                  aboveDock={whereItWent}
+                  aboveDock={<>{snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}{whereItWent}</>}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6937,6 +6977,7 @@ export default function App() {
           when it opens. */}
       {(modal === 'compose' || clearSlot) && drawnIn(
         <ThreadComposer
+          statusLine={snap.phoneStatus}
           key={modal === 'compose' ? 'card' : 'page'}
           inline={modal !== 'compose'}
           onWriting={setClearWriting}
@@ -7779,6 +7820,7 @@ export default function App() {
         // gone.
         const { card: a, verdict, waiting } = stage;
         if (!a) return null;
+        if (onPhone() && minimizedApproval === a.id) return null;
         // WHAT IT IS ASKING AND WHAT IT IS ASKING ABOUT, and neither is
         // hardcoded any more: "asks to run" over a diff is a lie, and it is the
         // first thing she reads. approval-card.ts is the only copy.
@@ -7843,6 +7885,7 @@ export default function App() {
                           {said ?? <>{product} {reads.what}</>}
                         </span>
                         {waiting > 0 && <span className="approval-count">+{waiting} waiting</span>}
+                        {onPhone() && <button type="button" className="approval-minimize" onClick={() => setMinimizedApproval(a.id)}>Minimize</button>}
                       </div>
                       {/* THE WHOLE THING SHE IS ANSWERING ABOUT, AND THE CAP IS
                           NOT HERE. This sliced to 400 characters with no mark on
@@ -7911,8 +7954,8 @@ export default function App() {
                   {/* The acknowledgement starts on the press, not on the round
                       trip: main answers the file and echoes the same verdict
                       back, so the click and the chord land on one behaviour. */}
-                  <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
-                  <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
+                  <button className="approval-allow" onPointerDown={() => { approvalPress.current = `${a.id}:true`; }} onPointerCancel={() => { approvalPress.current = null; }} onClick={(e) => clickCard(a.id, true, e.detail)}>Allow</button>
+                  <button className="approval-deny" onPointerDown={() => { approvalPress.current = `${a.id}:false`; }} onPointerCancel={() => { approvalPress.current = null; }} onClick={(e) => clickCard(a.id, false, e.detail)}>Deny</button>
                   <span className="approval-hint">{chord('⌘Y')} / {chord('⌘N')} · {a.tool}</span>
                 </div>
               </div>
