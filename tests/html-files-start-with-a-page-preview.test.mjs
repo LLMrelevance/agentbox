@@ -9,8 +9,8 @@ const screen = vi.hoisted(() => ({ phone: false }));
 vi.mock('../renderer/src/phone-screen', () => ({ onPhone: () => screen.phone }));
 afterEach(() => { screen.phone = false; });
 
-const draw = (path = 'designs/review.html') => renderToStaticMarkup(h(HtmlPreview, {
-  path, url: '/files/review.html', onOpen: () => {},
+const draw = (path = 'designs/review.html', expanded = false) => renderToStaticMarkup(h(HtmlPreview, {
+  path, url: '/files/review.html', expanded, onExpandedChange: () => {},
 }));
 
 describe('an HTML file preview', () => {
@@ -20,7 +20,7 @@ describe('an HTML file preview', () => {
     expect(html).toContain('scrolling="no"');
     expect(html).toContain('Show full document');
     expect(html).toContain(`title="${path}"`);
-    expect(html).not.toContain('aria-expanded=');
+    expect(html).toContain('aria-expanded="false"');
   });
 
   it('keeps the desktop sandbox and the resolved address', () => {
@@ -33,5 +33,14 @@ describe('an HTML file preview', () => {
     screen.phone = true;
     expect(draw()).toContain('sandbox="allow-scripts"');
     expect(draw()).not.toContain('allow-same-origin');
+  });
+
+  it('expands in chat with a collapse button at the bottom', () => {
+    const html = draw('designs/review.html', true);
+    expect(html).toContain('document-preview-frame is-expanded');
+    expect(html).toContain('scrolling="auto"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('Show preview');
+    expect(html).not.toContain('Show full document');
   });
 });
