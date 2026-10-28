@@ -1170,7 +1170,8 @@ export class Supervisor {
   _spawnResume(item) {
     const live = item.answer && item.answer !== '(withdrawn)';
     if (live) this._handledAnswers.add(this._answerKey(item));
-    this.spawnWorker(item, { continuation: !!live });
+    // She resumed it by name, and its launch asks memory the way its queue did.
+    this.spawnWorker(item, { continuation: !!live, asked: true });
   }
 
   // The recovery command. When every worker dies at once (the founder's plan
@@ -5961,10 +5962,12 @@ export class Supervisor {
 
   // A row bound for the cloud that cannot go after all (a Codex resume, an
   // account with no cloud sign-in) may run here instead only as any start
-  // here would: a slot, and this Mac's memory. A reply still runs here.
-  _mayRunHereInstead({ item, engine, pinnedFull = false, continuation = false, heldForMemory = false }) {
+  // here would: a slot, and this Mac's memory. A reply still runs here past
+  // the slots, and asks memory as a row she named; a command she typed asks
+  // neither.
+  _mayRunHereInstead({ item, engine, pinnedFull = false, continuation = false, heldForMemory = false, command = false }) {
     if (pinnedFull) return false;
-    if (continuation) return this._memoryLetsLaunch(item, { continuation });
+    if (continuation) return command || this._memoryLetsLaunch(item, { asked: true });
     return this._localSlotFor(engine) && !heldForMemory && this._memoryLetsStart(item);
   }
 
@@ -6042,11 +6045,14 @@ export class Supervisor {
    * name: it starts while memory is tight and waits only while it is very
    * short, the rule urgent work already has.
    */
-  _memoryLetsLaunch(item, { continuation = false } = {}) {
+  _memoryLetsLaunch(item, { asked = false } = {}) {
     if (!this.config.memoryGate) return true;
+    // A digest asked in the same breath it was made (the digest pass), and its
+    // id did not exist yet to remember a ten-minute pass by.
+    if (String(item?.id ?? '').startsWith('digest-')) return true;
     const passed = this._letThroughOverdue?.get(item?.id);
     if (passed !== undefined && Date.now() - passed <= OVERDUE_PASS_MS) return true;
-    return this._memoryLetsStart(item, { asked: continuation });
+    return this._memoryLetsStart(item, { asked });
   }
 
   /** What the Running page says about the hold: whether a start was held in
@@ -9405,7 +9411,7 @@ export class Supervisor {
     }
   }
 
-  spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null } = {}) {
+  spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null, asked = false } = {}) {
     if (this._heldFromStarting(item)) return;
     // Every other way in (a resume on wake, a held thread's retry) meets the
     // same rule as the queue: a run started in a dark wake dies at the next.
@@ -9527,8 +9533,8 @@ export class Supervisor {
       console.warn(`zero: refusing to start a session in ${product.slug}: nothing runs in a practice project`);
       return;
     }
-    if (this._folderFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly })) return;
-    if (this._photoFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly })) return;
+    if (this._folderFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, asked })) return;
+    if (this._photoFirst(item, product, engine, { continuation, resumeSessionId, profile: forcedProfile, engine: forcedEngine, remoteOnly, asked })) return;
 
     // THE ROW'S OWN FOLDER, RESOLVED BEFORE ANYTHING IS ALLOCATED FOR THE RUN.
     // Everything downstream follows this one word: the snapshot the change card
@@ -9556,7 +9562,8 @@ export class Supervisor {
     // unless memory has recovered while its folder was being made: asked
     // again here, where the decision is used (Codex's review, 2026-10-13).
     const heldForMemory = this._stillHeldForMemory(item);
-    const mayRunHereInstead = () => this._mayRunHereInstead({ item, engine, pinnedFull, continuation, heldForMemory });
+    // Only ever called once `plan` below exists.
+    const mayRunHereInstead = () => this._mayRunHereInstead({ item, engine, pinnedFull, continuation, heldForMemory, command: !!plan.command });
     let where = this._whereToRun({ item, product, cwd, engine, continuation, remoteOnly, localFull: pinnedFull || heldForMemory });
     if (!where) {
       if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
@@ -9600,7 +9607,7 @@ export class Supervisor {
     // AND MEMORY, ASKED WHERE THIS MAC IS DECIDED (`_memoryLetsLaunch`). A
     // command she typed is over in seconds and never waits. A row held here
     // goes back to the queue, which sends it to the cloud if it can.
-    if (where === 'local' && !plan.command && !this._memoryLetsLaunch(item, { continuation })) {
+    if (where === 'local' && !plan.command && !this._memoryLetsLaunch(item, { asked: continuation || asked })) {
       if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
       return;
     }

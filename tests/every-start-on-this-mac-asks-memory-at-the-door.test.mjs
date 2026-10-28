@@ -79,6 +79,30 @@ describe('a row picked on a normal reading', () => {
   });
 });
 
+describe('what was already let through upstream', () => {
+  it('a row she resumed by name, with no reply on it, still starts while tight', () => {
+    const { sup, launched, memory } = fleet();
+    memory(TIGHT);
+    try { sup._spawnResume(row()); } catch (e) { if (e.message !== 'stop before the process') throw e; }
+    expect(launched).toHaveLength(1);
+  });
+
+  it('a digest the ten-minute rule let through launches', () => {
+    const { launched, memory, go } = fleet();
+    memory(CRITICAL);
+    go({ id: 'digest-abc', product: 'p' });
+    expect(launched).toHaveLength(1);
+  });
+
+  it('a command she typed that was waiting for the cloud runs here whatever memory says', () => {
+    const { sup, launched, memory, go } = fleet();
+    memory(CRITICAL);
+    sup._whereToRun = () => 'cloud-wait';
+    go(row('w-1', { answer: '/compact' }), { continuation: true });
+    expect(launched).toHaveLength(1);
+  });
+});
+
 describe('her reply', () => {
   const reply = (id = 'w-1') => row(id, { answer: 'yes, do that' });
 
