@@ -169,11 +169,15 @@ export function createPhoneInbox({
       return { label: label.length > 160 ? `${label.slice(0, 159)}…` : label, startedAt: Number(d?.startedAt) || now() };
     });
     const was = lives.get(sk);
-    const same = was && was.since === raw.since && was.where === raw.where;
+    const sameRun = was && was.since === raw.since && was.where === raw.where;
+    const runId = raw.runId ?? (sameRun ? was.runId : undefined);
+    const same = sameRun && was.runId === runId;
     const steps = (l) => JSON.stringify(l.doing.map((d) => d.label));
     if (same && now() - was.at < STEP_EVERY_MS) return was;
     if (same && now() - was.at < STILL_RUNNING_MS && steps(was) === steps({ doing })) return was;
-    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now() };
+    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now(),
+      ...(raw.where === 'cloud' && /^[A-Za-z0-9._-]{1,120}$/.test(runId ?? '') ? { runId } : {}),
+    };
     lives.set(sk, live);
     return live;
   };
@@ -365,6 +369,7 @@ export function createPhoneInbox({
     still();
     const waiting = (await backend.waitingPhoneCommands(device)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     let taken = 0;
+    const newCommands = [];
     let changedSettings = false;
     for (const cmd of waiting) {
       still();
@@ -432,13 +437,17 @@ export function createPhoneInbox({
         for (const [k, v] of Object.entries(state.made)) if (!(now() - (v?.at ?? 0) < MADE_KEPT_MS)) delete state.made[k];
         save();
       }
+      if (cmd.kind === 'new' && outcome === 'done' && state.made[madeHere(cmd.id)]?.id) {
+        newCommands.push({ id: cmd.id, project: cmd.project, item: state.made[madeHere(cmd.id)].id });
+        continue;
+      }
       still();
       await backend.markPhoneCommand(cmd.id, outcome, owner);
       delete state.done[cmd.id];
       save();
       taken += 1;
     }
-    return { taken, changedSettings };
+    return { taken, changedSettings, newCommands };
   }
 
   // RUNS THE CLOUD STARTED WHILE THIS COMPUTER WAS SHUT, made the threads'
@@ -594,7 +603,9 @@ export function createPhoneInbox({
     arrivals: (list, needsYou) => alerts?.arrived(list, needsYou),
     async syncOnce() {
       try {
-        const { taken, changedSettings } = await takeCommands();
+        const commands = await takeCommands();
+        let { taken } = commands;
+        const { changedSettings, newCommands } = commands;
         let adopted = 0;
         try { adopted = await adoptCloudRuns(); } catch (err) {
           if (err instanceof SignedOut) throw err;
@@ -603,6 +614,15 @@ export function createPhoneInbox({
         const handed = await handOver();
         if (handed) log(`phone: asleep, handed ${handed} to the cloud`);
         const sent = await publish();
+        // Removing the phone's waiting copy must follow a successful upload.
+        for (const cmd of newCommands) {
+          if (!state.sent[`${cmd.project}:${cmd.item}`]) continue;
+          still();
+          await backend.markPhoneCommand(cmd.id, 'done', owner);
+          delete state.done[cmd.id];
+          save();
+          taken += 1;
+        }
         await publishSettings(changedSettings);
         if (alerts) {
           if (taken) alerts.phoneUsed();
