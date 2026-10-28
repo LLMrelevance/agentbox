@@ -57,7 +57,7 @@ const guard = (fn) => async (args) => {
 };
 
 // `ownItem` is the row this server's session was started for, if any.
-export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } = {}) {
+export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null, requestCloudResource = null } = {}) {
   const account = resolveAccount();
   const claims = createClaimRegistry({ holder: holder ?? `mcp-${process.pid}` });
   const hasTeam = teammatesExist(String(process.env.STORE_ACCOUNT_ID ?? '').trim() || account.accountId);
@@ -358,6 +358,17 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null } =
       run: async ({ product, url, width, height }) => json(await lookAtPage({ product, url, width, height })),
     },
   ];
+
+  if (typeof requestCloudResource === 'function') tools.push({
+    name: 'request_cloud_resource',
+    description: 'Fetch a missing task file or installed skill from this thread’s computer without moving the conversation there. Files use a relative path under this task checkout or its product documents; skills use their installed name. Delivered resources get a separate scratch path, preserving cloud edits. Returns delivered, denied, not_found, too_large, or unavailable. A delivered skill includes its scripts and references; read its returned SKILL.md. When the computer is unavailable, continue independent work and explain what is missing.',
+    schema: {
+      kind: z.enum(['file', 'skill']),
+      path: z.string().describe('relative file path, or installed skill name'),
+      scope: z.enum(['task', 'documents']).optional().describe('required for a file; omitted for a skill'),
+    },
+    run: async (args) => json(await requestCloudResource(args)),
+  });
 
   // Teammates are an alpha feature: their tools are offered once there is a
   // teammate to talk to, which is never while the feature is off.
