@@ -83,6 +83,8 @@ export interface CloudStatus {
   versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
   /** The slugs of the projects whose threads the cloud may run (supervisor `_cloudTakesProject`). */
   projects?: string[];
+  /** Runs on this Mac the cloud could take now (supervisor `_movableToCloud`). */
+  movable?: string[];
 }
 
 const agentName = (engine: 'claude' | 'codex') => (engine === 'codex' ? 'Codex' : 'Claude Code');
@@ -183,6 +185,18 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
 }
 
+/**
+ * THE MENU'S LINE ABOUT RUNS ON THIS MAC THE CLOUD COULD TAKE. With Everything
+ * they move by themselves and the line says so; when this Mac is full, it
+ * offers to move them. Null with none, or with the cloud off.
+ */
+export function cloudMoveLine({ mode, movable }: { mode: CloudMode; movable: number }): { say: string; go: string | null } | null {
+  if (!movable || mode === 'mac') return null;
+  const threads = `${movable} thread${movable === 1 ? '' : 's'}`;
+  if (mode === 'all') return { say: `Moving ${threads} to the cloud`, go: null };
+  return { say: `${threads} could run in the cloud`, go: movable === 1 ? 'Move it' : 'Move them' };
+}
+
 /** Where C takes it: off from either kind of on, back on to what "on" means. */
 export function cloudToggleTarget(status: OnOff): CloudMode {
   if (cloudIsOn(status)) return 'mac';
@@ -240,11 +254,13 @@ export function threadPlace(
   item: { id: string; product: string; onMac?: boolean; labels?: string[] },
   session: { where?: string } | null,
   cloud: CloudStatus | null,
-): 'cloud' | 'here' | 'kept' | null {
+): 'cloud' | 'here' | 'kept' | 'move' | null {
   if (!cloud?.setUp) return null;
   if (teammateIdOf(item)) return null;
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;
+  // With Everything it moves by itself, and the row offers keeping it here.
+  if (cloud.mode !== 'all' && cloud.movable?.includes(item.id)) return 'move';
   return cloud.projects?.includes(item.product) ? 'here' : null;
 }

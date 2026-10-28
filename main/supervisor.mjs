@@ -144,7 +144,7 @@ import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadPara
 import { CODEX_DEFAULT_MODE, isCodexMode } from '../shared/codex-modes.mjs';
 import { cloudCodexMode } from './cloud-permission.mjs';
 import { createCodexApprovals } from './codex-approvals.mjs';
-import { approvalPublicKey } from './approvals.mjs';
+import { approvalPublicKey, listPending } from './approvals.mjs';
 import { codexDefaultModel, codexHome, codexKnownSlugs, codexModelLevels, codexModels } from './codex-models.mjs';
 import { codexAccount, codexPlanEnded, ensureCodexHome } from './codex-account.mjs';
 import { accountName } from '../shared/account-names.mjs';
@@ -273,6 +273,11 @@ const HELD_RETRY_MS = [30 * 60_000, 2 * 3_600_000, 8 * 3_600_000];
 const CLOUD_STARTING_AT_ONCE = 2;
 // How long a cloud run may take to start before it stops holding others back.
 const CLOUD_START_PATIENCE_MS = 10 * 60_000;
+// A run paused to move to the cloud whose resume has not gone there by then
+// is placed like any other. And one moved is not moved again this soon, so a
+// cloud start that fails sends it back here once rather than back and forth.
+const TO_CLOUD_PATIENCE_MS = 10 * 60_000;
+const MOVE_TO_CLOUD_AGAIN_MS = 30 * 60_000;
 // Cloud runs failing in a row before the cloud rests, and for how long
 // (`_noteCloudOutcome`).
 const CLOUD_FAULTS_TO_REST = 3;
@@ -4010,6 +4015,78 @@ export class Supervisor {
     this.onChange?.();
   }
 
+  // A RUN ON THIS MAC THE CLOUD COULD TAKE NOW: paused the way an urgent row
+  // pauses one (`_takeSlotFor`), so the sweep resumes the same session, and
+  // `_toCloud` sends that resume to the cloud. A Codex thread stays: this
+  // Mac's app-server holds it (`codexHeldHere`).
+  _movableToCloud(session, item = null) {
+    if (!session?.itemId || session.cloud || session.command || session.remoteIdle || session.stoppedByUs) return false;
+    if (engineOf(session.engine) !== 'claude') return false;
+    if (!this._cloudSetUp() || !this._cloudReady('claude') || !this._cloudSignedInAtAll('claude')) return false;
+    const rec = this._liveSessions[session.itemId];
+    if (!rec?.sessionId || !this.transcriptFile(rec)) return false;
+    let product = null;
+    try {
+      product = this.store.listProducts().find((p) => p.slug === session.product) ?? null;
+      item ??= this.store.listItems(Date.now()).find((i) => i.id === session.itemId && i.product === session.product) ?? null;
+    } catch { return false; }
+    return !!item && this._mayRunInCloud(item, product, session.cwd);
+  }
+
+  _movableIds(items) {
+    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    return [...this.sessions.values()].filter((s) => byId.has(s.itemId) && this._movableToCloud(s, byId.get(s.itemId))).map((s) => s.itemId);
+  }
+
+  // Everything moves every run the cloud could take; otherwise only these.
+  _movesToCloud(session, item = null) {
+    return (this._cloudFirst() || !!this._moveAsked?.has(session?.itemId)) && this._movableToCloud(session, item);
+  }
+
+  /** The thread menu's and the cloud menu's "Move to the cloud": ids of runs on this Mac. */
+  moveToCloud(ids = []) {
+    let moving = 0;
+    for (const id of ids ?? []) {
+      if (!this._movableToCloud(this.sessions.get(id))) continue;
+      (this._moveAsked ??= new Set()).add(id);
+      moving += 1;
+    }
+    if (moving) { this.wake?.(); this.onChange?.(); }
+    return { moving };
+  }
+
+  // Each tick, as many as the cloud can start now. A pause not yet started in
+  // the cloud holds one of its starts. The youngest go first, as with an
+  // urgent row: least work in flight. A run asking for an approval waits,
+  // since a pause would throw away the card in front of the person.
+  _moveRunsToTheCloud(items, now = Date.now()) {
+    for (const id of [...(this._moveAsked ?? [])]) if (!this.sessions.has(id)) this._moveAsked.delete(id);
+    for (const [id, at] of [...(this._toCloud ?? [])]) if (now - at > TO_CLOUD_PATIENCE_MS) this._toCloud.delete(id);
+    if (!this._cloudFirst() && !this._moveAsked?.size) return;
+    if (!this._cloudUsable('claude')) return;
+    const pausing = [...(this._toCloud?.keys() ?? [])].filter((id) => !this.sessions.has(id)).length;
+    let starts = CLOUD_STARTING_AT_ONCE - this._cloudStarting(now) - pausing;
+    let room = this._maxCloud() - this._cloudLoad() - pausing;
+    if (starts <= 0 || room <= 0) return;
+    const byId = new Map((items ?? []).map((i) => [i.id, i]));
+    let asking = null;
+    const candidates = [...this.sessions.values()]
+      .filter((s) => this._movesToCloud(s, byId.get(s.itemId) ?? null))
+      .filter((s) => !(now - (this._movedToCloudAt?.[s.itemId] ?? 0) < MOVE_TO_CLOUD_AGAIN_MS))
+      .filter((s) => !(asking ??= new Set(listPending(this.config.storeRoot).map((r) => r?.item))).has(s.itemId))
+      .sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0));
+    for (const s of candidates) {
+      if (starts <= 0 || room <= 0) break;
+      (this._toCloud ??= new Map()).set(s.itemId, now);
+      (this._movedToCloudAt ??= {})[s.itemId] = now;
+      this._moveAsked?.delete(s.itemId);
+      this._kill(s);
+      this._recoverPending = true;
+      starts -= 1;
+      room -= 1;
+    }
+  }
+
   // A CLOUD RUN THAT ENDED ON THE MARKED LINE (shared/cloud-hand-back.mjs):
   // its request needs this Mac. Nothing it said goes on the row, and the same
   // request runs again here, told why (`replyBrief`). True when it was one.
@@ -4879,6 +4956,8 @@ export class Supervisor {
       notInCloud: setUp ? this._cloudNotSignedInHere(now) : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
       projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
+      // Runs on this Mac it could take now (`_movableToCloud`).
+      movable: setUp && this.sessions.size && this._cloudUsable('claude') ? this._movableIds(this.store.listItems(now)) : [],
     };
   }
 
@@ -5557,6 +5636,8 @@ export class Supervisor {
     // what cannot go there or when the cloud is at its cap. Chosen by her for
     // signing off with everything still working (docs/cloud/PLAN.md).
     const cloudOk = () => this._mayRunInCloud(item, product, cwd, { remoteOnly }) && this._cloudSlotFor(engine);
+    // Paused on this Mac to move to the cloud (`_moveRunsToTheCloud`).
+    if (item?.id && this._toCloud?.delete(item.id) && cloudOk()) return 'cloud';
     if (this._cloudFirst() && cloudOk()) return 'cloud';
     if (this._waitsForCloud(item, engine) && this._mayRunInCloud(item, product, cwd, { remoteOnly })) return 'cloud-wait';
     if (!localFull && this._localSlotFor(engine)) return 'local';
@@ -6602,10 +6683,13 @@ export class Supervisor {
     // its card says why. Under "when this Mac is full" running here is the
     // rule, so nothing is said.
     const whyNotCloud = {};
+    let movable = [];
+    try { movable = this._movableIds(allThreads()); } catch {}
     try {
       if (this._cloudFirst() && this._cloudSetUp()) {
         for (const s of this.sessions.values()) {
-          if (!s.cloud && !s.command && s.whyLocal) whyNotCloud[s.itemId] = { at: 'mac', ...s.whyLocal };
+          if (movable.includes(s.itemId) && this._cloudUsable('claude')) whyNotCloud[s.itemId] = { at: 'mac', why: 'moving' };
+          else if (!s.cloud && !s.command && s.whyLocal) whyNotCloud[s.itemId] = { at: 'mac', ...s.whyLocal };
         }
         const byId = new Map(allThreads().map((i) => [i.id, i]));
         const productBySlug = new Map((this.store.listProducts?.() ?? []).map((p) => [p.slug, p]));
@@ -7134,6 +7218,9 @@ export class Supervisor {
     // resume that quietly never happens is the failure this whole path exists
     // to end.
     this._drainResumeQueue(items);
+
+    // Runs on this Mac the cloud could take; the sweep above resumes them there.
+    try { this._moveRunsToTheCloud(items); } catch (e) { console.warn('zero: could not move a run to the cloud:', e.message); }
 
     // ONE QUEUE, ONE ORDER. Everything spawnable this tick is scored by the
     // same rule and the slots go to the top of that one list.

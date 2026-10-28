@@ -504,6 +504,12 @@ export const api = {
           const kept = base.items.find((i) => i.id === first.itemId);
           if (kept) kept.onMac = true;
         }
+        // &moving draws the other running threads on this Mac, all of which the cloud could take now.
+        if (params.has('moving') && base.cloud) {
+          const here = base.supervisor.running.filter((r) => (r as { where?: string }).where !== 'cloud').map((r) => r.itemId);
+          base.cloud.movable = here;
+          if (cloud === 'all') base.supervisor.whyNotCloud = Object.fromEntries(here.map((id) => [id, { at: 'mac' as const, why: 'moving' }]));
+        }
       }
       // &cloud=managed draws Agentbox Cloud signed in through its server, and
       // &noroom=hours|agents the server saying it had no room a moment ago.
@@ -866,6 +872,12 @@ export const api = {
   async setThreadOnMac(onMac: Record<string, true | null>): Promise<void> {
     if (useFixtures || !window.zero?.setThreadOnMac) return;
     await window.zero.setThreadOnMac({ onMac });
+  },
+
+  /** Move runs on this Mac to the cloud as it has room; how many will go. */
+  async moveToCloud(ids: string[]): Promise<number> {
+    if (useFixtures || !window.zero?.moveToCloud) return 0;
+    return (await window.zero.moveToCloud({ ids }))?.moving ?? 0;
   },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {

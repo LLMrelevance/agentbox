@@ -42,12 +42,17 @@ export type ThreadMenuRowId = 'place' | 'run' | 'code' | 'terminal' | 'later' | 
  * running (`cloud`), could run (`here`), or that she keeps on this Mac
  * (`kept`). The words say what pressing it does, the detail where it is now.
  */
-export type ThreadPlace = 'cloud' | 'here' | 'kept';
+export type ThreadPlace = 'cloud' | 'here' | 'kept' | 'move';
 export const PLACE_ROW: Record<ThreadPlace, { label: string; detail: string }> = {
   cloud: { label: 'Run on this Mac', detail: 'In the cloud now' },
   here: { label: 'Keep on this Mac', detail: 'Cloud allowed' },
   kept: { label: 'Run on the cloud', detail: 'This Mac only' },
+  // A run on this Mac the cloud could take now (cloud-menu.ts threadPlace).
+  move: { label: 'Move to the cloud', detail: 'On this Mac now' },
 };
+/** What pressing the row does: keep it on this Mac (true), let the cloud have it (false), or move its run now. */
+export type PlaceAct = boolean | 'move';
+export const placeAct = (place: ThreadPlace): PlaceAct => (place === 'move' ? 'move' : place !== 'kept');
 export interface ThreadMenuRow { id: ThreadMenuRowId; label: string; key: string | null; detail?: string }
 
 /**
@@ -150,7 +155,7 @@ export function ThreadMenuList({ rows, change, onPick, place = null }: {
   return (
     <div className="th-menu ts-more-menu" role="menu" aria-label="Thread actions">
       {rows.map((row) => {
-        const Mark = row.id === 'place' && place === 'kept' ? CloudMark : MARKS[row.id];
+        const Mark = row.id === 'place' && (place === 'kept' || place === 'move') ? CloudMark : MARKS[row.id];
         return (
           <button key={row.id} type="button" role="menuitem" tabIndex={-1} className="row-i ts-more-row" onClick={() => onPick(row.id)}>
             <span className="ico"><Mark /></span>
@@ -183,7 +188,7 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
   /** Where it runs, or null where the cloud could never run it. */
   place?: ThreadPlace | null;
   /** True keeps it on this Mac (moving it here if it is in the cloud). */
-  onPlace?: (keep: boolean) => void;
+  onPlace?: (keep: PlaceAct) => void;
 }) {
   const { done, menu: rows } = splitDone(threadMenuRows({ change: !!change, terminal, finish: !!onFinish, runNow: !!onRunNow, later: !!onLater, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', place: onPlace ? place : null }));
   const [open, setOpen] = useState(false);
@@ -247,7 +252,7 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
 
   const pick = (id: ThreadMenuRowId) => {
     close(id === 'terminal');
-    if (id === 'place') onPlace?.(place !== 'kept');
+    if (id === 'place' && place) onPlace?.(placeAct(place));
     else if (id === 'run') onRunNow?.();
     else if (id === 'code') onViewChange?.();
     else if (id === 'terminal') onToggleTerminal?.();

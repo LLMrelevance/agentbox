@@ -32,7 +32,7 @@ describe('the row in the thread\'s menu', () => {
     expect(rows('here')[0]).toEqual({ id: 'place', ...PLACE_ROW.here, key: null });
     expect(rows('kept')[0]).toEqual({ id: 'place', ...PLACE_ROW.kept, key: null });
     // Each names what it does, and where the thread is now.
-    expect(new Set(Object.values(PLACE_ROW).map((r) => r.label + r.detail)).size).toBe(3);
+    expect(new Set(Object.values(PLACE_ROW).map((r) => r.label + r.detail)).size).toBe(Object.keys(PLACE_ROW).length);
     expect(PLACE_ROW.cloud.detail).toMatch(/cloud/i);
     expect(PLACE_ROW.kept.detail).toMatch(/Mac/);
     // Her words, 2026-10-16: "Run on the cloud", beside "Run on this Mac".

@@ -121,7 +121,7 @@ import {
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
 import { summaryFits, summaryPlace } from '../room';
-import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
+import { ThreadMenu, type PlaceAct, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
@@ -736,7 +736,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onPin?: (pin: boolean) => void;
   // Where it runs, and the menu's row that moves it (ThreadMenu PLACE_ROW).
   place?: ThreadPlace | null;
-  onPlace?: (keep: boolean) => void;
+  onPlace?: (keep: PlaceAct) => void;
   // Only ever called on an agent row a reply cannot reach: brings the app that
   // session is running inside to the front.
   onReveal?: () => void;
