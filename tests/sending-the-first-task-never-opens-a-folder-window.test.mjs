@@ -19,8 +19,9 @@ it('never opens a folder window from the Send handler or its shortcut', () => {
   expect(send).toContain('folderButton.current?.focus()');
 });
 
-it('explains that the agent needs the project’s files', () => {
-  expect(source).toContain('Choose the folder containing the project you want the agent to work on.');
+it('names the folder action without a second line of instructions', () => {
+  expect(source).not.toContain('Choose the folder containing the project you want the agent to work on.');
+  expect(source).not.toContain('ob-folder-note');
   expect(source).toContain('Choose project folder');
 });
 

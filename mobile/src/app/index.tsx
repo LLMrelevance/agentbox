@@ -1,5 +1,5 @@
 // Threads, as the phone layout draws them (renderer/src/phone.css): the four
-// tabs as words along the bottom, each row its title over the project and
+// tabs as words under the title, each row its title over the project and
 // age, and a new thread under the thumb. Or, picked in View and filters, the
 // board: one column a swipe.
 import { Redirect, router } from 'expo-router';
@@ -56,19 +56,23 @@ function ThreadRow({ row, first, unread }: { row: Row; first: boolean; unread: b
   );
 }
 
-function Tabs({ on, counts, pick, foot }: { on: TabId; counts: Record<TabId, number>; pick: (t: TabId) => void; foot: number }) {
+/** The four tabs under the title, inside the top bar so one line runs under
+ * both. The orange mark sits on that line rather than over it. 15pt, which an
+ * iPhone set a step up draws at 16.8: the four with two-figure counts run 383pt
+ * there, and they scroll sideways on a phone set larger still. */
+function Tabs({ on, counts, pick }: { on: TabId; counts: Record<TabId, number>; pick: (t: TabId) => void }) {
   return (
-    <View style={{ height: size.tabs + foot, paddingBottom: foot, borderTopWidth: 1, borderTopColor: color.line, flexDirection: 'row', alignItems: 'center' }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', paddingLeft: size.inset, paddingRight: 8, gap: 22 }}>
-        {TABS.map((t) => (
-          <Pressable key={t.id} onPress={() => pick(t.id)} accessibilityRole="tab" accessibilityState={{ selected: on === t.id }}
-            style={{ height: 32, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: on === t.id ? color.accent : 'transparent' }}>
-            <T style={{ fontSize: 15, lineHeight: 30, color: on === t.id ? color.text : color.dim }}>{t.label}</T>
-            {t.id !== 'done' && counts[t.id] > 0 && <T style={{ fontSize: 11, lineHeight: 30, fontFamily: font.medium, marginLeft: 13, color: color.faint }}>{counts[t.id]}</T>}
-          </Pressable>
-        ))}
-      </ScrollView>
-    </View>
+    // A scroll view clips what hangs out of it, so it reaches down over the bar's line itself.
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: -1 }} contentContainerStyle={{ paddingLeft: size.inset, paddingRight: size.inset, gap: 18 }}>
+      {TABS.map((t) => (
+        <Pressable key={t.id} onPress={() => pick(t.id)} accessibilityRole="tab" accessibilityState={{ selected: on === t.id }}
+          style={{ height: 45, paddingBottom: 1, flexDirection: 'row', alignItems: 'center' }}>
+          <T style={{ fontSize: 15, fontFamily: on === t.id ? font.medium : font.regular, color: on === t.id ? color.text : color.dim }}>{t.label}</T>
+          {t.id !== 'done' && counts[t.id] > 0 && <T style={{ fontSize: 11.5, fontFamily: font.medium, marginLeft: 6, color: color.faint }}>{counts[t.id]}</T>}
+          {on === t.id && <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, backgroundColor: color.accent }} />}
+        </Pressable>
+      ))}
+    </ScrollView>
   );
 }
 
@@ -208,7 +212,7 @@ export default function Threads() {
         {penUp && <IconButton label="New thread" onPress={() => router.push('/new')}><Pen size={18} tint={color.dim} /></IconButton>}
         <ViewButton display={display} open={menu} onPress={() => setMenu(!menu)} />
         <IconButton label="Settings" onPress={() => router.push('/settings')}><Gear /></IconButton>
-      </>} />
+      </>} below={board ? undefined : <Tabs on={tab} counts={counts} pick={setTab} />} />
       {/* `.phone-status` (threads/pages.css): the line saying what you see may be out of date. */}
       {c.status && (
         <View accessibilityRole="alert" style={{ marginTop: 6, marginHorizontal: size.inset, marginBottom: 2, paddingVertical: 9, paddingHorizontal: 12, borderWidth: 1, borderColor: color.lineStrong }}>
@@ -230,13 +234,12 @@ export default function Threads() {
       )}
       {!penUp && !(inboxEmpty && !board) && <Pressable accessibilityLabel="New thread" accessibilityRole="button" onPress={() => router.push('/new')}
         style={({ pressed }) => ({
-          position: 'absolute', right: 20, bottom: (board ? 0 : size.tabs) + foot + 16, width: 56, height: 56, borderRadius: 28,
+          position: 'absolute', right: 20, bottom: foot + 16, width: 56, height: 56, borderRadius: 28,
           alignItems: 'center', justifyContent: 'center', backgroundColor: color.graphite, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
           shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, opacity: pressed ? 0.85 : 1,
         })}>
         <Pen />
       </Pressable>}
-      {!board && <Tabs on={tab} counts={counts} pick={setTab} foot={foot} />}
       {menu && <ViewMenu display={display} onDisplay={setDisplay} products={c.view.products} items={c.view.items} shown={rows.length} total={shown.whole[tab]} tab={tab} close={() => setMenu(false)} />}
     </Wall>
   );
