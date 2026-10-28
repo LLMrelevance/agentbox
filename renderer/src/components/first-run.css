@@ -102,6 +102,10 @@
 .first-run .ob-chip svg { color: var(--text-faint); flex: none; }
 .first-run .ob-chip .ob-x { margin: 0 -3px 0 2px; font-size: 16px; color: var(--text-faint); }
 .first-run .ob-chip:hover .ob-x { color: var(--text); }
+.first-run .ob-repeat .compose-word { text-decoration: none; }
+.first-run .ob-repeat .ob-x { border: 0; background: none; padding: 4px; cursor: pointer; }
+.first-run .fp-use { color: var(--text); background: var(--wash-strong); border: 1px solid var(--line-strong); }
+.first-run .fp-use:disabled { color: var(--text-faint); background: none; }
 .first-run .ob-sw { width: 10px; height: 10px; flex: none; }
 
 /* The project menu: the composer's own, a folder's path beside its name. */
