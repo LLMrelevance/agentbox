@@ -61,13 +61,76 @@ describe('the inbox on a phone', () => {
   });
   it('scales the tabs, their counts and the title over them', () => {
     expect(last('.tm-tab', 'font-size')).toBe('calc(15px * var(--phone-type, 1))');
-    expect(last('.tm-tab b', 'font-size')).toBe('calc(11px * var(--phone-type, 1))');
+    expect(last('.tm-tab b', 'font-size')).toBe('calc(11.5px * var(--phone-type, 1))');
     expect(last('.topbar .workspace-title', 'font-size')).toBe('calc(19px * var(--phone-type, 1))');
   });
-  it('keeps the whole home bar inset under the tabs, as the phone app does', () => {
+  it('keeps the whole home bar inset at the foot, as the phone app does', () => {
     const foot = rules.filter((r) => r.selector === ':root').map((r) => r.body).join(';').match(/--phone-foot:\s*([^;]+)/);
     expect(foot?.[1].trim()).toBe('max(8px, env(safe-area-inset-bottom, 0px))');
     const app = fs.readFileSync('mobile/src/ui/parts.tsx', 'utf8');
     expect(app).toMatch(/Math\.max\(8, inset\.bottom\)/);
+  });
+});
+
+// THE TABS GO TO THE TOP, IN BOTH (2026-10-28). Drawn under the title on the
+// phone app they "do a lot better", and she asked for "both phone and web to
+// bring needs you/in progress/etc menu up to the top". The first drawing ran a
+// line under the title and another under the tabs, which "doesn't really work
+// well": there is one, and the picked tab's mark lies on it. At 16.5pt the four
+// tabs with two-figure counts ran 407pt on a phone set a text step up, past its
+// 402pt; at 15pt they run 383pt and read 16.8pt there.
+describe('the tabs on the web app on a phone', () => {
+  it('sit at the top of the list, no longer pinned to the foot', () => {
+    expect(last('.list-pane > .th-bar', 'position')).toBe('relative');
+    expect(last('.list-pane > .th-bar', 'bottom')).toBeUndefined();
+    expect(last('.list-pane > .th-bar', 'height')).toBe('44px');
+    expect(last('.list-pane > .th-bar', 'padding')).not.toMatch(/phone-foot/);
+  });
+  it('leave nothing along the bottom to sit above', () => {
+    const tabs = rules.filter((r) => /\.app\.workspace-layout/.test(r.selector) && /--phone-tabs/.test(r.body)).map((r) => r.body).join(';');
+    expect(tabs).toMatch(/--phone-tabs:\s*0px/);
+  });
+  it('paint one line at their foot, and the picked one\'s mark is the foot of its box', () => {
+    expect(last('.list-pane > .th-bar', 'background')).toMatch(/linear-gradient\(var\(--line\), var\(--line\)\) bottom \/ 100% 1px no-repeat/);
+    expect(last('.list-pane > .th-bar', 'border')).toBe('0');
+    expect(last('.tm-tab', 'height')).toBe('100%');
+    expect(last('.tm-tab', 'border-bottom')).toBe('2px solid transparent');
+    expect(last('.tm-tab.on', 'border-bottom-color')).toBe('var(--accent)');
+  });
+  it('start from the left, 18px apart, as the phone app\'s do', () => {
+    expect(last('.tm-tabs', 'justify-content')).toBe('flex-start');
+    expect(last('.tm-tabs', 'gap')).toBe('18px');
+  });
+  it("hide the desktop card's corner marks, which showed either side of the home bar", () => {
+    expect(last('.panel-marks', 'display')).toBe('none');
+  });
+});
+
+describe('the tabs on the phone app', () => {
+  const inbox = fs.readFileSync('mobile/src/app/index.tsx', 'utf8');
+  const parts = fs.readFileSync('mobile/src/ui/parts.tsx', 'utf8');
+  const between = (src, start) => src.slice(src.indexOf(start), src.indexOf('\n}\n', src.indexOf(start)));
+  const tabs = between(inbox, 'function Tabs(');
+  const row = between(inbox, 'function ThreadRow(');
+
+  it('are drawn inside the top bar, above its one line, and only there', () => {
+    expect(between(parts, 'export function TopBar(')).toMatch(/\{below\}/);
+    expect(inbox).toMatch(/below=\{board \? undefined : <Tabs on=\{tab\} counts=\{counts\} pick=\{setTab\} \/>\}/);
+    expect(inbox.match(/<Tabs /g)).toHaveLength(1);
+  });
+  it('draw no line of their own; the mark lies on the bar\'s', () => {
+    expect(tabs).not.toMatch(/border(Top|Bottom)Width/);
+    expect(tabs).toMatch(/marginBottom: -1/);
+    expect(tabs).toMatch(/bottom: 0, height: 2, backgroundColor: color\.accent/);
+  });
+  it('are 15pt, start where the title does, and scroll on a phone set larger still', () => {
+    expect(tabs).toMatch(/fontSize: 15,/);
+    expect(tabs).toMatch(/paddingLeft: size\.inset/);
+    expect(tabs).toMatch(/<ScrollView horizontal/);
+  });
+  it('leave the new-thread button on the home bar room, and the rows as they were', () => {
+    expect(inbox).toMatch(/bottom: foot \+ 16,/);
+    expect(row).toMatch(/paddingTop: 14, paddingBottom: 14/);
+    expect(row).toMatch(/fontSize: 16, lineHeight: 21\.6/);
   });
 });

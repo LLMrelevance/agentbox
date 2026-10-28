@@ -30,8 +30,9 @@ export function T({ style, ...rest }: TextProps) {
   return <Text {...rest} style={[{ fontFamily: font.regular, color: color.text, fontSize: 15.5 }, style]} />;
 }
 
-/** The top bar: 56px over the wall with its line, the title on the left. */
-export function TopBar({ left, title, right }: { left?: ReactNode; title?: ReactNode; right?: ReactNode }) {
+/** The top bar: 56px over the wall with its line, the title on the left. What
+ * goes `below` (the inbox's tabs) sits inside it, over the same one line. */
+export function TopBar({ left, title, right, below }: { left?: ReactNode; title?: ReactNode; right?: ReactNode; below?: ReactNode }) {
   const inset = useSafeAreaInsets();
   return (
     <View style={{ paddingTop: inset.top, borderBottomWidth: 1, borderBottomColor: color.line }}>
@@ -43,6 +44,7 @@ export function TopBar({ left, title, right }: { left?: ReactNode; title?: React
         </View>
         {right}
       </View>
+      {below}
     </View>
   );
 }

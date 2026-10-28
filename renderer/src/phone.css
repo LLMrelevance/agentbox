@@ -63,6 +63,10 @@
      colored background", 2026-10-12), and left the screen lighter than the
      wall colour iOS paints behind the clock, which is the seam at the top. */
   :root:root:root .workspace-layout::before { top: 0; left: 0; right: 0; bottom: 0; border-radius: 0; background: none; box-shadow: none; }
+  /* Nor its corner marks, which bracket the card. Two showed at the foot of
+     the screen, either side of the home bar, once the tabs moved up from
+     over them (2026-10-28). */
+  :root:root:root .panel-marks { display: none; }
 
   /* THE SIDE RAIL ON A PHONE IS SETTINGS, AT THE RIGHT OF THE TOP BAR. The
      rest of it has no place here: the logo opened a sidebar ("idek what menu
@@ -155,23 +159,27 @@
   :root:root:root .app:has(.workspace-task-header) .workspace-navigation,
   :root:root:root .app:has(.workspace-task-header) .th-new { display: none; }
 
-  /* THE INBOXES ARE WORDS ALONG THE BOTTOM, under the thumb, the way
-     Superhuman's phone app keeps its split inboxes ("Important 3 · Calendar 6
-     · Docs 8") and not its icons, which read as "incomprehensible"
-     (2026-10-11). Sentence case with the count after the word, the picked one
-     underlined, scrolling sideways when they do not fit. */
-  /* The alerts offer is on the body, outside the app, and sits above the tabs too. */
-  :root:root:root .app.workspace-layout, :root:root:root:has(.app.workspace-layout) #phone-alerts-ask { --phone-tabs: 48px; }
+  /* THE INBOXES ARE WORDS UNDER THE TITLE, the way Superhuman's phone app
+     keeps its split inboxes ("Important 3 · Calendar 6 · Docs 8") and not its
+     icons, which read as "incomprehensible" (2026-10-11). Sentence case with
+     the count after the word, the picked one underlined, scrolling sideways
+     when they do not fit. They were along the bottom until 2026-10-28, "super
+     duper low"; at the top they "do a lot better", in the phone app as here.
+     ONE LINE runs under the title and the tabs together, drawn by the bar, and
+     the picked tab's mark covers it: a line under the title and another under
+     the tabs "doesn't really work well". */
+  /* Nothing is along the bottom now; the new-thread button and the alerts
+     offer, which sat above the tabs, sit on the home bar's room. */
+  :root:root:root .app.workspace-layout, :root:root:root:has(.app.workspace-layout) #phone-alerts-ask { --phone-tabs: 0px; }
   :root:root:root .list-pane > .th-bar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-    height: calc(var(--phone-tabs) + var(--phone-foot));
-    padding: 0 calc(16px + env(safe-area-inset-right, 0px)) var(--phone-foot) calc(16px + env(safe-area-inset-left, 0px));
-    align-items: center; gap: 12px; overflow-x: auto; scrollbar-width: none;
-    /* Solid, or the rows scroll visibly under the words, and the same colour
-       as the list. The list is the wall now, with no card wash over it, so
-       this is the wall's own colour (it was the wash over the base while the
-       list wore the wash; "a tad bit different" was the two disagreeing). */
-    background: var(--bg); border-top: 0;
+    position: relative; flex: none; z-index: 40;
+    height: 44px;
+    padding: 0 calc(16px + env(safe-area-inset-right, 0px)) 0 calc(16px + env(safe-area-inset-left, 0px));
+    align-items: stretch; gap: 12px; overflow-x: auto; scrollbar-width: none;
+    /* The wall's own colour, so the bar and the list never disagree ("a tad
+       bit different", 2026-10-11), with its one line painted at its foot where
+       the picked tab's mark can lie over it. */
+    background: linear-gradient(var(--line), var(--line)) bottom / 100% 1px no-repeat, var(--bg); border: 0;
   }
   :root:root:root .th-bar::-webkit-scrollbar { display: none; }
   /* SEARCH GOES UP INTO THE TOP BAR, left of the gear. At the end of the
@@ -184,17 +192,18 @@
   }
   :root:root:root .workspace-layout:has(.th-bar > .th-search) > .topbar { padding-right: 84px; }
   :root:root:root:has(.topbar input) .th-bar > .th-search { display: none; }
-  /* Spread across the row: at 22px apart the four ran 412px on a 393px phone.
-     Spread, they are 15px apart there, and still fit a 375px one at the least. */
-  :root:root:root .tm-tabs { flex: 1 0 auto; justify-content: space-between; gap: 10px; flex-wrap: nowrap; white-space: nowrap; height: 100%; align-items: center; }
-  /* The picked one's underline sits just under its word. Drawn at the foot of
-     the whole bar it hung loose between the words and the home bar. */
+  /* From the left, 18px apart, as the phone app draws them. At 15px an iPhone
+     set a step up draws them 16.8px, and the four with two-figure counts run
+     383px there, inside a 402px phone. */
+  :root:root:root .tm-tabs { flex: none; justify-content: flex-start; gap: 18px; flex-wrap: nowrap; white-space: nowrap; height: 100%; align-items: stretch; }
+  /* The picked one's mark is the foot of its own box, the bar's full height,
+     so it lies on the bar's line. */
   :root:root:root .tm-tab {
-    white-space: nowrap; flex: none; height: 32px; display: flex; align-items: center; border-bottom: 2px solid transparent;
+    white-space: nowrap; flex: none; height: 100%; padding: 0; display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 2px solid transparent; border-radius: 0;
     font-family: inherit; text-transform: none; letter-spacing: 0; font-size: calc(15px * var(--phone-type, 1)); color: var(--text-dim);
   }
-  :root:root:root .tm-tab.on { color: var(--text); border-bottom-color: var(--accent); }
-  :root:root:root .tm-tab b { font-size: calc(11px * var(--phone-type, 1)); font-weight: 500; margin-left: 4px; color: var(--text-faint, var(--text-dim)); }
+  :root:root:root .tm-tab.on { color: var(--text); font-weight: 500; border-bottom-color: var(--accent); }
+  :root:root:root .tm-tab b { font-size: calc(11.5px * var(--phone-type, 1)); font-weight: 500; margin: 0; padding: 0; color: var(--text-faint, var(--text-dim)); }
 
   /* A row: its title over two lines, then the project and the age together
      on one quiet line under it. */
