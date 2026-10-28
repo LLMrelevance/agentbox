@@ -1,6 +1,7 @@
 import { previewFocus } from './preview-focus';
 import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
+import { lessonPosition } from './lesson-position';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
 import type {FocusControlStyle} from './focus-control';
@@ -944,6 +945,7 @@ export default function App() {
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
   const frontApproval = useRef<Approval | null>(null);
+  const [minimizedApproval, setMinimizedApproval] = useState<string | null>(null);
   // Which option (by its number) the arrows have highlighted in focus mode.
   // A task always opens with NOTHING selected: Enter can only ever send a
   // choice the user visibly made.
@@ -6015,8 +6017,7 @@ export default function App() {
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
-    const next = { left: r.right + 20, top: r.top + r.height / 2 - 17 };
-    setLessonAt((had) => had?.left === next.left && had?.top === next.top ? had : next);
+    setLessonAt((previous) => lessonPosition(previous, { left: r.right + 20, top: r.top + r.height / 2 - 17 }));
   }, [lessons, focused, fresh, view, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
@@ -6394,6 +6395,9 @@ export default function App() {
            One rule now decides both.
          */}
         {!searchFieldInStrip({ searching: search !== null, focused: !!focused, settingsOpen }) && <div className="topbar-right">
+          {onPhone() && stage.card && minimizedApproval === stage.card.id && (
+            <button type="button" className="approval-review" aria-label="Review permission" onClick={() => setMinimizedApproval(null)}>Review ({stage.waiting + 1})</button>
+          )}
           {/* THE HINT THAT USED TO SIT HERE IS GONE (w-2f7fac6027). It printed a
               cap and a word in the strip's own gap, which is the app changing
               under the pointer, and the corner's two buttons are not in the set
@@ -6726,7 +6730,7 @@ export default function App() {
                   pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
                   onAsked={() => setThreadAsk(null)}
                   onShown={setOpenShows}
-                  aboveDock={whereItWent}
+                  aboveDock={<>{snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}{whereItWent}</>}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6937,6 +6941,7 @@ export default function App() {
           when it opens. */}
       {(modal === 'compose' || clearSlot) && drawnIn(
         <ThreadComposer
+          statusLine={snap.phoneStatus}
           key={modal === 'compose' ? 'card' : 'page'}
           inline={modal !== 'compose'}
           onWriting={setClearWriting}
@@ -7779,6 +7784,7 @@ export default function App() {
         // gone.
         const { card: a, verdict, waiting } = stage;
         if (!a) return null;
+        if (onPhone() && minimizedApproval === a.id) return null;
         // WHAT IT IS ASKING AND WHAT IT IS ASKING ABOUT, and neither is
         // hardcoded any more: "asks to run" over a diff is a lie, and it is the
         // first thing she reads. approval-card.ts is the only copy.
@@ -7843,6 +7849,7 @@ export default function App() {
                           {said ?? <>{product} {reads.what}</>}
                         </span>
                         {waiting > 0 && <span className="approval-count">+{waiting} waiting</span>}
+                        {onPhone() && <button type="button" className="approval-minimize" onClick={() => setMinimizedApproval(a.id)}>Minimize</button>}
                       </div>
                       {/* THE WHOLE THING SHE IS ANSWERING ABOUT, AND THE CAP IS
                           NOT HERE. This sliced to 400 characters with no mark on

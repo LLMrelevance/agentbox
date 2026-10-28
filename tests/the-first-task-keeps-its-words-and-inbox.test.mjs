@@ -1,6 +1,7 @@
 // First tasks lost single-line text and skipped drafts; the open hint caused a render loop.
 import { expect, it } from 'vitest';
 import fs from 'node:fs';
+import { lessonPosition } from '../renderer/src/lesson-position';
 
 const first = fs.readFileSync(new URL('../renderer/src/components/FirstRun.tsx', import.meta.url), 'utf8');
 const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
@@ -18,9 +19,8 @@ it('hands skipped words to a visible composer before onboarding unmounts', () =>
 });
 
 it('retains the same hint state when the measured position is unchanged', () => {
-  const setter = app.match(/setLessonAt\(\(had\) => ([^;]+)\);/);
-  expect(setter).not.toBeNull();
-  const update = new Function('had', 'next', `return ${setter?.[1]}`);
+  expect(app).toContain('setLessonAt((previous) => lessonPosition(previous,');
+  const update = lessonPosition;
   const had = { left: 200, top: 100 };
   expect(update(had, { ...had })).toBe(had);
   expect(update(had, { left: 201, top: 100 })).toEqual({ left: 201, top: 100 });

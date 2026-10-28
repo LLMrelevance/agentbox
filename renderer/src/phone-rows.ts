@@ -308,9 +308,8 @@ export const ago = (ms: number) => {
   const d = Math.round(h / 24);
   return `${d} day${d === 1 ? '' : 's'} ago`;
 };
-// Her Mac writes its projects again every five minutes (main/phone-inbox.mjs),
-// so one quiet for longer than this is away.
-const MAC_AWAY_MS = 15 * 60_000;
+// Allow missed heartbeats before declaring the computer away.
+const MAC_AWAY_MS = 90_000;
 /** The line over her inbox when what it shows may be out of date, or null. */
 export function phoneStatusLine({ error, fetchedAt, macSeen, cloud = false }: { error: string | null; fetchedAt: number; macSeen: number; cloud?: boolean }, now = Date.now()): string | null {
   if (error) return `Can't reach your inbox online.${fetchedAt ? ` This is how it was ${ago(now - fetchedAt)}.` : ''}`;
