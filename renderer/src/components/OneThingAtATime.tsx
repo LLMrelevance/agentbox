@@ -4,9 +4,9 @@
 // with the arrows beside the menu.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
-import { onPhone } from '../phone-screen';
 import { splitHeadline, type Spot } from '../one-thing-at-a-time';
 import { DocumentPreview } from './DocumentPreview';
+import { HtmlPreview } from './HtmlPreview';
 import '../one-thing-at-a-time.css';
 
 /** What this page reads in place rather than as a tile: a page an agent made, or a note. */
@@ -89,9 +89,12 @@ export function QueueFile({ product, path, md, onOpen }: { product: string; path
   const page = /\.html?$/i.test(path);
   const [url, setUrl] = useState<string | null | undefined>(undefined);
   const [text, setText] = useState<string | null | undefined>(undefined);
+  const [folded, setFolded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   useEffect(() => {
     let live = true;
     setUrl(undefined); setText(undefined);
+    setFolded(false); setExpanded(false);
     if (page) {
       api.resolveDoc({ product, src: path })
         .then((r) => { if (live) setUrl(r.ok && r.url ? r.url : null); })
@@ -103,19 +106,34 @@ export function QueueFile({ product, path, md, onOpen }: { product: string; path
     }
     return () => { live = false; };
   }, [product, path, page]);
-  const [folded, setFolded] = useState(false);
   if (text === null) return null;
   return (
-    <section className={`${page ? 'one-file one-page' : 'one-file one-note'}${folded ? ' one-folded' : ''}`}>
-      <div className="one-filehead">
-        <button type="button" className="one-filefold" aria-expanded={!folded} onClick={() => setFolded((f) => !f)}>
-          {chevron(!folded)}<span className="one-filename">{path.split('/').pop()}</span>
-        </button>
+    <section className={`${page ? 'one-file one-page' : 'one-file one-note'}${folded ? ' one-folded' : expanded ? ' one-expanded' : ''}`}>
+      <FilePreviewHeader path={path} folded={folded} expanded={expanded}
+        onFold={() => { setExpanded(false); setFolded((f) => !f); }}
+        onCondense={() => setExpanded(false)} onOpen={onOpen} />
+      {!folded && page && url && <HtmlPreview key={`${product}:${path}`} url={url} path={path} expanded={expanded} onExpandedChange={setExpanded} />}
+      {!folded && !page && text != null && <DocumentPreview key={`${product}:${path}`} expanded={expanded} onExpandedChange={setExpanded}><div className="markdown one-notebody">{md(text)}</div></DocumentPreview>}
+    </section>
+  );
+}
+
+export function FilePreviewHeader({ path, folded, expanded, onFold, onCondense, onOpen }: {
+  path: string; folded: boolean; expanded: boolean;
+  onFold: () => void; onCondense: () => void; onOpen: () => void;
+}) {
+  const name = useRef<HTMLButtonElement>(null);
+  return (
+    <div className="one-filehead" onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') event.stopPropagation(); }}>
+      <button ref={name} type="button" className="one-filefold" aria-expanded={!folded} onClick={onFold}>
+        {chevron(!folded)}<span className="one-filename">{path.split('/').pop()}</span>
+      </button>
+      <div className="one-fileactions">
+        {expanded && !folded && <button type="button" className="one-filecondense"
+          onClick={() => { onCondense(); name.current?.focus({ preventScroll: true }); }}>Show preview</button>}
         <button type="button" className="one-fileopen" onClick={onOpen}>Open full screen</button>
       </div>
-      {!folded && page && url && <iframe className="one-frame" src={url} title={path} sandbox={onPhone() ? 'allow-scripts' : 'allow-scripts allow-same-origin'} />}
-      {!folded && !page && text != null && <DocumentPreview key={`${product}:${path}`}><div className="markdown one-notebody">{md(text)}</div></DocumentPreview>}
-    </section>
+    </div>
   );
 }
 
