@@ -26,7 +26,7 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: 'done', label: 'Done' },
 ];
 
-type View = Pick<ReturnType<typeof phoneView>, 'items' | 'running' | 'products'>;
+type View = Pick<ReturnType<typeof phoneView>, 'items' | 'running' | 'products'> & Partial<Pick<ReturnType<typeof phoneView>, 'queued'>>;
 export interface Row {
   key: string;
   id: string;
@@ -41,6 +41,8 @@ export interface Row {
   held: boolean;
   /** "2 tasks to approve" after the title, or nothing. */
   toApprove: string;
+  /** Sent from a phone and not yet taken by the computer: "Queued" (renderer/src/status-word.ts). */
+  queued: boolean;
   item: any;
 }
 
@@ -52,6 +54,7 @@ const DELIVERED_THROUGH = 0;
 export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const items: any[] = view.items;
   const live = new Set(view.running.map((r: { itemId: string }) => r.itemId));
+  const queued = new Set(view.queued ?? []);
   const inCloud = new Set(view.running.filter((r: { where?: string }) => r.where === 'cloud').map((r: { itemId: string }) => r.itemId));
   const byId = new Map(items.map((i) => [i.id, i]));
   const waitingOn = (i: any) => waitsThatCanEnd(i, byId);
@@ -82,7 +85,7 @@ export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const row = (i: any): Row => ({
     key: `${i.product}/${i.id}`, id: i.id, product: i.product, title: rowTitle(i), projectName: names.get(i.product) ?? '',
     when: updatedWords(i.status === 'done' ? i.wrote?.status?.ts ?? i.updatedAt : sentAt(i), now), running: live.has(i.id), cloud: inCloud.has(i.id),
-    held: notStarted(i), toApprove: toApproveWords(toApprove.get(`${i.product}/${i.id}`)), item: i,
+    held: notStarted(i), toApprove: toApproveWords(toApprove.get(`${i.product}/${i.id}`)), queued: queued.has(i.id) && !live.has(i.id), item: i,
   });
   const drawn = (list: any[], tab: TabId) => sorted(list, DEFAULT_DISPLAY.inbox, tab, order).map(row);
   return { inbox: drawn(inbox, 'inbox'), progress: drawn(progress, 'progress'), snoozed: drawn(snoozed, 'snoozed'), done: drawn(done, 'done') };

@@ -10,7 +10,7 @@ import type { Answered } from '../../../renderer/src/approval-stage';
 import { APPROVAL_EXIT_MS, approvalCard, cardOnStage, type Approval } from '../lib/overlays';
 import { useCloud } from '../state/cloud';
 import { footRoom, T } from './parts';
-import { color, font, size } from './theme';
+import { color, font } from './theme';
 
 // The site's glass is --bg-raised at 62% over a 22px blur. The app has no
 // blur, and paint alone lets the words under it show through, so it is the
@@ -136,10 +136,11 @@ export function Approvals() {
     }
     void c.refresh();
   };
-  // Above the inbox's tabs on every screen, as the site's `--phone-tabs` holds it.
+  // 8pt over the home bar's room on every screen, as the site's `.approvals`
+  // holds it. It sat above the inbox's tabs until they moved to the top (2026-10-28).
   const foot = footRoom(inset);
   return (
-    <View pointerEvents="box-none" style={{ position: 'absolute', left: 8, right: 8, bottom: size.tabs + 8 + foot }}>
+    <View pointerEvents="box-none" style={{ position: 'absolute', left: 8, right: 8, bottom: 8 + foot }}>
       <View>
         {waiting > 1 && <Ghost far />}
         {waiting > 0 && <Ghost />}

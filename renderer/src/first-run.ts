@@ -8,6 +8,18 @@ import { projectNameFor } from './agent-import-card';
 import { shortPath } from './onboarding';
 
 export type Step = 'chats' | 'task';
+export type Screen = 'welcome' | Step;
+export type Engine = 'claude' | 'codex';
+
+export function previousScreen(screen: Screen, { chats }: { chats: number }): Screen | null {
+  if (screen === 'welcome') return null;
+  return screen === 'task' && chats > 0 ? 'chats' : 'welcome';
+}
+
+export function readyEngines(readings: Array<{ engine: Engine; found?: boolean; signedIn?: boolean } | null>): Engine[] {
+  return (['claude', 'codex'] as const).filter((engine) => readings.some((r) => r?.engine === engine && r.found && r.signedIn));
+}
+
 export type ListKey = 'up' | 'down' | 'toggle' | 'next' | 'skip' | null;
 
 type KeyLike = { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean };

@@ -44,7 +44,8 @@ import { isCarried } from '../shared/cloud-carry.mjs';
 
 // A file her phone sent with a reply or a new thread (shared/phone-files.mjs).
 export { phoneFilesIn };
-const HEARTBEAT_MS = 5 * 60_000;
+const HEARTBEAT_MS = 30_000;
+const SETTINGS_HEARTBEAT_MS = 5 * 60_000;
 class Refused extends Error {}
 
 // How long a thread started on the phone is remembered as the row it became:
@@ -88,6 +89,9 @@ export function createPhoneInbox({
   build = threadSnapshot,
   // (slug, id) -> { since, where: 'mac' | 'cloud', doing: [{ label, startedAt }] } while an agent runs on it, else null.
   liveOf = () => null,
+  // () -> { byId: { [id]: { state, tool?, until? } }, paused } (shared/phone-snapshot.mjs phoneWaitsOf),
+  // why each thread nothing runs on is waiting, read once a pass; none says nothing.
+  waitsOf = () => null,
   // The permission cards waiting on her, each with the fingerprint of the card as drawn: [{ ...request, card }].
   approvalsOf = () => [],
   // async () -> the window's settings model (main/settings.mjs readSettings); none sends no settings.
@@ -194,6 +198,9 @@ export function createPhoneInbox({
     try { newThreadKits?.({ device, slugs: chosen.map((p) => p.slug) }); } catch { /* the supervisor's trouble, not the phone's */ }
     let asks = [];
     try { asks = approvalsOf() ?? []; } catch { /* the cards' trouble, not the phone's */ }
+    let waits = null;
+    try { waits = waitsOf(); } catch { /* the supervisor's trouble, not the phone's */ }
+    const waitOf = (item) => waits?.byId?.[item.id] ?? (waits?.paused && item.status !== 'done' ? { state: 'paused' } : null);
     const known = new Set(chosen.map((p) => p.slug));
     for (const p of chosen) {
       await breathe();
@@ -201,7 +208,7 @@ export function createPhoneInbox({
       let cloud = false;
       try { cloud = !!kitsFor?.(p.slug); } catch { /* says no */ }
       const said = cloud ? `${p.name}\0cloud` : p.name;
-      // Written again every few minutes unchanged: its moment is how the phone knows this Mac is still here.
+      // Renew presence even when no threads changed.
       if (state.sent[key] !== said || !(now() - (beats.get(key) ?? -Infinity) < HEARTBEAT_MS)) {
         still();
         await backend.putPhoneProject({ owner, device, project: p.slug, name: p.name, ...(kitsFor ? { cloud } : {}) });
@@ -220,21 +227,24 @@ export function createPhoneInbox({
         const live = liveNow(sk, p.slug, item.id);
         const waitingOn = asks.filter((a) => a.product === p.slug && a.item === item.id && a.card).map((a) => phoneApproval(a, a.card, { home }));
         const askKey = JSON.stringify(waitingOn);
+        const wait = waitOf(item);
+        const waitKey = wait ? JSON.stringify(wait) : '';
         const was = built.get(sk);
         // Only the run or its files moved: the copy of the row and its lines is the one already made.
         let base = was?.inputs === inputs ? was.base : null;
         const made = () => (base ??= build(item, history, SNAPSHOT_LIMITS, { home }));
         const files = uploads && p.dir ? uploads.manifest(sk, made, { dir: p.dir, repoPath: p.repoPath, updatedAt: item.updatedAt ?? 0, base: inputs }) : null;
-        if (was && was.inputs === inputs && was.live === live && was.files === files && was.askKey === askKey && state.sent[sk] === was.key) continue;
+        if (was && was.inputs === inputs && was.live === live && was.files === files && was.askKey === askKey && was.waitKey === waitKey && state.sent[sk] === was.key) continue;
         let snap = live ? { ...made(), live } : made();
         if (waitingOn.length) snap = { ...snap, approvals: waitingOn };
+        if (wait) snap = { ...snap, wait };
         // Where the files are on this Mac, written from her home as the words are, so the phone can follow a path the words give in full.
         if (files) {
           const attached = { dir: homeWritten(p.dir), ...(p.repoPath ? { repo: homeWritten(p.repoPath) } : {}), ...files };
           if (bytesOf(snap) + bytesOf(attached) < SNAPSHOT_LIMITS.bytes) snap = { ...snap, attached };
         }
         const k = snapshotKey(snap);
-        built.set(sk, { inputs, key: k, live, files, askKey, base: live || files || waitingOn.length ? base : null });
+        built.set(sk, { inputs, key: k, live, files, askKey, waitKey, base: live || files || waitingOn.length || wait ? base : null });
         if (state.sent[sk] === k) continue;
         const failed = state.failed[sk];
         if (failed && failed.key === k && now() < failed.next) continue;
@@ -282,7 +292,7 @@ export function createPhoneInbox({
     try { carried = phoneSettingsOf(await readSettings(), { version }); } catch (err) { troubled('read', err); return false; }
     if (!carried) return false;
     const key = JSON.stringify(carried);
-    if (key === settings.key && now() - settings.sentAt < HEARTBEAT_MS) return false;
+    if (key === settings.key && now() - settings.sentAt < SETTINGS_HEARTBEAT_MS) return false;
     still();
     try {
       await backend.putPhoneSettings({ owner, device, name: computer, settings: carried });

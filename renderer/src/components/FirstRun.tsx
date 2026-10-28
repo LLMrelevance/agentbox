@@ -19,13 +19,11 @@ import { WhenPicker, WHEN_NOW, type WhenValue } from './When';
 import FolderPicker from './FolderPicker';
 import { checkProjectFolder } from '../../../shared/project-folder-check.mjs';
 import {
-  chatChoices, chatsHeadline, firstRunOf, folderChoices, ideasFor, isSend, listKey, projectsToMake, stepsFor,
-  type FolderChoice, type Step,
+  chatChoices, chatsHeadline, firstRunOf, folderChoices, ideasFor, isSend, listKey, previousScreen, projectsToMake, readyEngines, stepsFor,
+  type Engine, type FolderChoice, type Screen, type Step,
 } from '../first-run';
 import './first-run.css';
 
-type Screen = 'welcome' | Step;
-type Engine = 'claude' | 'codex';
 type Project = { slug: string; name: string };
 
 const ENGINE_NAME: Record<Engine, string> = { claude: 'Claude Code', codex: 'Codex' };
@@ -103,11 +101,12 @@ export function FirstRunFlow({ snap, home, onDone }: {
   snap: Snapshot | null;
   home: string;
   /** Called once, with the task that was sent, or null when none was. */
-  onDone: (sent: string | null, runAt?: number) => void;
+  onDone: (sent: string | null, runAt?: number, draft?: string) => void;
 }) {
   const [screen, setScreen] = useState<Screen>('welcome');
   const [leaving, setLeaving] = useState(false);
-  const [ready, setReady] = useState<Engine | null | undefined>(undefined);
+  const [ready, setReady] = useState<Engine[] | undefined>(undefined);
+  const hasReady = !!ready?.length;
   const [setup, setSetup] = useState<{ engine: Engine; phase: string; error: string | null } | null>(null);
   const [threads, setThreads] = useState<SessionThread[] | null>(null);
   const [chatTicks, setChatTicks] = useState<Set<string>>(new Set());
@@ -136,8 +135,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
         api.engineSetup('ready', 'codex').catch(() => null),
       ]);
       if (!live) return;
-      const ok = (s: { found?: boolean; signedIn?: boolean } | null) => !!s?.found && !!s?.signedIn;
-      setReady(ok(claude) ? 'claude' : ok(codex) ? 'codex' : null);
+      setReady(readyEngines([claude, codex]));
     })();
     api.agentThreads().then((t) => { if (live) setThreads(t); }).catch(() => { if (live) setThreads([]); });
     return () => { live = false; };
@@ -150,13 +148,14 @@ export function FirstRunFlow({ snap, home, onDone }: {
       const s = await api.engineSetup('status', setup.engine).catch(() => null);
       if (!s) return;
       setSetup({ engine: setup.engine, phase: s.phase, error: s.error ?? null });
-      if (s.phase === 'ready') setReady(setup.engine);
+      if (s.phase === 'ready') setReady((had) => [...new Set([...(had ?? []), setup.engine])]);
     }, 1000);
     return () => clearInterval(tick);
   }, [setup]);
 
   const chats = useMemo(() => chatChoices(threads ?? [], { home }), [threads, home]);
   const steps = stepsFor({ chats: chats.length });
+  const backTo = previousScreen(screen, { chats: chats.length });
 
   // Every chat starts ticked, once the list has arrived.
   const seeded = useRef(false);
@@ -195,17 +194,20 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const swatchOf = (folder: string) => projectSwatch(ownerOf(folder)?.slug ?? slugFor(nameOf(folder)));
 
   const go = useCallback((next: Screen) => {
+    setMenu(null);
+    setProblem(null);
+    setIdea(-1);
     setLeaving(true);
     setTimeout(() => { setScreen(next); setCursor(0); setLeaving(false); }, LEAVE_MS);
   }, []);
   const leave = useCallback((sent: string | null) => {
     setLeaving(true);
-    setTimeout(() => onDone(sent, when.runAt), LEAVE_MS);
-  }, [onDone, when.runAt]);
+    setTimeout(() => onDone(sent, when.runAt, sent ? undefined : text), LEAVE_MS);
+  }, [onDone, when.runAt, text]);
 
   const start = useCallback(() => {
-    if (ready && threads) go(chats.length ? 'chats' : 'task');
-  }, [ready, threads, chats.length, go]);
+    if (hasReady && threads) go(chats.length ? 'chats' : 'task');
+  }, [hasReady, threads, chats.length, go]);
 
   const startSetup = useCallback(async (engine: Engine) => {
     const s = await api.engineSetup('start', engine).catch(() => null);
@@ -269,7 +271,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     setBusy(true);
     const p = await projectFor(folder);
     if (!p) { setBusy(false); setProblem('That folder could not be used. Choose another.'); return; }
-    const body = said.includes('\n') ? said : undefined;
+    const body = said;
     let first: string | null = null;
     if (when.repeat) {
       const rule = when.repeat;
@@ -314,10 +316,11 @@ export function FirstRunFlow({ snap, home, onDone }: {
       if (browsing || (e.target as Element | null)?.closest('.when-wrap')) return;
       e.stopPropagation();
       if (leaving) return;
+      if ((e.target as Element | null)?.closest('.ob-back') && (e.key === 'Enter' || e.key === ' ')) return;
       if (screen === 'welcome') {
-        if (e.key === 'Enter' && ready) { e.preventDefault(); start(); }
-        else if (!ready && e.key === '1') startSetup('claude');
-        else if (!ready && e.key === '2') startSetup('codex');
+        if (e.key === 'Enter' && hasReady) { e.preventDefault(); start(); }
+        else if (!hasReady && e.key === '1') startSetup('claude');
+        else if (!hasReady && e.key === '2') startSetup('codex');
         return;
       }
       if (screen === 'chats') {
@@ -359,7 +362,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [screen, leaving, ready, chats, cursor, menu, places, idea, text, browsing, go, start, startSetup, bringIn, send, skip, pickPlace, pickIdea]);
+  }, [screen, leaving, hasReady, chats, cursor, menu, places, idea, text, browsing, go, start, startSetup, bringIn, send, skip, pickPlace, pickIdea]);
 
   useEffect(() => {
     if (browsing) document.querySelector<HTMLInputElement>('.first-run .fp-path')?.focus();
@@ -379,11 +382,15 @@ export function FirstRunFlow({ snap, home, onDone }: {
   return (
     <div className="first-run" role="dialog" aria-label="Set up" onKeyDown={(e) => e.stopPropagation()}>
       {browsing && <FolderPicker title="Choose your project folder" startIn={at ?? home} onPick={chooseFolder} onClose={() => setBrowsing(false)} />}
+      {backTo && !browsing && <button type="button" className="ob-back" disabled={busy || leaving} onClick={() => go(backTo)}>
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m9.5 3-5 5 5 5" /></svg>
+        Back
+      </button>}
       {screen === 'welcome' && (
         <div className={cls} key="welcome">
           <div className="ob-col ob-mid ob-center">
             <Mark />
-            {ready === null ? (
+            {ready && !hasReady ? (
               <>
                 <h1 className="ob-big ob-in" style={{ animationDelay: '1.3s' }}>Install Claude Code or Codex to start</h1>
                 <div className="ob-actions ob-in" style={{ animationDelay: '1.6s', marginTop: 40 }}>
@@ -395,7 +402,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
               <>
                 <h1 className="ob-big ob-in" style={{ animationDelay: '1.3s' }}>Give your agents an inbox</h1>
                 <div className="ob-actions ob-in" style={{ animationDelay: '1.6s', marginTop: 40 }}>
-                  <button type="button" className="ob-btn" disabled={!ready || !threads} onClick={start}>Get started <Key k="↵" /></button>
+                  <button type="button" className="ob-btn" disabled={!hasReady || !threads} onClick={start}>Get started <Key k="↵" /></button>
                 </div>
               </>
             )}
@@ -406,9 +413,9 @@ export function FirstRunFlow({ snap, home, onDone }: {
                 <span className="ob-sq ob-live" />{ENGINE_NAME[setup.engine]}
                 <b>{setup.phase === 'failed' ? (setup.error ?? 'did not finish') : setup.phase === 'signing-in' ? 'finish in your browser' : 'installing'}</b>
               </>
+            ) : ready?.length ? (
+              <><span className="ob-sq" />{ready.map((engine) => ENGINE_NAME[engine]).join(' and ')} <b>ready</b></>
             ) : ready ? (
-              <><span className="ob-sq" />{ENGINE_NAME[ready]} <b>ready</b></>
-            ) : ready === null ? (
               <><span className="ob-sq ob-off" />No coding agent <b>found</b></>
             ) : (
               <><span className="ob-sq ob-off" />Checking this computer</>
@@ -456,7 +463,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
                 <div className="ob-chips">
                   <span className="ob-anchor">
                     <button ref={folderButton} type="button" className={`ob-chip${menu !== null ? ' ob-open' : ''}`} aria-haspopup="listbox" aria-expanded={menu !== null}
-                      aria-describedby={!at ? 'ob-folder-note' : undefined}
                       onMouseDown={(e) => e.preventDefault()} onClick={openMenu}>
                       {at ? <><span className="ob-sw" style={{ background: swatchOf(at) }} />{nameOf(at)}</> : <><span className="ob-plus">+</span>Choose project folder</>}
                     </button>
@@ -487,7 +493,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
                   <button type="button" className="ob-btn" disabled={!at || !text.trim() || busy} onClick={send}>Send <Keys ks={SEND} /></button>
                 </div>
               </div>
-              {!at && <p id="ob-folder-note" className="ob-folder-note">Choose the folder containing the project you want the agent to work on.</p>}
             </div>
             {problem && <p className="ob-refused">{problem}</p>}
             <div className="ob-ideas ob-in" style={{ animationDelay: '0.2s' }}>

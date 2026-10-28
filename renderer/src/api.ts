@@ -14,6 +14,7 @@ import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from '
 import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
+import { whileSystemWindowIsOpen } from './system-window';
 import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
 import { accountSentence } from '../../shared/spawn-trouble.mjs';
 import { MOVE_SAY } from '../../shared/where-it-runs-from.mjs';
@@ -1213,7 +1214,7 @@ export const api = {
     const zero = window.zero as any;
     if (!zero?.engineBin) return { ...emptySettings, ok: false, error: RESTART_NOTE };
     try {
-      return await zero.engineBin({ engine, ...(action ? { action } : {}) });
+      return await whileSystemWindowIsOpen(() => zero.engineBin({ engine, ...(action ? { action } : {}) }));
     } catch (err) {
       return { ...emptySettings, ok: false, error: String((err as Error)?.message ?? err) };
     }
@@ -1295,7 +1296,7 @@ export const api = {
     if (useFixtures) return { ...emptySettings, ok: true, canceled: true };
     const zero = window.zero as any;
     if (!zero?.projectIcon) return { ...emptySettings, ok: false, error: RESTART_NOTE };
-    return zero.projectIcon(p);
+    return whileSystemWindowIsOpen(() => zero.projectIcon(p));
   },
 
   async clearProjectIcon(p: { product: string }): Promise<Settings> {
@@ -1471,7 +1472,11 @@ export const api = {
     }
     const zero = window.zero as any;
     if (!zero?.chooseFolder) return { path: null };
-    const r = await zero.chooseFolder({ startIn });
+    // Nothing typed at the chooser is typed into the screen behind it. See
+    // renderer/src/system-window.ts: on Linux the keys came through.
+    const r = await whileSystemWindowIsOpen<{ path?: string | null; refused?: string; browse?: boolean }>(
+      () => zero.chooseFolder({ startIn }),
+    );
     // `browse` is a tab with no Mac dialog behind it. It is not a refusal and
     // it is not a cancel: the screen opens <FolderPicker> instead, which walks
     // this machine's disk through listFolders below and comes back with a real
