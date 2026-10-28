@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { FlatList, Pressable, RefreshControl, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { readDisplay, writeDisplay, filteredEmptyWords, type Display } from '../../../renderer/src/threads/page-rules';
+import { Name } from '../../../shared/product-name.mjs';
+import { InboxComposer } from '../ui/NewThreadForm';
 import { phoneBoard, shownTabs, TABS, type Row, type TabId } from '../lib/tabs';
 import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
@@ -26,14 +28,17 @@ const EMPTY: Record<Exclude<TabId, 'inbox'>, string> = {
 
 const open = (product: string, id: string) => router.push({ pathname: '/thread/[product]/[id]', params: { product, id } });
 
-function ThreadRow({ row, first }: { row: Row; first: boolean }) {
+function ThreadRow({ row, first, unread }: { row: Row; first: boolean; unread: boolean }) {
   // "not started" or "2 tasks to approve", faint after the title (Pages.tsx `RowCells`).
   const aside = row.held ? 'not started' : row.toApprove;
+  const small = { fontSize: 11, lineHeight: 20, color: color.faint };
   return (
-    <Pressable onPress={() => open(row.product, row.id)}
+    <Pressable onPress={() => open(row.product, row.id)} accessibilityLabel={unread ? `${row.title}, unread` : undefined}
       style={({ pressed }) => ({ minHeight: 64, paddingTop: 14, paddingBottom: 14, paddingLeft: size.inset, paddingRight: 12, backgroundColor: pressed ? color.fill : 'transparent' })}>
       {/* The line over every row but the first, edge to 12px short of the right (`.row + .row::after`). */}
       {!first && <View style={{ position: 'absolute', top: 0, left: 0, right: 12, height: 1, backgroundColor: color.rowLine }} />}
+      {/* The unread dot in the margin, level with the title's first line (phone.css `.row.unread::before`). */}
+      {unread && <View style={{ position: 'absolute', left: 5, top: 22, width: 6, height: 6, borderRadius: 3, backgroundColor: color.accent }} />}
       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
         {row.running && <View style={{ marginRight: row.cloud ? 6 : 8 }}><RunningMark cloud={row.cloud}><Cloud /></RunningMark></View>}
         <T numberOfLines={2} style={{ flex: 1, fontSize: 16, lineHeight: 21.6, letterSpacing: -0.16 }}>
@@ -41,9 +46,11 @@ function ThreadRow({ row, first }: { row: Row; first: boolean }) {
         </T>
       </View>
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 8 }}>
+        {/* Sent from the phone and not yet taken: the web app's status word (status-word.ts). */}
+        {row.queued && <><T style={{ ...small, color: color.dim }}>Queued</T><T style={small}>·</T></>}
         <T numberOfLines={1} style={{ fontFamily: font.mono, fontSize: 11, lineHeight: 20, letterSpacing: 0.55, textTransform: 'uppercase', color: color.dim, flexShrink: 1 }}>{row.projectName}</T>
-        <T style={{ fontSize: 11, lineHeight: 20, color: color.faint }}>·</T>
-        <T style={{ fontSize: 11, lineHeight: 20, color: color.faint }}>{row.when}</T>
+        <T style={small}>·</T>
+        <T style={small}>{row.when}</T>
       </View>
     </Pressable>
   );
@@ -76,23 +83,37 @@ function Outlined({ label, onPress, lead }: { label: string; onPress: () => void
   );
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 const H2 = ({ children }: { children: string }) => <T style={{ fontFamily: font.medium, fontSize: 18, lineHeight: 23, letterSpacing: -0.18, marginBottom: 8 }}>{children}</T>;
 
-/** Nothing needs you, and whether work is moving without you (Pages.tsx `InboxClear`). */
-function InboxClear({ running, scheduled, go }: { running: number; scheduled: number; go: (t: TabId) => void }) {
-  const link = (words: string, tab: TabId) => (
-    <Text onPress={() => go(tab)} suppressHighlighting style={{ color: color.text, textDecorationLine: 'underline', textDecorationColor: color.lineStrong }}>{words}</Text>
-  );
+/** The empty inbox is where the next thread starts: the New thread form drawn open on the page (Pages.tsx `InboxClear`). */
+function InboxClear() {
   return (
-    <View style={{ paddingTop: 40, paddingBottom: 40, paddingLeft: 32, paddingRight: 24 }}>
-      <H2>Nothing needs you</H2>
-      <T style={{ fontSize: 14, lineHeight: 21, color: color.dim, marginBottom: 22 }}>
-        {running > 0 ? <>{link(plural(running, 'thread is running', 'threads are running'), 'progress')}. Each one lands here when it needs you.</>
-          : scheduled > 0 ? <>{link(plural(scheduled, 'thread is scheduled', 'threads are scheduled'), 'snoozed')}. Nothing else is open.</>
-            : 'Start a thread and an agent picks it up.'}
-      </T>
-      <Outlined label="New thread" lead={<Pen size={15} tint={color.text} />} onPress={() => router.push('/new')} />
+    <View style={{ paddingTop: 32, paddingBottom: 40, paddingHorizontal: 12 }}>
+      <View style={{ paddingHorizontal: 4, marginBottom: 8 }}><H2>Nothing needs you</H2></View>
+      <InboxComposer />
+    </View>
+  );
+}
+
+/** Signed in to an account no computer has sent a project to (Pages.tsx `ConnectComputer`). */
+function ConnectComputer({ email, signOut }: { email: string | null; signOut: () => void }) {
+  const steps = [
+    `Open ${Name} on your computer.`,
+    <>In Settings › Phone, sign in{email ? <> as <Text style={{ fontFamily: font.semibold, color: color.text }}>{email}</Text></> : null}.</>,
+    'Your threads show up here within a minute.',
+  ];
+  return (
+    <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 80 }}>
+      <H2>Connect your computer</H2>
+      <View style={{ gap: 10, marginTop: 6, marginBottom: 26 }}>
+        {steps.map((s, i) => (
+          <View key={i} style={{ flexDirection: 'row', gap: 12 }}>
+            <T style={{ width: 14, fontSize: 14, lineHeight: 21, color: color.faint }}>{i + 1}.</T>
+            <T style={{ flex: 1, fontSize: 14, lineHeight: 21, color: color.dim }}>{s}</T>
+          </View>
+        ))}
+      </View>
+      <Outlined label="Use another account" onPress={signOut} />
     </View>
   );
 }
@@ -168,10 +189,23 @@ export default function Threads() {
   const hidden = shown.whole[tab] - rows.length;
   const foot = footRoom(inset);
   const clear = () => setDisplay({ ...display, priorities: [], projects: [], updated: 'any', privacy: 'any' });
+  // A permission card sits over the corner the pen is in, so the pen moves up to the bar (8fa6c548).
+  const penUp = c.view.approvals.length > 0;
+  // The empty inbox draws the form itself, so it needs no pen.
+  const inboxEmpty = tab === 'inbox' && rows.length === 0 && hidden === 0 && !c.loading;
+  if (c.connect) {
+    return (
+      <Wall>
+        <TopBar title="Threads" right={<IconButton label="Settings" onPress={() => router.push('/settings')}><Gear /></IconButton>} />
+        <ConnectComputer email={c.connect.email} signOut={c.signOut} />
+      </Wall>
+    );
+  }
   return (
     <Wall>
       <TopBar title="Threads" right={<>
         <IconButton label="Search threads" onPress={() => router.push('/search')}><Magnifier size={18} /></IconButton>
+        {penUp && <IconButton label="New thread" onPress={() => router.push('/new')}><Pen size={18} tint={color.dim} /></IconButton>}
         <ViewButton display={display} open={menu} onPress={() => setMenu(!menu)} />
         <IconButton label="Settings" onPress={() => router.push('/settings')}><Gear /></IconButton>
       </>} />
@@ -185,22 +219,23 @@ export default function Threads() {
         <FlatList
           data={rows}
           keyExtractor={(r) => r.key}
-          renderItem={({ item, index }) => <ThreadRow row={item} first={index === 0} />}
+          renderItem={({ item, index }) => <ThreadRow row={item} first={index === 0} unread={c.unread(item.item)} />}
           refreshControl={<RefreshControl tintColor={color.dim} refreshing={pulling} onRefresh={async () => { setPulling(true); await c.refresh(); setPulling(false); }} />}
+          keyboardShouldPersistTaps="handled"
           ListEmptyComponent={c.loading ? <Waiting list /> : hidden > 0 ? <FilteredEmpty tab={tab} hidden={hidden} clear={clear} />
-            : tab === 'inbox' ? <InboxClear running={c.tabs.progress.length} scheduled={c.tabs.snoozed.length} go={setTab} />
+            : tab === 'inbox' ? <InboxClear />
               : <T style={{ paddingHorizontal: size.inset, paddingTop: 28, fontSize: 15, lineHeight: 23, color: color.dim }}>{EMPTY[tab]}</T>}
           contentContainerStyle={{ paddingBottom: 96 }}
         />
       )}
-      <Pressable accessibilityLabel="New thread" accessibilityRole="button" onPress={() => router.push('/new')}
+      {!penUp && !(inboxEmpty && !board) && <Pressable accessibilityLabel="New thread" accessibilityRole="button" onPress={() => router.push('/new')}
         style={({ pressed }) => ({
           position: 'absolute', right: 20, bottom: (board ? 0 : size.tabs) + foot + 16, width: 56, height: 56, borderRadius: 28,
           alignItems: 'center', justifyContent: 'center', backgroundColor: color.graphite, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
           shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, opacity: pressed ? 0.85 : 1,
         })}>
         <Pen />
-      </Pressable>
+      </Pressable>}
       {!board && <Tabs on={tab} counts={counts} pick={setTab} foot={foot} />}
       {menu && <ViewMenu display={display} onDisplay={setDisplay} products={c.view.products} items={c.view.items} shown={rows.length} total={shown.whole[tab]} tab={tab} close={() => setMenu(false)} />}
     </Wall>

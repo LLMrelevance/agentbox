@@ -35,7 +35,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent as ReactKe
 import { chord } from '../this-keyboard';
 import { DONE } from '../done-word';
 
-export type ThreadMenuRowId = 'place' | 'run' | 'code' | 'terminal' | 'pin' | 'done';
+export type ThreadMenuRowId = 'place' | 'run' | 'code' | 'terminal' | 'later' | 'pin' | 'done';
 
 /**
  * WHERE THIS THREAD RUNS (2026-10-16), the first row on a thread the cloud is
@@ -65,12 +65,18 @@ export interface ThreadMenuRow { id: ThreadMenuRowId; label: string; key: string
  * PIN THREAD keeps it at the top of the list (w-20323283e6), just above Mark
  * done. `pin` is null where a thread cannot be pinned, else whether it is now,
  * so the row says what pressing it does.
+ *
+ * LATER IS A ROW ONLY WHERE THERE IS NO L (QA batch 005, F-117). On the laptop
+ * L puts a thread off from anywhere on the page, so a row would be a second
+ * door to one verb; on a phone there was no door at all and the Later tab
+ * could not be filled. It names no key for the same reason.
  */
-export function threadMenuRows({ change, terminal, finish, runNow = false, pin = null, place = null }: {
+export function threadMenuRows({ change, terminal, finish, runNow = false, later = false, pin = null, place = null }: {
   change: boolean;
   terminal: 'open' | 'closed' | null;
   finish: boolean;
   runNow?: boolean;
+  later?: boolean;
   pin?: 'pinned' | 'unpinned' | null;
   place?: ThreadPlace | null;
 }): ThreadMenuRow[] {
@@ -79,6 +85,7 @@ export function threadMenuRows({ change, terminal, finish, runNow = false, pin =
   if (runNow) rows.push({ id: 'run', label: 'Run now', key: null });
   if (change) rows.push({ id: 'code', label: 'View code changes', key: null });
   if (terminal) rows.push({ id: 'terminal', label: terminal === 'open' ? 'Hide terminal' : 'Open terminal', key: '⌘J' });
+  if (later) rows.push({ id: 'later', label: 'Later', key: null });
   if (pin) rows.push({ id: 'pin', label: pin === 'pinned' ? 'Unpin thread' : 'Pin thread', key: null });
   if (finish) rows.push({ id: 'done', label: 'Mark done', key: 'E' });
   return rows;
@@ -118,7 +125,11 @@ export function CloudMark({ size = 16 }: { size?: number } = {}) {
 export function PinMark({ size = 16, className }: { size?: number; className?: string }) {
   return <svg {...mark} width={size} height={size} className={className}><path d="M8 3h8l-1.5 6 3.5 3.5H6L9.5 9z" /><path d="M12 12.5V21" /></svg>;
 }
-const MARKS: Record<ThreadMenuRowId, typeof CodeMark> = { place: MacMark, run: RunMark, code: CodeMark, terminal: TerminalMark, pin: () => <PinMark />, done: DoneMark };
+/** A clock, the mark Later wears everywhere else in the app. */
+function LaterMark() {
+  return <svg {...mark}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" /></svg>;
+}
+const MARKS: Record<ThreadMenuRowId, typeof CodeMark> = { place: MacMark, run: RunMark, code: CodeMark, terminal: TerminalMark, later: LaterMark, pin: () => <PinMark />, done: DoneMark };
 
 /** Three square dots, because every shape in this skin is square. */
 function Dots() {
@@ -154,7 +165,7 @@ export function ThreadMenuList({ rows, change, onPick, place = null }: {
 
 /* ----------------------------------------------------------------- button */
 
-export function ThreadMenu({ change = null, onViewChange, terminal = null, onToggleTerminal, onFinish = null, onRunNow = null, pinned = null, onPin, place = null, onPlace }: {
+export function ThreadMenu({ change = null, onViewChange, terminal = null, onToggleTerminal, onFinish = null, onRunNow = null, onLater = null, pinned = null, onPin, place = null, onPlace }: {
   /** The change figures, or null when this run changed no code. */
   change?: ReactNode | null;
   onViewChange?: () => void;
@@ -164,6 +175,8 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
   onFinish?: (() => void) | null;
   /** Non-null only on a task that is waiting its turn and not yet pushed. */
   onRunNow?: (() => void) | null;
+  /** Opens the Later picker. Non-null only where there is no keyboard to press L on. */
+  onLater?: (() => void) | null;
   /** Whether the thread is pinned now, or null where it cannot be. */
   pinned?: boolean | null;
   onPin?: (pin: boolean) => void;
@@ -172,7 +185,7 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
   /** True keeps it on this Mac (moving it here if it is in the cloud). */
   onPlace?: (keep: boolean) => void;
 }) {
-  const { done, menu: rows } = splitDone(threadMenuRows({ change: !!change, terminal, finish: !!onFinish, runNow: !!onRunNow, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', place: onPlace ? place : null }));
+  const { done, menu: rows } = splitDone(threadMenuRows({ change: !!change, terminal, finish: !!onFinish, runNow: !!onRunNow, later: !!onLater, pin: pinned === null || !onPin ? null : pinned ? 'pinned' : 'unpinned', place: onPlace ? place : null }));
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -238,6 +251,7 @@ export function ThreadMenu({ change = null, onViewChange, terminal = null, onTog
     else if (id === 'run') onRunNow?.();
     else if (id === 'code') onViewChange?.();
     else if (id === 'terminal') onToggleTerminal?.();
+    else if (id === 'later') onLater?.();
     else if (id === 'pin') onPin?.(!pinned);
     else onFinish?.();
   };

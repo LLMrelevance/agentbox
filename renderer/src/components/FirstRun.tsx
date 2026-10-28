@@ -103,7 +103,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   snap: Snapshot | null;
   home: string;
   /** Called once, with the task that was sent, or null when none was. */
-  onDone: (sent: string | null, runAt?: number) => void;
+  onDone: (sent: string | null, runAt?: number, draft?: string) => void;
 }) {
   const [screen, setScreen] = useState<Screen>('welcome');
   const [leaving, setLeaving] = useState(false);
@@ -200,8 +200,8 @@ export function FirstRunFlow({ snap, home, onDone }: {
   }, []);
   const leave = useCallback((sent: string | null) => {
     setLeaving(true);
-    setTimeout(() => onDone(sent, when.runAt), LEAVE_MS);
-  }, [onDone, when.runAt]);
+    setTimeout(() => onDone(sent, when.runAt, sent ? undefined : text), LEAVE_MS);
+  }, [onDone, when.runAt, text]);
 
   const start = useCallback(() => {
     if (ready && threads) go(chats.length ? 'chats' : 'task');
@@ -269,7 +269,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     setBusy(true);
     const p = await projectFor(folder);
     if (!p) { setBusy(false); setProblem('That folder could not be used. Choose another.'); return; }
-    const body = said.includes('\n') ? said : undefined;
+    const body = said;
     let first: string | null = null;
     if (when.repeat) {
       const rule = when.repeat;
