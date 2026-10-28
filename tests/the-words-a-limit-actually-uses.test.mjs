@@ -67,9 +67,9 @@ describe('the sentence her limit was always meant to get', () => {
     expect(said).toMatch(/starts again on its own at 6pm/);
   });
 
-  it('keeps the old wording when there is no hour to give', () => {
+  it('says it waits for the reset when there is no hour to give', () => {
     const said = deadRunSentence({ engineWord: 'Claude Code', cause: 'at-limit', runs: 2 });
-    expect(said).toMatch(/starts again on its own when the limit resets/);
+    expect(said).toMatch(/starts again on its own when your Claude plan's limit resets/);
   });
 
   it('never tells her a limit will keep failing until she fixes it', () => {

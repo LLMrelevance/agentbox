@@ -30,8 +30,9 @@ export function threadState(item, now = Date.now()) {
   if (Number.isFinite(item.runAt) && item.runAt > now) return 'scheduled';
   if (item.status === 'claimed' && item.claim && !item.claimExpired) return 'running';
   // Sent to an agent and not yet picked up: it is about to run, nobody has to
-  // act on it, so it is not waiting on anyone.
-  const sentToAnAgent = (item.labels ?? []).includes('founder') && !item.result && !item.note
+  // act on it, so it is not waiting on anyone. A blocked one, like a hand-off
+  // held for your yes, is waiting on you.
+  const sentToAnAgent = item.status !== 'blocked' && (item.labels ?? []).includes('founder') && !item.result && !item.note
     && item.kind !== 'question' && item.kind !== 'review' && !personHolds(item);
   return sentToAnAgent ? 'running' : 'waiting';
 }

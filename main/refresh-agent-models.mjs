@@ -4,7 +4,7 @@ import {rememberCodexModels} from './codex-models.mjs';
 import {forget,claudeModels} from './claude-models.mjs';
 import {terminalEnv} from './task-terminals.mjs';
 import {codexLaunchEnv} from './codex-launch-env.mjs';
-import {ensureCodexHome} from './codex-account.mjs';
+import {ensureCodexHome,rememberCodexAccount} from './codex-account.mjs';
 // `homes` is every Codex login to ask, one after another. A login that cannot
 // answer keeps its last list and does not cost the others theirs; only all of
 // them failing is an error.
@@ -24,7 +24,10 @@ function openAppServer(config,home){
 async function refreshOne(client,home){
  const deadline=setTimeout(()=>client.close('Model refresh timed out'),15000);
  try{
-  await client.initialize();let cursor=null;const models=[];const seen=new Set();
+  await client.initialize();
+  const {account}=await client.request('account/read',{refreshToken:true});
+  rememberCodexAccount(home,account);
+  let cursor=null;const models=[];const seen=new Set();
   do{const r=await client.request('model/list',{limit:100,includeHidden:true,...(cursor?{cursor}:{})});
    if(!Array.isArray(r.data))throw Error('Model list could not be read.');models.push(...r.data);cursor=r.nextCursor;
    if(cursor&&seen.has(cursor))throw Error('Model list did not finish.');seen.add(cursor);

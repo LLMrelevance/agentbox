@@ -44,6 +44,14 @@ export function passedFromOf(item) {
   return found ? found.slice(FROM_LABEL_PREFIX.length) : null;
 }
 
+// WHICH OF YOUR WORK A RUN IS ON: the thread of yours it came from, carried on
+// by every hand-off made from it. A run with no label is its own work.
+export const WORK_LABEL_PREFIX = 'work:';
+export function workOf(item) {
+  const found = (item?.labels ?? []).find((l) => typeof l === 'string' && l.startsWith(WORK_LABEL_PREFIX));
+  return found ? found.slice(WORK_LABEL_PREFIX.length) : item?.id ?? null;
+}
+
 const ID_RE = /^t-[0-9a-f]{6,}$/;
 export function isTeammateId(id) {
   return typeof id === 'string' && ID_RE.test(id);
@@ -57,6 +65,8 @@ const FIELDS = [
   'name', 'letter', 'role', 'job', 'goal', 'counted', 'works', 'asksFirst',
   'product', 'engine', 'model', 'effort', 'limit', 'paused', 'status',
   'endedAt', 'served', 'starter', 'createdAt', 'duties', 'dutyServed',
+  // Work another teammate hands it waits for your yes before it starts.
+  'handoffsNeedYes',
 ];
 
 export const STATUSES = ['draft', 'active'];
@@ -149,7 +159,7 @@ function coerce(field, value) {
     case 'product': case 'engine': case 'model': case 'effort': case 'starter': return cleanText(value, 120);
     case 'works': return value === null ? null : isWorks(value) ? { every: value.every, at: value.at, ...(value.every === 'week' ? { on: value.on } : {}) } : undefined;
     case 'limit': return Number.isInteger(value) && value >= 1 && value <= 500 ? value : undefined;
-    case 'paused': return !!value;
+    case 'paused': case 'handoffsNeedYes': return !!value;
     case 'status': return STATUSES.includes(value) ? value : undefined;
     case 'endedAt': case 'createdAt': return Number.isFinite(value) ? value : value === null ? null : undefined;
     case 'served': return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
@@ -259,12 +269,20 @@ export const CHAT_KINDS = ['msg', 'pass', 'seen', 'act'];
 export function foldChat(lines) {
   const messages = [];
   const seen = new Set();
+  // Run id to the messages read into it, and when.
+  const into = new Map();
   const ids = new Set();
   for (const line of lines ?? []) {
     if (!line || typeof line !== 'object' || !CHAT_KINDS.includes(line.kind)) continue;
     if (!Number.isFinite(line.ts)) continue;
     if (line.kind === 'seen') {
-      if (typeof line.ref === 'string' && typeof line.for === 'string') seen.add(seenKey(line.ref, line.for));
+      if (typeof line.ref === 'string' && typeof line.for === 'string') {
+        seen.add(seenKey(line.ref, line.for));
+        if (typeof line.run === 'string') {
+          if (!into.has(line.run)) into.set(line.run, []);
+          into.get(line.run).push({ ref: line.ref, for: line.for, ts: line.ts });
+        }
+      }
       continue;
     }
     if (typeof line.id !== 'string' || ids.has(line.id)) continue;
@@ -272,7 +290,7 @@ export function foldChat(lines) {
     messages.push(line);
   }
   messages.sort((a, b) => a.ts - b.ts);
-  return { messages, seen };
+  return { messages, seen, into };
 }
 
 export function seenKey(msgId, teammateId) {
@@ -344,6 +362,29 @@ export function runIdFor(seed) {
   return `w-${h1.toString(16).padStart(8, '0')}${(h2 >>> 16).toString(16).padStart(4, '0')}`;
 }
 
+// Which runs have handed each other work, newest first: two runs are talking
+// once a message from one was taken into the other.
+function talkingRuns(chat) {
+  const byId = new Map((chat?.messages ?? []).map((m) => [m.id, m]));
+  const links = new Map();
+  const link = (a, b, ts) => {
+    if (!links.has(a)) links.set(a, new Map());
+    if ((links.get(a).get(b) ?? -1) < ts) links.get(a).set(b, ts);
+  };
+  for (const [run, taken] of chat?.into ?? []) {
+    for (const s of taken) {
+      const sender = byId.get(s.ref)?.run;
+      if (typeof sender === 'string' && sender !== run) { link(sender, run, s.ts); link(run, sender, s.ts); }
+    }
+  }
+  return links;
+}
+
+// The words a hand-off puts on the thread it goes to.
+export function handOffText(m) {
+  return [m.title ? `**${m.title}**` : null, String(m.details ?? '').trim() || null].filter(Boolean).join('\n\n') || 'Work passed on';
+}
+
 function clip(text, max) {
   const t = String(text ?? '').replace(/\s+/g, ' ').trim();
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
@@ -376,9 +417,16 @@ function partFor(text, name) {
 // What the tick should do now, decided without touching anything, so it can be
 // tested on plain data and the main process only carries it out.
 //
-// - A message or pass addressed to a teammate wakes it. Your words go into the
+// - Your message or pass wakes the teammate it names. Your words go into the
 //   run already waiting on you or already running, since they are most likely
 //   the answer; anything else becomes a run of its own.
+// - A teammate naming another in the chat wakes nobody: it is read on that
+//   teammate's next turn. Only a hand-off (a pass) makes a teammate act.
+// - A teammate's hand-off goes to the thread the receiver already has talking
+//   with the sender, else its thread on the same work of yours in the same
+//   project, as a reply from the sender (`tell`). A thread its agent finished
+//   opens again; one you closed is not touched, and the hand-off starts a new
+//   thread. A receiver set to `handoffsNeedYes` holds it for your reply.
 // - A schedule that is owed becomes a run.
 // - One run at a time: a new run behind an active one is made queued, and a
 //   teammate with nothing active gets its oldest queued run released.
@@ -391,19 +439,35 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
   const startsNow = new Map();
   const limited = new Set();
 
+  const talking = talkingRuns(chat);
+  // Runs made this tick, so a second hand-off in the same tick finds the first.
+  const made = [];
+  const homeOf = (t, m) => {
+    const runs = [...runsOf(t.id, items), ...made.filter((r) => r.teammate === t.id)];
+    const partners = talking.get(m.run);
+    const partner = partners && runs.filter((r) => partners.has(r.id)).sort((a, b) => partners.get(b.id) - partners.get(a.id))[0];
+    if (partner) return partner;
+    const where = m.product ?? t.product ?? null;
+    return runs.filter((r) => m.work && workOf(r) === m.work && (!where || !r.product || r.product === where))
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0] ?? null;
+  };
+  const closedByYou = (r) => r.status === 'done' && r.wrote?.status?.source === 'founder';
+
   const active = (t) => !!activeRunOf(t.id, items) || startsNow.get(t.id);
   const overLimit = (t) => runsThisWeek(t.id, items, now) + (pendingNew.get(t.id) ?? 0) >= (t.limit ?? DEFAULT_LIMIT);
 
-  const newRun = (t, trigger, seed, { fromYou = false } = {}) => {
+  // A held run waits for your reply, not for its turn, so it neither queues
+  // nor holds up the teammate's next run.
+  const newRun = (t, trigger, seed, { fromYou = false, hold = false } = {}) => {
     if (!fromYou && overLimit(t)) {
       limited.add(t.id);
       return null;
     }
-    const later = active(t);
+    const later = !hold && active(t);
     const id = runIdFor(seed);
     actions.push({ type: 'run', teammate: t.id, id, trigger, title: runTitle(trigger, t), start: later ? 'later' : 'now' });
     pendingNew.set(t.id, (pendingNew.get(t.id) ?? 0) + 1);
-    if (!later) startsNow.set(t.id, true);
+    if (!later && !hold) startsNow.set(t.id, true);
     return id;
   };
 
@@ -416,6 +480,7 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
       if (m.from === tid) { actions.push({ type: 'seen', msg: m.id, teammate: tid }); continue; }
       if (t.paused && m.from !== YOU) continue;
       const fromYou = m.from === YOU;
+      if (!fromYou && m.kind === 'msg') { actions.push({ type: 'seen', msg: m.id, teammate: tid }); continue; }
       const hop = fromYou ? 0 : (Number.isInteger(m.hop) ? m.hop : 0) + 1;
       if (hop > MAX_HOPS) {
         actions.push({ type: 'seen', msg: m.id, teammate: tid });
@@ -437,14 +502,30 @@ export function planWakes({ teammates = [], chat = { messages: [], seen: new Set
           continue;
         }
       }
+      const hold = !fromYou && !!t.handoffsNeedYes;
+      const home = fromYou ? null : homeOf(t, m);
+      if (home && !closedByYou(home)) {
+        const from = { teammate: m.from, name: byId.get(m.from)?.name ?? 'A teammate' };
+        actions.push({ type: 'tell', teammate: tid, item: home.id, product: home.product ?? null, text: handOffText(m), from, hop, hold, msg: m.id });
+        actions.push({ type: 'seen', msg: m.id, teammate: tid, run: home.id });
+        continue;
+      }
       // Where it came from travels with it: the project it was passed from, and
       // the thread that spoke for you, when one did.
       const origin = { ...(m.product ? { product: m.product } : {}), ...(m.via ? { via: m.via, viaProduct: m.viaProduct ?? null } : {}) };
+      const work = fromYou ? m.via ?? null : m.work ?? null;
       const trigger = m.kind === 'pass'
-        ? { kind: 'pass', from: m.from, title: m.title, details: m.details, msg: m.id, hop, ...origin }
-        : { kind: 'message', from: m.from, fromName: fromYou ? null : byId.get(m.from)?.name ?? null, text: m.text, msg: m.id, hop, ...origin, ...(fromYou && m.start ? { opening: 'start' } : fromYou && m.setup ? { opening: 'setup' } : {}) };
-      const id = newRun(t, trigger, `${m.id}>${tid}`, { fromYou });
-      if (id) actions.push({ type: 'seen', msg: m.id, teammate: tid, run: id });
+        ? { kind: 'pass', from: m.from, title: m.title, details: m.details, msg: m.id, hop, ...origin, ...(work ? { work } : {}), ...(hold ? { hold } : {}) }
+        : { kind: 'message', from: m.from, text: m.text, msg: m.id, hop, ...origin, ...(work ? { work } : {}), ...(fromYou && m.start ? { opening: 'start' } : fromYou && m.setup ? { opening: 'setup' } : {}) };
+      const id = newRun(t, trigger, `${m.id}>${tid}`, { fromYou, hold });
+      if (id) {
+        actions.push({ type: 'seen', msg: m.id, teammate: tid, run: id });
+        made.push({ id, teammate: tid, product: m.product ?? t.product ?? null, status: 'open', labels: [`${WORK_LABEL_PREFIX}${work ?? id}`] });
+        if (typeof m.run === 'string') {
+          if (!talking.has(m.run)) talking.set(m.run, new Map());
+          talking.get(m.run).set(id, now);
+        }
+      }
     }
   }
 
@@ -499,6 +580,13 @@ function verbFor(item, teammates) {
   return { verb: 'picked' };
 }
 
+// The note is written at the moment of the close, so a run reopened and
+// finished later reads as finished again.
+export const STOPPED_NOTE = 'Stopped by you.';
+export function stoppedByYou(item) {
+  return item?.status === 'done' && item.note === STOPPED_NOTE && item.wrote?.note?.ts === item.wrote?.status?.ts;
+}
+
 // The lines a run leaves in the chat, read straight off the ledger so they can
 // never disagree with it: picked up (or passed on), sent you, finished.
 export function runLines(items, teammates = []) {
@@ -525,7 +613,7 @@ export function runLines(items, teammates = []) {
       out.push({ ...base, id: `${item.id}:sent`, kind: 'run', verb: 'sent', said: clip(said, 200), waiting: waitingOnYou(item), answered, ts: r.ts });
     }
     if (item.status === 'done') {
-      out.push({ ...base, id: `${item.id}:done`, kind: 'run', verb: 'finished', ts: item.wrote?.status?.ts ?? item.updatedAt ?? 0 });
+      out.push({ ...base, id: `${item.id}:done`, kind: 'run', verb: stoppedByYou(item) ? 'stopped' : 'finished', ts: item.wrote?.status?.ts ?? item.updatedAt ?? 0 });
     }
   }
   return out.sort((a, b) => a.ts - b.ts);

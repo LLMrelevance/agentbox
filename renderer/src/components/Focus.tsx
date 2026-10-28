@@ -1614,7 +1614,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // turned that guard off silently.
   return (
     <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
-    <div className="focus-pane" ref={paneRef} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
+    <div className="focus-pane" ref={paneRef} data-file-previews={page && !inChats ? 'page' : undefined} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
         Both faults were real and both are measured on this row. With a
@@ -3089,11 +3089,10 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         className={`dock-input${chat.live ? ' with-mentions' : ''} ${named.over}`}
         ref={ref}
         value={text}
-        onChange={(e) => { changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
+        onChange={(e) => { talk.typed(); changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
         onSelect={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onScroll={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onClick={(e) => { chat.click(e.currentTarget); named.track(e.currentTarget); }}
-        onFocus={() => { if (talk.on) talk.stop(); }}
         /* * ONE CLEAR SENTENCE. The old placeholder was unclear about what it even meant,
            and a reply box needs one simple sentence.
 
