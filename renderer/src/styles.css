@@ -2770,6 +2770,9 @@ body {
 .approval-card.answered .approval-opens,
 .approval-card.answered .approval-meta { animation: approval-recede 420ms ease-out forwards; }
 .approval-card.answered.allow { border-color: var(--text-faint); }
+/* Deny moves its edge too (F-115): Allow lightened the card and Deny changed
+   nothing, so the quieter decision was the one with no sign it had landed. */
+.approval-card.answered.deny { border-color: var(--line-strong); }
 
 .approval-verdict {
   position: absolute; inset: 0; z-index: 1;
@@ -2778,8 +2781,8 @@ body {
 }
 .approval-verdict-mark { font-size: 21px; line-height: 1; color: var(--text); }
 .approval-verdict-word { font-size: 13.5px; font-weight: 650; letter-spacing: 0.2px; color: var(--text); }
-.approval-card.answered.deny .approval-verdict-mark,
-.approval-card.answered.deny .approval-verdict-word { color: var(--text-dim); }
+/* Both verdicts are stamped in the card's own ink. Deny had --text-dim here, a
+   step quieter than a mark already on screen for a sixth of a second (F-115). */
 
 /* The press, then a beat holding the verdict, then away. The hold is the whole
    point: an exit that starts fading immediately is the same abrupt
@@ -9197,7 +9200,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
    whatever is painted on them. It wins because the view is the last thing on the page. */
 .picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
   background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out;
-  -webkit-app-region: no-drag; }
+  -webkit-app-region: no-drag; touch-action: none; }
+/* Fingers belong to the view (PictureView.tsx fingerDown); only the strip of pictures scrolls. */
+.pv-strip { touch-action: pan-x; }
+.pv-chrome button, .pv-tools button { touch-action: manipulation; }
 @keyframes pv-in { from { opacity: 0; } }
 .pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
 .pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;

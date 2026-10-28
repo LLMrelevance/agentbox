@@ -1,6 +1,7 @@
 import { previewFocus } from './preview-focus';
 import { cloudChord, cloudToggleNote, cloudToggleTarget, threadPlace } from './cloud-menu';
 import { usePhoneBack, onCloudPhone, onPhone } from './phone-screen';
+import { lessonPosition } from './lesson-position';
 import { holdsReplies, writeHeldWhenHidden } from './phone-holds';
 import { pollEvery } from './phone-polls';
 import type {FocusControlStyle} from './focus-control';
@@ -22,6 +23,7 @@ import type { AnswerMode, Approval, CloudPlan, PermissionMode, Product, RepeatRu
 import type { ReplyPick } from './reply-pick';
 import { api } from './api';
 import { setClaudeModels, setCodexFreePlan } from './models';
+import { codexFromSettings } from './web-settings';
 import { advanceAfter, advanceLandsHere, replyMovesOn, opensIntoNeedsYou, nextAfterAdvance, type Advance } from './advance';
 import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
@@ -74,7 +76,7 @@ import {
 } from './drafts';
 import { approvalStage } from './approval-stage';
 import { roomForTheCard } from './room-for-the-card';
-import { approvalReads } from './approval-card';
+import { approvalAnswered, approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
@@ -939,6 +941,9 @@ export default function App() {
     if (r && (r as { ok?: boolean }).ok === false) {
       setAnswered(null);
       showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    } else if (onPhone()) {
+      // The stamp on the leaving card is a flash on a phone screen (./approval-card.ts).
+      showToast(approvalAnswered(allow));
     }
     await refresh();
   };
@@ -946,6 +951,7 @@ export default function App() {
   // the animation, and a card cannot finish leaving once the snapshot has
   // forgotten it exists.
   const frontApproval = useRef<Approval | null>(null);
+  const [minimizedApproval, setMinimizedApproval] = useState<string | null>(null);
   // Which option (by its number) the arrows have highlighted in focus mode.
   // A task always opens with NOTHING selected: Enter can only ever send a
   // choice the user visibly made.
@@ -1085,9 +1091,11 @@ export default function App() {
       setClaudeModels(s.workspace?.claudeModels);
       setCodexFreePlan(s.workspace?.codexFreePlan);
       // And Codex's models, in the same trip rather than in one of their own.
-      const models = s.workspace?.codexModels;
-      if (Array.isArray(models)) setCodexModels(models);
-      setCodexModelDefault(s.workspace?.codexModelDefault ?? null);
+      // On the web app, which has no desktop model, they come off the
+      // computer's settings copy (w-24119e8784).
+      const codex = codexFromSettings(s as Parameters<typeof codexFromSettings>[0]);
+      if (Array.isArray(codex.models)) setCodexModels(codex.models);
+      setCodexModelDefault(codex.defaultModel);
     }).catch(() => { /* nothing here stops because a setting did not read */ });
     void readModels();window.addEventListener('agent-models-changed',readModels);
     return()=>window.removeEventListener('agent-models-changed',readModels);
@@ -5989,7 +5997,7 @@ export default function App() {
   // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
   // with two lessons left to give there.
   const [landOn, setLandOn] = useState<string | null>(null);
-  const finishFresh = useCallback((sent: string | null, runAt = 0) => {
+  const finishFresh = useCallback((sent: string | null, runAt = 0, draft?: string) => {
     const to = firstRunLanding(sent, runAt);
     finishFirstRun(localStorage);
     setLessons(localStorage, ['open', 'pick']);
@@ -5999,6 +6007,10 @@ export default function App() {
     setFocused(null);
     setSelected(0);
     setLandOn(to.select);
+    if (draft?.trim()) {
+      setComposeInitial({ body: draft });
+      setModal('compose');
+    }
   }, []);
   // Its row arrives with a snapshot or two after the send.
   const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
@@ -6019,7 +6031,7 @@ export default function App() {
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
-    setLessonAt({ left: r.right + 20, top: r.top + r.height / 2 - 17 });
+    setLessonAt((previous) => lessonPosition(previous, { left: r.right + 20, top: r.top + r.height / 2 - 17 }));
   }, [lessons, focused, fresh, view, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
@@ -6397,6 +6409,9 @@ export default function App() {
            One rule now decides both.
          */}
         {!searchFieldInStrip({ searching: search !== null, focused: !!focused, settingsOpen }) && <div className="topbar-right">
+          {onPhone() && stage.card && minimizedApproval === stage.card.id && (
+            <button type="button" className="approval-review" aria-label="Review permission" onClick={() => setMinimizedApproval(null)}>Review ({stage.waiting + 1})</button>
+          )}
           {/* THE HINT THAT USED TO SIT HERE IS GONE (w-2f7fac6027). It printed a
               cap and a word in the strip's own gap, which is the app changing
               under the pointer, and the corner's two buttons are not in the set
@@ -6729,7 +6744,7 @@ export default function App() {
                   pageAsk={threadAsk?.key === keyOf(focused) ? threadAsk : null}
                   onAsked={() => setThreadAsk(null)}
                   onShown={setOpenShows}
-                  aboveDock={whereItWent}
+                  aboveDock={<>{snap.phoneStatus && <div className="phone-status" role="status">{snap.phoneStatus}</div>}{whereItWent}</>}
                   onReveal={() => revealAgent(focused)}
                   // Remind me later and stop this task are neither of the two
                   // ways a task ends, and the card beside the bar names exactly
@@ -6940,6 +6955,7 @@ export default function App() {
           when it opens. */}
       {(modal === 'compose' || clearSlot) && drawnIn(
         <ThreadComposer
+          statusLine={snap.phoneStatus}
           key={modal === 'compose' ? 'card' : 'page'}
           inline={modal !== 'compose'}
           onWriting={setClearWriting}
@@ -7782,6 +7798,7 @@ export default function App() {
         // gone.
         const { card: a, verdict, waiting } = stage;
         if (!a) return null;
+        if (onPhone() && minimizedApproval === a.id) return null;
         // WHAT IT IS ASKING AND WHAT IT IS ASKING ABOUT, and neither is
         // hardcoded any more: "asks to run" over a diff is a lie, and it is the
         // first thing she reads. approval-card.ts is the only copy.
@@ -7846,6 +7863,7 @@ export default function App() {
                           {said ?? <>{product} {reads.what}</>}
                         </span>
                         {waiting > 0 && <span className="approval-count">+{waiting} waiting</span>}
+                        {onPhone() && <button type="button" className="approval-minimize" onClick={() => setMinimizedApproval(a.id)}>Minimize</button>}
                       </div>
                       {/* THE WHOLE THING SHE IS ANSWERING ABOUT, AND THE CAP IS
                           NOT HERE. This sliced to 400 characters with no mark on

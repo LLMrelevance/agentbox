@@ -17,19 +17,21 @@ import { priorityLabelOf, priorityValueOf } from '../../../../../renderer/src/pr
 import { clock, dayHeading } from '../../../../../renderer/src/thread-history';
 import { stateWordOf } from '../../../../../renderer/src/threads/summary-rules';
 import { summaryOf, threadState } from '../../../../../shared/thread-cards.mjs';
+import { arrivedAt } from '../../../../../renderer/src/unread';
 import type { Choices, Press } from '../../../lib/actions';
 import { useDraft } from '../../../lib/drafts';
 import { typedWords } from '../../../lib/files';
 import { threadOf, type FiledRow, type Thread } from '../../../lib/thread';
 import { screenGate } from '../../../lib/thread-gate';
 import { liveOf, offersOf, shownLevel, summaryParts, type Offers } from '../../../lib/thread-offers';
+import { waitFacts } from '../../../../../renderer/src/phone-rows';
 import { replySender, type ReplyDeps } from '../../../lib/thread-reply';
 import { atEnd, keptPlace } from '../../../lib/thread-scroll';
 import { appStore } from '../../../platform/persist';
 import { useCloud } from '../../../state/cloud';
 import { AttachSheet, Attached } from '../../../ui/Attach';
 import { SentFiles, ThreadFiles, useMessageFiles } from '../../../ui/Files';
-import { Back, Clip, More, Panel } from '../../../ui/icons';
+import { Back, Clip, DoneMark, More, Panel } from '../../../ui/icons';
 import { Markdown, type MessageFiles } from '../../../ui/Markdown';
 import { footRoom, IconButton, Pickable, PriorityBars, RunningMark, T, TopBar, Wall } from '../../../ui/parts';
 import { ModelSheet, ModeSheet, PrioritySheet, barsFor } from '../../../ui/Pickers';
@@ -146,8 +148,9 @@ function Dock({ thread, offers, busy, setBusy, stop, setError }: {
         </View>
       ) : (
         <View style={{ ...card, borderColor: color.lineStrong }}>
-          <TextInput ref={typing} autoFocus={!talk.active()} multiline value={draft.text} onChangeText={draft.setText} placeholder="What should the agent do next?" placeholderTextColor={color.faint}
-            onFocus={() => { if (talk.active()) talk.stop(); }}
+          {/* Typing stops dictation with the words kept; tapping the box does not (web-speech.ts). */}
+          <TextInput ref={typing} autoFocus={!talk.active()} multiline value={draft.text} placeholder="What should the agent do next?" placeholderTextColor={color.faint}
+            onChangeText={(t) => { if (talk.active()) talk.leave(); draft.setText(t); }}
             onBlur={() => { if (!ready && !sheet && !talk.active()) setOpen(false); }}
             style={[{ minHeight: 92, maxHeight: 220, paddingTop: 12, paddingHorizontal: 16, paddingBottom: 6, fontFamily: font.regular, fontSize: 15.5, lineHeight: 24, color: color.text, textAlignVertical: 'top' }, Platform.OS === 'web' && ({ outlineStyle: 'none' } as object)]} />
           {(draft.files.length > 0 || failed || draft.dropped > 0 || (!talk.on && !!talk.problem)) && (
@@ -275,6 +278,9 @@ export default function ThreadScreen() {
   const { dir, files } = useMessageFiles(String(product), String(id));
   const waiting = !!thread?.events.some((e: any) => e.kind !== 'work' && e.pending);
   useEffect(() => { if (!waiting) setCutting(false); }, [waiting]);
+  // Read once opened, and again when an answer lands while it is open (App.tsx `focusedArrival`).
+  const arrived = thread ? arrivedAt(thread.item) : 0;
+  useEffect(() => { if (thread) c.markSeen(thread.item); }, [product, id, arrived, !!thread]);
 
   // Her place: the end is followed only while she rests there (thread-bottom.ts).
   const scroll = useRef<ComponentRef<typeof ScrollView>>(null);
@@ -299,7 +305,8 @@ export default function ThreadScreen() {
   const item = thread.item;
   const facts = { session: thread.session, inProgress: thread.inProgress, now: c.now };
   const offers = offersOf(item, facts);
-  const live = liveOf(item, facts);
+  // With what the computer says of it while nothing runs, so waiting its turn reads Queued.
+  const live = liveOf(item, { ...facts, ...waitFacts(c.view, item.id) });
   const press = async (p: Press, on: any = item, then?: () => void) => {
     setBusy(true); setError(null);
     try { await c.send(p, on); then?.(); return true; } catch (err) { setError(String((err as Error)?.message ?? err)); return false; } finally { setBusy(false); }
@@ -362,6 +369,14 @@ export default function ThreadScreen() {
         title={<T numberOfLines={1} style={{ fontSize: 15, paddingLeft: 13, paddingRight: 6 }}>{thread.title}</T>}
         right={<>
           <IconButton label="Show the summary" width={44} onPress={() => setSummary(true)}><Panel /></IconButton>
+          {/* Done in a box of its own, left of the dots, as the desktop draws it (threads/ThreadMenu.tsx). */}
+          {threadState(item) !== 'done' && (
+            <Pressable onPress={close} disabled={busy} accessibilityRole="button" accessibilityLabel="Mark done"
+              style={({ pressed }) => ({ height: 30, flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 9, paddingRight: 12, marginRight: 4, borderWidth: 1, borderColor: pressed ? color.lineStrong : color.line, backgroundColor: pressed ? color.picked : 'transparent' })}>
+              <DoneMark />
+              <T style={{ fontSize: 13, color: color.dim }}>Done</T>
+            </Pressable>
+          )}
           <IconButton label="More" width={30} onPress={() => setMenu(true)}><More /></IconButton>
           <View style={{ width: 16 }} />
         </>}

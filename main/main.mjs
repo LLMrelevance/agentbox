@@ -33,6 +33,7 @@ import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
+import { phoneWaitsOf } from '../shared/phone-snapshot.mjs';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
 import { newUserWindow } from './new-user-window.mjs';
@@ -475,6 +476,8 @@ async function createWindow() {
       readSettings: () => phoneSettings?.() ?? null,
       version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
+      // Why each thread nothing runs on is waiting, so the phone does not read it as "Nothing running".
+      waits: () => phoneWaitsOf(supervisor.status()),
       // The cards waiting on her, each with the fingerprint her answer must carry back.
       approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),

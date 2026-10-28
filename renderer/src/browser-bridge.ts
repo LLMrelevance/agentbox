@@ -20,7 +20,7 @@ import { REQUEST_CHANNELS, PUSH_CHANNELS, WRAPPED_ARGS, DESKTOP_ONLY } from '../
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
 import { installPhoneFiles } from './phone-files';
-import { installPhoneScreen } from './phone-screen';
+import { installPhoneScreen, pagePinched } from './phone-screen';
 import { atMostEvery, PHONE_PUSH_MS } from './phone-polls';
 
 type Push = (payload: unknown) => void;
@@ -142,7 +142,7 @@ export function installBrowserBridge(): boolean {
     document.documentElement.dataset.door = 'phone';
     // After a turn sideways and back, iOS can leave the page scrolled by the
     // status bar's height (phone.css says why). Put it back once it settles.
-    const unscroll = () => requestAnimationFrame(() => { if (scrollX || scrollY) scrollTo(0, 0); });
+    const unscroll = () => requestAnimationFrame(() => { if ((scrollX || scrollY) && !pagePinched()) scrollTo(0, 0); });
     addEventListener('orientationchange', () => { unscroll(); setTimeout(unscroll, 350); });
     addEventListener('resize', unscroll);
     visualViewport?.addEventListener('resize', unscroll);
