@@ -5,28 +5,15 @@
 // an orange dot whose opacity a native clock moves, so it keeps running while
 // the JavaScript thread is busy loading.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AccessibilityInfo, Animated, Easing, useWindowDimensions, View } from 'react-native';
+import { AccessibilityInfo, Animated, Easing, Platform, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import {
-  ORBIT_CELLS, ORBIT_CORNER, ORBIT_CYCLE_MS, ORBIT_GREY, ORBIT_KEYS, ORBIT_ORANGE, orangeAt, orbitDelay,
-} from '../../../renderer/src/logo-orbit';
+import { ORBIT_CORNER, ORBIT_CYCLE_MS, ORBIT_GREY, ORBIT_ORANGE, orbitLap } from '../../../renderer/src/logo-orbit';
 import { size } from './theme';
 
 // The app icon's proportions at 90px: 24px dots, 9px gaps.
 const DOT = 24;
 const GAP = 9;
 const MARK = DOT * 3 + GAP * 2;
-
-// The orange's opacity across one lap of the clock, for one dot. orangeAt is
-// straight lines between the keys, so the keys shifted by the dot's place in
-// the ring, plus the two ends, are the whole of it.
-function lap(cell: number) {
-  // A dot's lap starts this far round the clock: 0 for the corner, 1/8 for the next.
-  const shift = ((orbitDelay(cell) ?? 0) + ORBIT_CYCLE_MS) / ORBIT_CYCLE_MS;
-  const points = ORBIT_KEYS.map(([u]) => (u + shift) % 1).concat([0, 1]);
-  const inputRange = [...new Set(points.map((u) => Math.round(u * 1e4) / 1e4))].sort((a, b) => a - b);
-  return { inputRange, outputRange: inputRange.map((u) => orangeAt(cell, u * ORBIT_CYCLE_MS)) };
-}
 
 export function LogoOrbit() {
   const clock = useRef(new Animated.Value(0)).current;
@@ -39,11 +26,13 @@ export function LogoOrbit() {
   }, []);
   useEffect(() => {
     if (still) return undefined;
-    const loop = Animated.loop(Animated.timing(clock, { toValue: 1, duration: ORBIT_CYCLE_MS, easing: Easing.linear, useNativeDriver: true }));
+    // On a phone the clock runs natively. In the browser preview a loop asked
+    // for the native driver never moves, measured frozen there, so it runs in JS.
+    const loop = Animated.loop(Animated.timing(clock, { toValue: 1, duration: ORBIT_CYCLE_MS, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }));
     loop.start();
     return () => loop.stop();
   }, [still, clock]);
-  const ranges = useMemo(() => Array.from({ length: 9 }, (_, cell) => ((ORBIT_CELLS as readonly number[]).includes(cell) ? lap(cell) : null)), []);
+  const ranges = useMemo(() => Array.from({ length: 9 }, (_, cell) => orbitLap(cell)), []);
   return (
     <View style={{ width: MARK, height: MARK, flexDirection: 'row', flexWrap: 'wrap', gap: GAP }}>
       {ranges.map((range, cell) => {

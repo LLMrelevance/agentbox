@@ -829,11 +829,13 @@ body {
   color: var(--text-faint);
 }
 
-/* The one sentence the boot screen says when nothing comes back. It stands
-   under the moving logo, in reading type. */
-.boot-stuck { gap: 28px; padding: 0 24px; }
+/* The one sentence the boot screen says when nothing comes back. It hangs
+   28px under the moving logo, in reading type, and the logo does not move up
+   to make room for it: it stays on the spot it was already on. */
+.boot-stuck { position: relative; }
 .boot-stuck p {
-  margin: 0;
+  position: absolute; top: calc(50% + 45px + 28px); left: 24px; right: 24px;
+  margin: 0 auto;
   max-width: 560px;
   text-align: center;
   font-size: 15px;

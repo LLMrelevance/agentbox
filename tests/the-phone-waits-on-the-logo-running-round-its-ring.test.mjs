@@ -21,7 +21,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  ORBIT_CELLS, ORBIT_CENTRE, ORBIT_CORNER, ORBIT_CYCLE_MS, ORBIT_STEP_MS, ORBIT_KEYS, orangeAt, orbitDelay,
+  ORBIT_CELLS, ORBIT_CENTRE, ORBIT_CORNER, ORBIT_CYCLE_MS, ORBIT_STEP_MS, ORBIT_KEYS, orangeAt, orbitDelay, orbitLap,
 } from '../renderer/src/logo-orbit.ts';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -80,6 +80,55 @@ describe('one orange dot at a time', () => {
   it('leaves a short tail and nothing more', () => {
     // Two steps behind the head is grey again.
     expect(orangeAt(ORBIT_CORNER, ORBIT_STEP_MS * 3)).toBe(0);
+  });
+});
+
+describe('the phone app’s clock draws the same lap', () => {
+  // The phone app runs one clock from 0 to 1 a lap and maps it to each dot's
+  // orange through straight lines between points. The first version of those
+  // points left out the moment a dot snaps on, so every dot faded back up
+  // across most of its lap: measured in the preview, seven of the nine were
+  // part orange at once, 0.37, 0.20, 0.03, 0.45, 0.39, 0.56 and 0.75 beside
+  // the 1.00 that was meant to be alone.
+  const at = ({ inputRange, outputRange }, x) => {
+    for (let k = 1; k < inputRange.length; k += 1) {
+      if (x <= inputRange[k]) {
+        const span = inputRange[k] - inputRange[k - 1];
+        return span === 0 ? outputRange[k] : outputRange[k - 1] + ((x - inputRange[k - 1]) / span) * (outputRange[k] - outputRange[k - 1]);
+      }
+    }
+    return outputRange[outputRange.length - 1];
+  };
+
+  it('starts at 0 and ends at 1, never going backwards', () => {
+    for (const cell of ORBIT_CELLS) {
+      const { inputRange } = orbitLap(cell);
+      expect(inputRange[0]).toBe(0);
+      expect(inputRange[inputRange.length - 1]).toBe(1);
+      for (let k = 1; k < inputRange.length; k += 1) expect(inputRange[k]).toBeGreaterThan(inputRange[k - 1]);
+    }
+  });
+
+  it('matches the shared lap at every moment, away from the instant a dot snaps on', () => {
+    for (const cell of ORBIT_CELLS) {
+      const lap = orbitLap(cell);
+      for (let ms = 0; ms < ORBIT_CYCLE_MS; ms += 5) {
+        const snap = ((orbitDelay(cell) + ORBIT_CYCLE_MS) % ORBIT_CYCLE_MS);
+        if (Math.abs(ms - snap) < 2) continue;
+        expect(at(lap, ms / ORBIT_CYCLE_MS)).toBeCloseTo(orangeAt(cell, ms), 2);
+      }
+    }
+  });
+
+  it('is one full orange and at most two part ones, at any moment', () => {
+    for (let ms = 3; ms < ORBIT_CYCLE_MS; ms += 11) {
+      const lit = ORBIT_CELLS.map((c) => at(orbitLap(c), ms / ORBIT_CYCLE_MS)).filter((v) => v > 0.01);
+      expect(lit.length).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it('has nothing for the centre', () => {
+    expect(orbitLap(ORBIT_CENTRE)).toBeNull();
   });
 });
 
@@ -142,6 +191,7 @@ describe('the phone app draws it', () => {
   it('off the same rule, and still for anyone who asked for less motion', () => {
     expect(mark).toMatch(/from '\.\.\/\.\.\/\.\.\/renderer\/src\/logo-orbit'/);
     expect(mark).toMatch(/isReduceMotionEnabled/);
-    expect(mark).toMatch(/useNativeDriver: true/);
+    // Native on a phone; in the browser preview a native loop never moved.
+    expect(mark).toMatch(/useNativeDriver: Platform\.OS !== 'web'/);
   });
 });

@@ -45,6 +45,25 @@ export function orbitDelay(cell: number): number | null {
   return at < 0 ? null : at * ORBIT_STEP_MS - ORBIT_CYCLE_MS;
 }
 
+/**
+ * One dot's lap for a clock running 0 to 1, as the points the phone app
+ * interpolates straight lines between. Every key shifted by the dot's place in
+ * the ring, the two ends of the clock, and the instant the dot snaps on, which
+ * needs a point on each side of it or the line fades the dot back up across
+ * the whole of its lap instead.
+ */
+export function orbitLap(cell: number): { inputRange: number[]; outputRange: number[] } | null {
+  const delay = orbitDelay(cell);
+  if (delay === null) return null;
+  const snap = (delay + ORBIT_CYCLE_MS) / ORBIT_CYCLE_MS;
+  const points = [0, 1, ...ORBIT_KEYS.slice(0, -1).map(([u]) => (u + snap) % 1)];
+  if (snap > 0) points.push(snap - 1e-4);
+  const inputRange = [...new Set(points.map((u) => Math.round(u * 1e6) / 1e6))].sort((a, b) => a - b);
+  // At the very end of the clock it is the moment before the lap starts over.
+  const outputRange = inputRange.map((u) => orangeAt(cell, u * ORBIT_CYCLE_MS - (u === 1 ? 1e-6 : 0)));
+  return { inputRange, outputRange };
+}
+
 /** How orange a dot is at a moment, for the phone app's interpolation and for the tests. */
 export function orangeAt(cell: number, ms: number): number {
   const delay = orbitDelay(cell);
