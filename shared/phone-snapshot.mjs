@@ -78,11 +78,24 @@ function hideNamed(text) {
 // more, upper and lower case and digits all present. A commit id or a uuid is
 // one case of hex and is left alone.
 const KEYLIKE = /\b(?=[A-Za-z0-9_-]{32,}\b)(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}\b/g;
+// A file's path is not a key, however long its name: a saved picture is a
+// random prefix joined to the file's own name, and hidden, its link leads nowhere.
+// Bounded so a long run with no extension costs little.
+const FILE_PATH = /[\w./~-]{0,300}\.(?:png|jpe?g|gif|webp|heic|svg|mp4|mov|webm|m4a|mp3|wav|pdf|txt|md|html?|csv|json|zip)(?![\w])/gi;
+function hideKeyLike(text) {
+  let out = '';
+  let at = 0;
+  for (const m of text.matchAll(FILE_PATH)) {
+    out += text.slice(at, m.index).replace(KEYLIKE, '[hidden]') + m[0];
+    at = m.index + m[0].length;
+  }
+  return out + text.slice(at).replace(KEYLIKE, '[hidden]');
+}
 export function hideSecrets(text, { home = null } = {}) {
   let out = String(text);
   for (const re of SECRETS) out = out.replace(re, (m, bearer) => (typeof bearer === 'string' && /^(Bearer|Basic)/i.test(bearer) ? `${bearer}[hidden]` : '[hidden]'));
   out = hideNamed(out);
-  out = out.replace(KEYLIKE, '[hidden]');
+  out = hideKeyLike(out);
   // Her home folder is ~ online, as it is in a crash report (shared/crash-scrub.mjs).
   if (home && home.length > 1) out = out.split(home).join('~');
   return out;

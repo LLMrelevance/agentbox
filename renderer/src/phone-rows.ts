@@ -6,6 +6,7 @@
 import { REQUEST_CHANNELS } from '../../shared/bridge-map.mjs';
 import { madeHere, phoneChoices } from '../../shared/phone-snapshot.mjs';
 import { runOfClaim } from '../../shared/cloud-kit.mjs';
+import { isCarried } from '../../shared/cloud-carry.mjs';
 import { Name } from '../../shared/product-name.mjs';
 import { statusForReply } from './list-rules';
 import { cloudPlaces } from './cloud-files';
@@ -117,7 +118,8 @@ export function phoneView(rows: PhoneRows, now = Date.now()) {
   const queue = (id: string) => { if (!queued.includes(id)) queued.push(id); };
   const ordered = [...rows.commands].sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   for (const c of ordered) {
-    if (c.kind === 'setting' || c.project === null) continue;
+    // Her computer's own hand-over to the cloud is not something she sent.
+    if (c.kind === 'setting' || c.project === null || isCarried(c)) continue;
     const at = Date.parse(c.created_at) || now;
     const refused = c.outcome?.startsWith('refused') ? c.outcome.replace(/^refused:\s*/, '') : null;
     const takenAt = c.taken_at ? Date.parse(c.taken_at) || at : null;

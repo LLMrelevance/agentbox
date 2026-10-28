@@ -295,8 +295,9 @@ describe('D: an agent can never run in a practice project', () => {
     // — had none of them.
     expect(supervisorSrc).not.toMatch(/if \(product\.practice\) continue;/);
     // One definition and four uses. It was five until the drive loop was
-    // deleted (w-d19d6d387c, 2026-09-22), which had one of its own.
-    expect(supervisorSrc.match(/worksHere\(/g) ?? []).toHaveLength(5);
+    // deleted (w-d19d6d387c, 2026-09-22), which had one of its own. Five uses
+    // since a sleeping Mac hands repeating tasks to the cloud (`_repeatsAhead`).
+    expect(supervisorSrc.match(/worksHere\(/g) ?? []).toHaveLength(6);
     // And the refusal is before the plan is built, because a plan for a practice
     // project already carries a working directory that is not a repository.
     const spawn = supervisorSrc.slice(supervisorSrc.indexOf('  spawnWorker(item, {'));
