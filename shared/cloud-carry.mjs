@@ -17,6 +17,12 @@ export const SLEPT_GAP_MS = 2 * 60_000;
 // After a wake, this long passes before the Mac counts as awake on its own.
 // Dark wakes measured on a MacBook Air: 2 to 21 seconds.
 export const ASLEEP_SETTLE_MS = 60_000;
+// How far ahead a sleeping Mac hands over what comes due, each with its
+// moment, so it starts on time even if the Mac never wakes again.
+export const CARRY_AHEAD_MS = 12 * 3600_000;
+// A hand-over older than this is written again: the server looks back a day
+// (CLOUD_TAKES_UNTIL_MS), and one it no longer sees would wait for ever.
+export const CARRY_FRESH_MS = 12 * 3600_000;
 
 /**
  * Whether the computer is in one of a sleeping Mac's short wakes, where a run
@@ -36,14 +42,16 @@ export function macAsleep({ now = Date.now(), lastTickAt = 0, wokeAt = 0, idleMs
  * The command that hands one row to the cloud, or null. A row carrying a
  * reply goes as that reply, started from the thread's own kit; a row nobody
  * has run goes as Run now, started from its project's new-thread kit under
- * the row's own id.
+ * the row's own id. `notBefore` is the moment it may start; `repeat` names
+ * the repeating task a run not yet made belongs to ({ rule, key }).
  */
-export function carryCommand({ item, continuation = false, engine = null } = {}) {
+export function carryCommand({ item, continuation = false, engine = null, notBefore = null, repeat = null } = {}) {
   if (!item?.id || !item.product) return null;
   const base = { project: item.product, item: item.id };
+  const when = Number.isFinite(notBefore) ? { notBefore } : {};
   if (continuation) {
     if (typeof item.answer !== 'string' || !item.answer.trim()) return null;
-    return { ...base, kind: 'reply', payload: { carried: CARRIED, text: item.answer } };
+    return { ...base, kind: 'reply', payload: { carried: CARRIED, text: item.answer, ...when } };
   }
   const title = String(item.title ?? '').trim();
   if (!title) return null;
@@ -57,6 +65,11 @@ export function carryCommand({ item, continuation = false, engine = null } = {})
       ...(engine ? { engine } : {}),
       ...(item.model ? { model: item.model } : {}),
       ...(item.effort ? { effort: item.effort } : {}),
+      ...when,
+      ...(repeat ? { repeat } : {}),
     },
   };
 }
+
+/** The moment a command may start, or 0 for at once. */
+export const notBeforeOf = (cmd) => (Number.isFinite(Number(cmd?.payload?.notBefore)) ? Number(cmd.payload.notBefore) : 0);

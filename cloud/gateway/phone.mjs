@@ -35,7 +35,7 @@ import { isOurSlug } from '../../shared/product-name.mjs';
 import { codexApprovalCard, fileChangeCard, isMcpToolCall, elicitationServer, REMEMBERED_CHANGES } from '../../main/codex-approvals.mjs';
 import { yesTo, refusalTo } from '../../main/codex-app-server.mjs';
 import { sendWebAlert, webPushOf, TEST_ALERT } from '../../main/phone-alerts.mjs';
-import { isCarried } from '../../shared/cloud-carry.mjs';
+import { isCarried, notBeforeOf } from '../../shared/cloud-carry.mjs';
 import { WEB_ALERTS_KEY, WEB_ALERTS_TEST_KEY, webAlertsOn } from '../../shared/web-alerts.mjs';
 
 export const PHONE_TRIES = 3;
@@ -577,7 +577,8 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   const titleOf = (p) => String(p?.title ?? '').trim() || String(p?.body ?? '').trim().split('\n')[0].slice(0, 200);
   // What a new thread's kit cannot do as she asked, so her computer does it.
   function newThreadLeft(p, kit) {
-    if (p.start === 'later' || Number(p.runAt) > 0) return 'it is to start later';
+    // Later with no time is hers to start; one set for a time waits for it (`considerNew`).
+    if (p.start === 'later' && !(Number(p.runAt) > 0)) return 'it is to start later';
     if (p.engine && p.engine !== kit.engine) return 'it is for another coding agent';
     if (p.model && p.model !== (kit.newThread?.model ?? null)) return 'it asks for a model its kit does not run';
     if (p.effort && p.effort !== (kit.newThread?.effort ?? null)) return 'it asks for an effort its kit does not run';
@@ -691,6 +692,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
     if (tries && (tries.n >= PHONE_TRIES || now() - tries.at < TRY_AGAIN_MS)) return 'left';
     // A computer that is awake makes the thread within seconds.
     if (now() - Date.parse(cmd.created_at) < CLOUD_TAKES_AFTER_MS) return 'left';
+    if (Number(cmd.payload?.runAt) > now()) return 'left';
     const made = await startNewRun(person, cmd, itemId, tries);
     if (!made) return 'left';
     open.set(threadOf(made), made);
@@ -702,7 +704,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
   async function considerCarried(cmd, open) {
     const person = String(cmd.owner || '').toLowerCase();
     if (!PERSON.test(person) || typeof cmd.item !== 'string' || !/^[A-Za-z0-9._-]{1,120}$/.test(cmd.item)) return 'left';
-    if (open.has(threadOf({ owner: person, ...cmd }))) return 'left';
+    if (notBeforeOf(cmd) > now() || open.has(threadOf({ owner: person, ...cmd }))) return 'left';
     const tries = await readJson(tryKey(person, cmd.id));
     if (tries && (tries.n >= PHONE_TRIES || now() - tries.at < TRY_AGAIN_MS)) return 'left';
     const made = await startNewRun(person, cmd, cmd.item, tries, { carried: true });
@@ -718,6 +720,7 @@ export function createPhoneCarry({ db, runFiles, links, objects, start, input, s
     const person = String(cmd.owner || '').toLowerCase();
     const text = cmd.payload?.text;
     if (!PERSON.test(person) || typeof text !== 'string' || !text.trim() || !cmd.item) return 'left';
+    if (isCarried(cmd) && notBeforeOf(cmd) > now()) return 'left';
     const tries = await readJson(tryKey(person, cmd.id));
     if (tries && (tries.n >= PHONE_TRIES || now() - tries.at < TRY_AGAIN_MS)) return 'left';
     const rec = open.get(threadOf({ owner: person, ...cmd }));

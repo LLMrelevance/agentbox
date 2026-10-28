@@ -496,7 +496,8 @@ export function createPhoneInbox({
           }
         } else if (handed && adoptNew) {
           const p = handed.payload ?? {};
-          try { out = await adoptNew({ project, item, runId, title: String(p.title ?? ''), body: String(p.body ?? ''), command: handed.id, replies, carried: true, choices: p.engine ? { engine: p.engine } : {} }); } catch (err) {
+          const repeat = p.repeat && typeof p.repeat.rule === 'string' && typeof p.repeat.key === 'string' ? { repeat: { rule: p.repeat.rule, key: p.repeat.key } } : {};
+          try { out = await adoptNew({ project, item, runId, title: String(p.title ?? ''), body: String(p.body ?? ''), command: handed.id, replies, carried: true, choices: p.engine ? { engine: p.engine } : {}, ...repeat }); } catch (err) {
             out = 'failed';
             sayOnce(`adopt:${err?.message}`, `phone: could not join the cloud's run for ${item}: ${err?.message ?? err}`);
           }
@@ -544,8 +545,22 @@ export function createPhoneInbox({
   async function handOver() {
     if (!toCarry || !asleep()) return 0;
     let n = 0;
-    for (const c of await toCarry()) {
+    for (const { replaces, ...c } of await toCarry()) {
       still();
+      // An old hand-over is marked taken first, so the cloud never starts both.
+      if (replaces) {
+        try {
+          const claim = await backend.claimPhoneCommand(replaces, owner);
+          if (claim === 'cloud') continue;
+          // Already taken, maybe as a run the cloud did: let go rather than hand over twice.
+          if (claim === 'gone') { takenBack({ ...c, command: replaces }); continue; }
+          await backend.markPhoneCommand(replaces, 'done', owner);
+        } catch (err) {
+          if (err instanceof SignedOut) throw err;
+          sayOnce(`carry-old:${err?.message}`, `phone: could not take back an old hand-over of ${c.item}: ${err?.message ?? err}`);
+          continue;
+        }
+      }
       const id = crypto.randomUUID();
       handedOver({ ...c, command: id });
       try {
