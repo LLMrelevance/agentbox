@@ -29,6 +29,7 @@ import { spotIn, stepIn } from './one-thing-at-a-time';
 import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pick-settles';
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
+import { LogoOrbit } from './components/LogoOrbit';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
@@ -285,10 +286,11 @@ const NO_RUNNING: RunningSession[] = [];
 // patience does for the page (relay/phone/tunnel.mjs GAP_MS).
 const FIRST_READ_AGAIN_MS = 1_500;
 
-// THE SCREEN BEFORE THERE IS A SCREEN. The app's name in the faintest grey
-// there is, which is right for the half second it is usually up and reads as
-// an empty window for anything longer. It waits exactly as long as it ever
-// did; it stops being silent about it.
+// THE SCREEN BEFORE THERE IS A SCREEN. The logo, its orange dot running round
+// the ring (w-eb1e55360c). It was the app's name in the faintest grey, which
+// was right for the half second it is up on a desktop and read as an empty
+// window for the many seconds it is up on a phone. It waits exactly as long as
+// it ever did; it stops being silent about it.
 function Booting() {
   const [said, setSaid] = useState<string | null>(null);
   useEffect(() => {
@@ -296,12 +298,11 @@ function Booting() {
     const stuck = setTimeout(() => setSaid(RESTART_IT), RESTART_IT_MS);
     return () => { clearTimeout(slow); clearTimeout(stuck); };
   }, []);
-  // The sentence replaces the wordmark: the wordmark says the app is coming
-  // up, which the sentence contradicts, and together they put the name on the
-  // screen twice in two sizes.
+  // The sentence goes under the mark and the mark keeps moving. A load this
+  // long is ordinary on a phone, so the screen says so without looking dead.
   return said
-    ? <div className="boot boot-stuck"><p>{said}</p></div>
-    : <div className="boot"><span>{NAME}</span></div>;
+    ? <div className="boot boot-stuck"><LogoOrbit /><p>{said}</p></div>
+    : <div className="boot" role="status" aria-label={`${NAME} is loading`}><LogoOrbit /></div>;
 }
 
 /** What Tab reaches inside a walk screen that is holding its own focus. */
