@@ -1,4 +1,5 @@
 import { currentActivity } from './agent-activity.mjs';
+import { workerGitBrief, withWorkerGitBrief } from './worker-git.mjs';
 import { harnessFor, supportsHarnessOperation } from './harnesses.mjs';
 import { streamingText, countHelpers, saidNothingSheCanUse } from './harnesses/claude-stream.mjs';
 import { NO_METERED_KEY } from './harnesses/claude.mjs';
@@ -7790,6 +7791,7 @@ export class Supervisor {
     const review = continuation && harnessFor(engine).capabilities.nativeReview && providerCommand(item.answer, engine)?.name === 'review' ? providerCommand(item.answer, engine) : null;
     const command = continuation && harnessFor(engine).capabilities.nativeCommands ? commandPrompt(item.answer, this._nativeCommands?.[item.id]) : review ? item.answer.trim() : null;
     if (command) prompt = command;
+    else prompt = withWorkerGitBrief(prompt, product.repoPath);
     if (!command && resumeId) {
       // Native resumes can reuse an older system prompt, so refresh the task
       // boundaries in the new turn too, without depending on a newer CLI flag.
@@ -10535,7 +10537,7 @@ export class Supervisor {
     // to the briefs in Settings can use the same two tokens and follow a
     // rename too. Her saved copy keeps the tokens; only what a session reads
     // has the name in it.
-    return fillName(`${header}\n\n---\n\n${template}`);
+    return fillName(`${header}\n\n---\n\n${template}\n\n${workerGitBrief(product.repoPath)}`);
   }
 
   // What a spawned worker is allowed to do when the founder has not said.

@@ -9,7 +9,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { readDisplay, writeDisplay, filteredEmptyWords, type Display } from '../../../renderer/src/threads/page-rules';
 import { Name } from '../../../shared/product-name.mjs';
 import { InboxComposer } from '../ui/NewThreadForm';
-import { phoneBoard, shownTabs, TABS, type Row, type TabId } from '../lib/tabs';
+import { phoneBoard, shownTabs, type Row, type TabId } from '../lib/tabs';
+import { bottomTabs, type PlaceId } from '../lib/groups';
+import { useGroups } from '../state/groups';
+import { GroupsPlace } from '../ui/Groups';
 import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
 import { Magnifier, StateGlyph, ViewButton, ViewMenu } from '../ui/Filters';
@@ -91,15 +94,16 @@ function RepeatRows({ repeats, items, now }: { repeats: PhoneRepeat[]; items: an
   );
 }
 
-function Tabs({ on, counts, pick, foot }: { on: TabId; counts: Record<TabId, number>; pick: (t: TabId) => void; foot: number }) {
+function Tabs({ on, counts, pick, foot, groups }: { on: PlaceId; counts: Record<PlaceId, number>; pick: (t: PlaceId) => void; foot: number; groups: boolean }) {
   return (
     <View style={{ height: size.tabs + foot, paddingBottom: foot, borderTopWidth: 1, borderTopColor: color.line, flexDirection: 'row', alignItems: 'center' }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', paddingLeft: size.inset, paddingRight: 8, gap: 22 }}>
-        {TABS.map((t) => (
+      {/* Five tabs fit a 390pt iPhone only a size smaller and closer together. */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', paddingLeft: size.inset, paddingRight: 8, gap: groups ? 12 : 22 }}>
+        {bottomTabs(groups).map((t) => (
           <Pressable key={t.id} onPress={() => pick(t.id)} accessibilityRole="tab" accessibilityState={{ selected: on === t.id }}
             style={{ height: 32, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: on === t.id ? color.accent : 'transparent' }}>
-            <T style={{ fontSize: 15, lineHeight: 30, color: on === t.id ? color.text : color.dim }}>{t.label}</T>
-            {t.id !== 'done' && counts[t.id] > 0 && <T style={{ fontSize: 11, lineHeight: 30, fontFamily: font.medium, marginLeft: 13, color: color.faint }}>{counts[t.id]}</T>}
+            <T style={{ fontSize: groups ? 14 : 15, lineHeight: 30, color: on === t.id ? color.text : color.dim }}>{t.label}</T>
+            {t.id !== 'done' && counts[t.id] > 0 && <T style={{ fontSize: 11, lineHeight: 30, fontFamily: font.medium, marginLeft: groups ? 5 : 13, color: color.faint }}>{counts[t.id]}</T>}
           </Pressable>
         ))}
       </ScrollView>
@@ -208,7 +212,11 @@ export default function Threads() {
     router.push('/ai-notice');
   }, [c.signedIn, c.noticeRead, c.notice, c.preview]);
   const inset = useSafeAreaInsets();
-  const [tab, setTab] = useState<TabId>('inbox');
+  const groups = useGroups();
+  const [place, setPlace] = useState<PlaceId>('inbox');
+  // Groups switched off on the computer while open: back to the threads.
+  const onGroups = place === 'groups' && groups.on;
+  const tab: TabId = place === 'groups' ? 'inbox' : place;
   const [pulling, setPulling] = useState(false);
   const [menu, setMenu] = useState(false);
   // Remembered between launches, as the site keeps it in the page's storage.
@@ -221,7 +229,7 @@ export default function Threads() {
   if (!c.signedIn) return <Redirect href="/sign-in" />;
   const rows = shown.rows[tab];
   // Later counts its repeating tasks too, as the desktop's does (App.tsx `scheduledCount`).
-  const counts = { inbox: shown.rows.inbox.length, progress: shown.rows.progress.length, snoozed: shown.rows.snoozed.length + c.repeats.length, done: shown.rows.done.length };
+  const counts = { inbox: shown.rows.inbox.length, progress: shown.rows.progress.length, snoozed: shown.rows.snoozed.length + c.repeats.length, done: shown.rows.done.length, groups: groups.unread };
   const repeatsShown = tab === 'snoozed' && c.repeats.length > 0;
   const hidden = shown.whole[tab] - rows.length;
   const foot = footRoom(inset);
@@ -235,6 +243,14 @@ export default function Threads() {
       <Wall>
         <TopBar title="Threads" right={<IconButton label="Settings" onPress={() => router.push('/settings')}><Gear /></IconButton>} />
         <ConnectComputer email={c.connect.email} signOut={c.signOut} />
+      </Wall>
+    );
+  }
+  if (onGroups) {
+    return (
+      <Wall>
+        <GroupsPlace />
+        <Tabs on="groups" counts={counts} pick={setPlace} foot={foot} groups />
       </Wall>
     );
   }
@@ -274,7 +290,7 @@ export default function Threads() {
         })}>
         <Pen />
       </Pressable>}
-      {!board && <Tabs on={tab} counts={counts} pick={setTab} foot={foot} />}
+      {!board && <Tabs on={tab} counts={counts} pick={setPlace} foot={foot} groups={groups.on} />}
       {menu && <ViewMenu display={display} onDisplay={setDisplay} products={c.view.products} items={c.view.items} shown={rows.length} total={shown.whole[tab]} tab={tab} close={() => setMenu(false)} />}
     </Wall>
   );
