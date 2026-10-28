@@ -357,6 +357,7 @@ export function createPhoneInbox({
     still();
     const waiting = (await backend.waitingPhoneCommands(device)).sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
     let taken = 0;
+    const newCommands = [];
     let changedSettings = false;
     for (const cmd of waiting) {
       still();
@@ -414,13 +415,17 @@ export function createPhoneInbox({
         for (const [k, v] of Object.entries(state.made)) if (!(now() - (v?.at ?? 0) < MADE_KEPT_MS)) delete state.made[k];
         save();
       }
+      if (cmd.kind === 'new' && outcome === 'done' && state.made[madeHere(cmd.id)]?.id) {
+        newCommands.push({ id: cmd.id, project: cmd.project, item: state.made[madeHere(cmd.id)].id });
+        continue;
+      }
       still();
       await backend.markPhoneCommand(cmd.id, outcome, owner);
       delete state.done[cmd.id];
       save();
       taken += 1;
     }
-    return { taken, changedSettings };
+    return { taken, changedSettings, newCommands };
   }
 
   // RUNS THE CLOUD STARTED WHILE THIS COMPUTER WAS SHUT, made the threads'
@@ -526,13 +531,24 @@ export function createPhoneInbox({
     arrivals: (list, needsYou) => alerts?.arrived(list, needsYou),
     async syncOnce() {
       try {
-        const { taken, changedSettings } = await takeCommands();
+        const commands = await takeCommands();
+        let { taken } = commands;
+        const { changedSettings, newCommands } = commands;
         let adopted = 0;
         try { adopted = await adoptCloudRuns(); } catch (err) {
           if (err instanceof SignedOut) throw err;
           sayOnce(`read:${err?.message}`, `phone: could not read what the cloud took: ${err?.message ?? err}`);
         }
         const sent = await publish();
+        // Removing the phone's waiting copy must follow a successful upload.
+        for (const cmd of newCommands) {
+          if (!state.sent[`${cmd.project}:${cmd.item}`]) continue;
+          still();
+          await backend.markPhoneCommand(cmd.id, 'done', owner);
+          delete state.done[cmd.id];
+          save();
+          taken += 1;
+        }
         await publishSettings(changedSettings);
         if (alerts) {
           if (taken) alerts.phoneUsed();
