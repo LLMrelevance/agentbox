@@ -9190,7 +9190,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
    whatever is painted on them. It wins because the view is the last thing on the page. */
 .picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
   background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out;
-  -webkit-app-region: no-drag; }
+  -webkit-app-region: no-drag; touch-action: none; }
+/* Fingers belong to the view (PictureView.tsx fingerDown); only the strip of pictures scrolls. */
+.pv-strip { touch-action: pan-x; }
+.pv-chrome button, .pv-tools button { touch-action: manipulation; }
 @keyframes pv-in { from { opacity: 0; } }
 .pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
 .pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;
