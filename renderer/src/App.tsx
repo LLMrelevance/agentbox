@@ -74,7 +74,7 @@ import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
   type SentDraft, type ComposeDraft,
 } from './drafts';
-import { approvalStage } from './approval-stage';
+import { approvalStage, approvalClickAllowed } from './approval-stage';
 import { roomForTheCard } from './room-for-the-card';
 import { approvalAnswered, approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
@@ -692,6 +692,8 @@ export default function App() {
   const [signInSkipped, setSignInSkipped] = useState(() => localStorage.getItem(SIGN_IN_SKIPPED) === '1');
   const signInAsked = signInAsk({ team: snap?.team, fixtures: api.isFixtures, skipped: signInSkipped, canSkip: !onCloudPhone() });
   const signInGate = signInAsked.page;
+  const phoneWasSigningIn = useRef(signInGate);
+  const [phoneSignInSettling, setPhoneSignInSettling] = useState(onPhone);
   // AND THE FIRST-RUN WALK WAITS FOR SOMEBODY TO BE SIGNED IN (2026-10-04).
   // It used to run underneath the sign-in page, invisible but live: on its
   // guided steps it holds every press not on what it points at, so Continue
@@ -934,6 +936,12 @@ export default function App() {
   // leave. Cmd+Y is caught in the main process, so this is the renderer's only
   // evidence the press landed at all.
   const [answered, setAnswered] = useState<{ id: string; allow: boolean } | null>(null);
+  const approvalPress = useRef<string | null>(null);
+  const clickCard = (id: string, allow: boolean, detail: number) => {
+    const fresh = approvalClickAllowed(onPhone(), detail, approvalPress.current, `${id}:${allow}`);
+    approvalPress.current = null;
+    if (fresh) void answerCard(id, allow);
+  };
   // An answer that did not go (the phone's database, a card that moved) puts the card back and says why.
   const answerCard = async (id: string, allow: boolean) => {
     setAnswered({ id, allow });
@@ -3872,7 +3880,7 @@ export default function App() {
 
   // Whether a reply from inside this thread moves her on to the next (./advance).
   const movesOn = useCallback((item: WorkItem) => replyMovesOn({
-    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), searching: search !== null,
+    view, onBoard, index: shownInbox.findIndex((i) => i.id === item.id), searching: search !== null, phone: onPhone(),
   }), [view, onBoard, shownInbox, search]);
 
   // Every resolving action goes through here: the UI advances instantly, the
@@ -6044,6 +6052,21 @@ export default function App() {
     if (!focused && pickSeen.current) dropLesson('pick');
   });
 
+  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };
+  useEffect(() => {
+    if (!onPhone()) return;
+    if (signInGate) {
+      phoneWasSigningIn.current = true;
+      setPhoneSignInSettling(true);
+      return;
+    }
+    if (phoneWasSigningIn.current) openView('inbox');
+    phoneWasSigningIn.current = false;
+    // Keep pending approvals out of the sign-in transition.
+    const timer = setTimeout(() => setPhoneSignInSettling(false), 800);
+    return () => clearTimeout(timer);
+  }, [signInGate]);
+
   // THE SAME SCREEN, held for the beat it takes ⌘R to put her back where she
   // was, so the reload never shows her the inbox on its way to the task. Its
   // own line above the boot check rather than another clause inside it: on a
@@ -6237,7 +6260,6 @@ export default function App() {
           : <PersonThreads cards={evCards} name={evMember.name.split(' ')[0]} now={now} onOpen={openTeammateCard} />)
       : <p className="ev-empty">No messages with {evMember.name.split(' ')[0]} yet.
         <button type="button" className="rm-btn" onClick={() => { setComposeInitial({ to: evMember.key.slice(evMember.key.indexOf(':') + 1) }); setModal('compose'); }}>Message {evMember.name.split(' ')[0]}</button></p>;
-  const openView = (next: View) => { roomsUi.leave(); teammatesUi.leave(); setTeamOpen(false); setSettingsOpen(false); setSettingsPane(null); closeSearch(); setView(next); setFocused(null); setFocusedRepeat(null); setSelected(0); setMultiSel(new Set()); setEvPick(null); };
   // BACK LANDS ON THE TAB THE BAR NAMED (w-474ac45a33). The thread may have
   // moved tabs while it was open, and closing it onto the tab it has left is
   // how Esc landed on "Nothing is running." The cursor follows by id, the same
@@ -6253,7 +6275,7 @@ export default function App() {
   // approval card stands in the corner the toast stands in and under it, so the
   // toast covered Allow and Deny. Read off the same stage the card is drawn
   // from below, so the class and the card cannot disagree about what is asked.
-  const stage = approvalStage(snap?.approvals, answered, frontApproval.current);
+  const stage = approvalStage(snap?.approvals, answered, frontApproval.current, signInGate || phoneSignInSettling);
   const cardOnScreen = !!stage.card;
 
   return (
@@ -7932,8 +7954,8 @@ export default function App() {
                   {/* The acknowledgement starts on the press, not on the round
                       trip: main answers the file and echoes the same verdict
                       back, so the click and the chord land on one behaviour. */}
-                  <button className="approval-allow" onClick={() => void answerCard(a.id, true)}>Allow</button>
-                  <button className="approval-deny" onClick={() => void answerCard(a.id, false)}>Deny</button>
+                  <button className="approval-allow" onPointerDown={() => { approvalPress.current = `${a.id}:true`; }} onPointerCancel={() => { approvalPress.current = null; }} onClick={(e) => clickCard(a.id, true, e.detail)}>Allow</button>
+                  <button className="approval-deny" onPointerDown={() => { approvalPress.current = `${a.id}:false`; }} onPointerCancel={() => { approvalPress.current = null; }} onClick={(e) => clickCard(a.id, false, e.detail)}>Deny</button>
                   <span className="approval-hint">{chord('⌘Y')} / {chord('⌘N')} · {a.tool}</span>
                 </div>
               </div>
