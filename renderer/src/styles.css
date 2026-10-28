@@ -181,6 +181,11 @@
      accent is always this orange. The selected-row bar, link underlines and
      the asks-you chip wear it, as they do in Dark. */
   --accent: #ee6018;
+  /* THE LOGO'S OWN TWO COLOURS, for the waiting logo (.logo-orbit): the app
+     icon's grey dots and its orange one. They do NOT follow the theme, because
+     the logo is the same mark on every theme. */
+  --logo-dot: #5f5e5c;
+  --logo-orange: #ee6018;
   /* THE READING SURFACE IN THE SETUP PICTURE, and the only place in the app
      that paints paper rather than a theme surface. The values are the landing
      page's own (~/dd-landing/index.html), because the article Agentbox offers you
@@ -501,6 +506,9 @@
      wore before that, so anything painting dark without the picture got it.
      tests/every-theme-wears-the-one-orange.test.mjs reads every declaration. */
   --accent: #ee6018;
+  /* The logo's own two colours, the same as light's: the logo does not theme. */
+  --logo-dot: #5f5e5c;
+  --logo-orange: #ee6018;
   /* THE READING SURFACE IN THE SETUP PICTURE, and the only place in the app
      that paints paper rather than a theme surface. The values are the landing
      page's own (~/dd-landing/index.html), because the article Agentbox offers you
@@ -855,11 +863,11 @@ body {
 }
 .logo-orbit-dot {
   position: relative; width: 24px; height: 24px; border-radius: 50%;
-  background: #5f5e5c;
+  background: var(--logo-dot);
 }
 .logo-orbit-dot::after {
   content: ''; position: absolute; inset: 0; border-radius: 50%;
-  background: #ee6018; opacity: 0;
+  background: var(--logo-orange); opacity: 0;
   animation: logo-orbit 1488ms linear infinite;
   animation-delay: var(--orbit-delay, 0ms);
 }
