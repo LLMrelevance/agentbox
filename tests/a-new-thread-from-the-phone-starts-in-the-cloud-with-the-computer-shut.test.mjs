@@ -392,6 +392,35 @@ describe('the supervisor and a new thread', () => {
     expect(writers()).toHaveLength(1);
   });
 
+  it.each(['claude', 'codex'])('prepares and adopts a new %s thread in a project without a repository', async (engine) => {
+    sup._cloudReady = (which = 'claude') => which === engine;
+    if (engine === 'codex') {
+      sup.codexThreadParamsFor = (_plan, cwd) => ({ cwd });
+      sup.codexTurnParamsFor = () => ({ effort: 'high' });
+    }
+    const products = store.listProducts.bind(store);
+    store.listProducts = () => products().map((p) => ({ ...p, repoPath: null }));
+    const docs = store.listProducts()[0].dir;
+    await sup._leaveNewThreadKit('team');
+    expect(writers()).toHaveLength(1);
+    const { opts } = writers()[0];
+    expect(opts.cwd).toBe(docs);
+    expect(opts.env.AGENTBOX_CLOUD_MARKER).toBeTruthy();
+    expect(JSON.parse(fs.readFileSync(opts.env.AGENTBOX_KIT_NEW, 'utf8')).cwd).toBe(docs);
+    const template = projectKit(Date.now(), {
+      project: 'team', engine, plain: true, cwd: docs, branch: undefined, startSha: null, bundleKey: null,
+      marker: { plain: true, engine, docs },
+      newThread: { ...projectKit().newThread, mainSha: null },
+    });
+    sup._newThreadCopyFor = () => template;
+    sup._makeTaskFolder = () => { throw new Error('a documents project needs no task folder'); };
+    const out = await sup.adoptCloudNewThread({ product: 'team', itemId: 'w-0123456789', runId: 'plain-run', title: 'Write a plan', command: 'phone-1' });
+    expect(out).toBe('adopted');
+    expect(homecomings).toEqual([{ folder: docs, file: sup._plainMarker('team', 'w-0123456789') }]);
+    expect(readMarker(homecomings[0])).toMatchObject({ runId: 'plain-run', plain: true });
+    expect(sup._liveSessions['w-0123456789'].cwd).toBe(docs);
+  });
+
   it('none for a project not on her phone, or a computer not on the managed cloud', async () => {
     await sup._leaveNewThreadKit('other');
     sup._cloudConfig = { bucket: 'her-own-aws' };

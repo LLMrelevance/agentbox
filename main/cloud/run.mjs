@@ -964,6 +964,7 @@ export async function cloudRun({
   const carried = await Promise.all(also.map(async (l) => ({ engine: l.engine, id: l.id, url: await storage.getUrl(l.key, LOGIN_LINK_SECONDS) })));
   const started = await retry(() => transport.invoke(sessionId, {
     action: 'start', runId, cwd, branch, bundleUrl,
+    ...(env.AGENTBOX_PHONE_DEVICE ? { phone: { device: env.AGENTBOX_PHONE_DEVICE, project: env.ZERO_PRODUCT, item: env.ZERO_ITEM } } : {}),
     ...(plain ? { plain: true } : {}),
     ...(base ? { base, refs: pack.refs } : {}),
     argv: [remoteCommand, ...(remoteCommand === 'claude' ? argvForTheCloud(argv, { plain }) : argv)], env: remoteEnv, files: withoutKeys(files),
