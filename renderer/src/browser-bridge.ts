@@ -17,10 +17,10 @@
 // on its very first line.
 
 import { REQUEST_CHANNELS, PUSH_CHANNELS, WRAPPED_ARGS, DESKTOP_ONLY } from '../../shared/bridge-map.mjs';
-import { Name } from '../../shared/product-name.mjs';
+import { NAME, Name } from '../../shared/product-name.mjs';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
 import { installPhoneFiles } from './phone-files';
-import { installPhoneScreen } from './phone-screen';
+import { installPhoneScreen, pagePinched } from './phone-screen';
 import { atMostEvery, PHONE_PUSH_MS } from './phone-polls';
 
 type Push = (payload: unknown) => void;
@@ -59,6 +59,32 @@ function deviceId(): string {
   } catch {
     return 'private-tab';
   }
+}
+
+// THE DOOR IS HERE AND THE ADDRESS HAS NO KEY ON IT. api.ts falls back to the
+// canned fixtures whenever there is no bridge, and on a page this computer
+// served that read as somebody else's inbox: invented products, invented
+// threads, nothing saying so (w-5aa14b9a8a). The mark main/serve.mjs puts in
+// the html is how this page knows it came from the door rather than from a
+// build somebody is previewing, which is the one case the fixtures are for.
+let needsItsKey = false;
+export const theDoorNeedsItsKey = () => needsItsKey;
+
+const servedByThisComputer = () =>
+  typeof document !== 'undefined' && !!document.querySelector?.('meta[name="agentbox-door"]');
+
+/** No key anywhere: say what the link is missing and where the one with it is. */
+function askForTheKey() {
+  needsItsKey = true;
+  if (typeof document === 'undefined' || document.getElementById('needs-its-key')) return;
+  const box = document.createElement('div');
+  box.id = 'needs-its-key';
+  box.setAttribute('role', 'alert');
+  box.innerHTML = onPhoneDoor()
+    ? `<div><strong>This phone has no key yet.</strong><p>Open ${NAME} on the computer, go to Settings, then Phone, and scan the code there. The key is what connects this phone to your own inbox.</p></div>`
+    : `<div><strong>This link needs its key.</strong><p>${Name} is running on this computer, but this address has no key on it, so the tab cannot reach your inbox. Open the link the terminal printed when you started it, the one ending in <code>?token=</code> and a long word. A new key is made each time ${NAME} starts, so a bookmark of this address will not carry one.</p></div>`;
+  const put = () => document.body?.appendChild(box);
+  if (document.body) put(); else document.addEventListener?.('DOMContentLoaded', put);
 }
 
 /** The key was reset on the computer: say so, rather than leave a dead inbox. */
@@ -101,7 +127,10 @@ export function installBrowserBridge(): boolean {
   // A desktop window already has the real bridge and must keep it.
   if (typeof window === 'undefined' || (window as any).zero) return false;
   const token = takeToken();
-  if (!token) return false;
+  if (!token) {
+    if (servedByThisComputer()) askForTheKey();
+    return false;
+  }
 
   const device = deviceId();
   const phone = onPhoneDoor();
@@ -113,7 +142,7 @@ export function installBrowserBridge(): boolean {
     document.documentElement.dataset.door = 'phone';
     // After a turn sideways and back, iOS can leave the page scrolled by the
     // status bar's height (phone.css says why). Put it back once it settles.
-    const unscroll = () => requestAnimationFrame(() => { if (scrollX || scrollY) scrollTo(0, 0); });
+    const unscroll = () => requestAnimationFrame(() => { if ((scrollX || scrollY) && !pagePinched()) scrollTo(0, 0); });
     addEventListener('orientationchange', () => { unscroll(); setTimeout(unscroll, 350); });
     addEventListener('resize', unscroll);
     visualViewport?.addEventListener('resize', unscroll);

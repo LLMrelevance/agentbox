@@ -77,3 +77,27 @@ export function zoomBy(zoom: number, factor: number): number {
 export function stepTo(index: number, count: number, by: number): number {
   return Math.max(0, Math.min(count - 1, index + by));
 }
+
+type Point = { x: number; y: number };
+
+/**
+ * The zoom and pan two fingers ask for. The point that was under the fingers
+ * when the pinch began stays under them as they spread and move together.
+ * Points are offsets from the middle of the stage.
+ */
+export function pinchTo(start: { distance: number; zoom: number; pan: Point; mid: Point }, distance: number, mid: Point) {
+  const zoom = start.distance > 0 ? zoomBy(start.zoom, distance / start.distance) : start.zoom;
+  const kept = panToKeep(start.mid, start.pan, start.zoom, zoom);
+  return { zoom, pan: { x: kept.x + mid.x - start.mid.x, y: kept.y + mid.y - start.mid.y } };
+}
+
+/** A finger dragged sideways across a fitted picture: 1 for the next one, -1 for the one before, 0 for neither. */
+export function swipeStep(dx: number, dy: number): number {
+  if (Math.abs(dx) < 50 || Math.abs(dy) > Math.abs(dx) * 0.6) return 0;
+  return dx < 0 ? 1 : -1;
+}
+
+/** Is this tap the second of a double tap? */
+export function isDoubleTap(last: { t: number; x: number; y: number } | null, now: { t: number; x: number; y: number }): boolean {
+  return !!last && now.t - last.t < 300 && Math.hypot(now.x - last.x, now.y - last.y) < 40;
+}
