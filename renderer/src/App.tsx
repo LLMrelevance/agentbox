@@ -5983,7 +5983,7 @@ export default function App() {
   // THE FIRST RUN ENDS IN THE INBOX, on the task just sent when there is one,
   // with two lessons left to give there.
   const [landOn, setLandOn] = useState<string | null>(null);
-  const finishFresh = useCallback((sent: string | null, runAt = 0) => {
+  const finishFresh = useCallback((sent: string | null, runAt = 0, draft?: string) => {
     const to = firstRunLanding(sent, runAt);
     finishFirstRun(localStorage);
     setLessons(localStorage, ['open', 'pick']);
@@ -5993,6 +5993,10 @@ export default function App() {
     setFocused(null);
     setSelected(0);
     setLandOn(to.select);
+    if (draft?.trim()) {
+      setComposeInitial({ body: draft });
+      setModal('compose');
+    }
   }, []);
   // Its row arrives with a snapshot or two after the send.
   const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
