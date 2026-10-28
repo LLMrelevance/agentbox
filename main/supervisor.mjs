@@ -296,6 +296,9 @@ const CLOUD_REST_MS = 10 * 60_000;
 // a spawn cooldown and short enough that a row can never be quietly parked for
 // an afternoon by an urgent row that turned out to be unspawnable.
 const PREEMPTION_HOLD_MS = 15 * 60_000;
+// How long the row the ten-minute rule let through keeps that pass for its
+// launch: long enough to make its folder, too short to pass a second time.
+const OVERDUE_PASS_MS = 2 * 60_000;
 
 // HOW LONG FRESH WORK RESTS AFTER A RUN THAT MOVED NOTHING.
 //
@@ -1471,8 +1474,9 @@ export class Supervisor {
   // ONE ENGINE'S SLOT. Killing a Claude session frees a Claude slot, which is
   // no use whatsoever to an urgent Codex row: the row would still not fit, and
   // she would have lost a running worker for nothing. So the candidate list is
-  // scoped to the engine the urgent row is going to spawn on, and a full fleet
-  // on the OTHER engine is simply not this row's problem.
+  // scoped to the engine the urgent row is going to spawn on, unless that
+  // engine still has room and only the computer's shared total is full
+  // (`_takeSlotFor`).
   //
   // A ROW SHE PUSHED WITH "RUN NOW" TAKES A SLOT TOO, by the same door and with
   // the same promise that what it pauses comes back as itself. Two things are
@@ -1518,12 +1522,20 @@ export class Supervisor {
     // lease somebody else still holds, which would refuse this worker the
     // claim whatever we killed to make room for it.
     if (this.claimHeldElsewhere(item)) return null;
+    // THE COMPUTER'S NUMBER IS SHARED BY BOTH ENGINES NOW (`_capacity`), so a
+    // row whose own engine still has room is held only by the shared total,
+    // and a session on either engine frees that. With its own engine full, only
+    // one of its own frees anything (Codex's review, w-9c7ca4b8a9).
+    const onlyTotalFull = this._loadFor(engine) < this._capacityFor(engine) && this._load() >= this._capacity();
     const candidates = [];
     for (const session of this.sessions.values()) {
       const id = session.itemId;
       if (!id || id === item.id) continue;
+      // A command she typed and a remote session left idle hold no slot
+      // (`_loadFor`), so stopping one makes no room at all.
+      if (session.command || session.remoteIdle) continue;
       // A session on the other engine is holding a slot this row cannot use.
-      if (engineOf(session.engine) !== engineOf(engine)) continue;
+      if (engineOf(session.engine) !== engineOf(engine) && !onlyTotalFull) continue;
       // Already interrupted for someone else. Taking it twice would be taking
       // a session that is not running.
       if (this._preempted.has(id)) continue;
@@ -1554,6 +1566,9 @@ export class Supervisor {
       at: Date.now(),
       forItem: item.id,
       forProduct: item.product,
+      // Only a session that was running on this Mac gives back this Mac's
+      // memory, so only that one makes the start a swap (main/start-hold.mjs).
+      local: this._startsOnThisMac(taken.session),
     });
     // The row we just interrupted is now a stranded session, which is the wake
     // sweep's business. Arming it here is what carries the second half of the
@@ -5949,7 +5964,7 @@ export class Supervisor {
   // here would: a slot, and this Mac's memory. A reply still runs here.
   _mayRunHereInstead({ item, engine, pinnedFull = false, continuation = false, heldForMemory = false }) {
     if (pinnedFull) return false;
-    if (continuation) return true;
+    if (continuation) return this._memoryLetsLaunch(item, { continuation });
     return this._localSlotFor(engine) && !heldForMemory && this._memoryLetsStart(item);
   }
 
@@ -5983,7 +5998,7 @@ export class Supervisor {
    */
   _memoryLetsStart(item, { asked = false } = {}) {
     const now = Date.now();
-    const swap = !!item && [...this._preempted.values()].some((p) => p.forItem === item.id);
+    const swap = !!item && [...this._preempted.values()].some((p) => p.forItem === item.id && p.local !== false);
     const d = startDecision({
       on: !!this.config.memoryGate,
       reading: this._memReading,
@@ -6000,13 +6015,38 @@ export class Supervisor {
       if (d.why === 'off' || d.why === 'normal' || d.why === 'no-reading') this._memHeldSince = null;
       // The one let through after ten minutes restarts the wait from now, even
       // if its spawn takes a while to register a session.
-      if (d.why === 'overdue') this._lastStartAt = now;
+      if (d.why === 'overdue') {
+        this._lastStartAt = now;
+        // Remembered for its launch, which asks again (`_memoryLetsLaunch`)
+        // and would otherwise be held by the very clock this just restarted.
+        if (item?.id) {
+          this._letThroughOverdue ??= new Map();
+          for (const [id, at] of this._letThroughOverdue) if (now - at > OVERDUE_PASS_MS) this._letThroughOverdue.delete(id);
+          this._letThroughOverdue.set(item.id, now);
+        }
+      }
     } else {
       this._memHeldSince ??= now;
       this._memHeldAt = now;
       this._memHeldWhy = d.why;
     }
     return d.start;
+  }
+
+  /**
+   * EVERY START ON THIS MAC ASKS MEMORY AT THE DOOR (Codex's review,
+   * w-9c7ca4b8a9). The queue asks when it picks a row, but a row's folder can
+   * take a while to make, and a reply never asked at all: her answer outranks
+   * the number of agents, and it went past memory with it. So the launch asks
+   * once more, where it is decided. A reply counts as a row she asked for by
+   * name: it starts while memory is tight and waits only while it is very
+   * short, the rule urgent work already has.
+   */
+  _memoryLetsLaunch(item, { continuation = false } = {}) {
+    if (!this.config.memoryGate) return true;
+    const passed = this._letThroughOverdue?.get(item?.id);
+    if (passed !== undefined && Date.now() - passed <= OVERDUE_PASS_MS) return true;
+    return this._memoryLetsStart(item, { asked: continuation });
   }
 
   /** What the Running page says about the hold: whether a start was held in
@@ -9556,6 +9596,13 @@ export class Supervisor {
         if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
         return;
       }
+    }
+    // AND MEMORY, ASKED WHERE THIS MAC IS DECIDED (`_memoryLetsLaunch`). A
+    // command she typed is over in seconds and never waits. A row held here
+    // goes back to the queue, which sends it to the cloud if it can.
+    if (where === 'local' && !plan.command && !this._memoryLetsLaunch(item, { continuation })) {
+      if (continuation && item.answer) this.redeliverAnswer(item, item.answer);
+      return;
     }
     // ONE RUN, ONE PAIR OF FILES. The MCP config and the settings used to be a
     // fixed name each in the temp folder, fine while every spawn wrote the
