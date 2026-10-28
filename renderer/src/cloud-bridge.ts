@@ -33,7 +33,7 @@ import { phoneSender } from './phone-send';
 import { setIconCount, startPhoneAlerts } from './phone-alerts';
 import { cloudAlertsVia } from './cloud-alerts';
 import { computerOf, type Change, type SettingsRow } from './phone-settings-view';
-import { webSettingChange, webSettingsModel } from './web-settings';
+import { computerAgents, webEngines, webSettingChange, webSettingsModel } from './web-settings';
 
 export {
   NOT_HERE, UNDONE, approvalCommand, closeToTakeBack, commandFor, macSeenOf, phoneHistory, phoneSlug, phoneStatusLine,
@@ -95,6 +95,8 @@ export function sendPhoneFeedback(cfg: CloudConfig, { text, files }: { text: str
   return sendFeedback({ url: feedbackAddressOn(cfg), payload: feedbackPayload({ text, files, app: { version: '', os: 'phone website' } }), fetchImpl });
 }
 
+// How often the computer's settings copy is read for the agents To offers.
+const AGENTS_EVERY_MS = 5 * 60_000;
 const SUPERVISOR = { paused: false, pausedProducts: [], running: [], stalled: [], queued: [], scheduled: [], productOrder: [], hiddenProducts: [], personalProducts: [], capacity: 0 };
 const EMPTY_ROWS: PhoneRows = { projects: [], threads: [], commands: [] };
 
@@ -248,6 +250,22 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
     } catch (err) { return failedSettings(String((err as Error)?.message ?? err)); }
     return webSettingsModel(settingsRows, settingCommands, sentSettings);
   }
+  // THE AGENTS To OFFERS come off the same copy (w-24119e8784), so it is read
+  // once she is signed in, not only while Settings is open, and again every few
+  // minutes; the card is told when what it offers changed.
+  let agentsReadAt = -Infinity;
+  let agentsKey = JSON.stringify(computerAgents(null));
+  const readAgents = () => {
+    if (!client.signedIn() || Date.now() - agentsReadAt < AGENTS_EVERY_MS) return;
+    agentsReadAt = Date.now();
+    void readWebSettings().then(() => {
+      const key = JSON.stringify(computerAgents(computerOf(settingsRows)));
+      if (key === agentsKey) return;
+      agentsKey = key;
+      window.dispatchEvent(new Event('agent-models-changed'));
+      changed(null);
+    });
+  };
   async function changeSetting(change: Change) {
     const out = webSettingChange(computerOf(settingsRows), change);
     if (!out.ok) return failedSettings(out.error);
@@ -281,13 +299,17 @@ export function installCloudBridge(cfg: CloudConfig | null = typeof document ===
       await boot;
       const view = phoneView(rows);
       aliases = view.aliases;
+      readAgents();
       return {
         products: view.products, items: view.items, phoneWaiting: view.waiting,
         phoneStatus: client.signedIn() ? phoneStatusLine({ error, fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) }) : null,
         phoneConnect: phoneConnectState({ signedIn: client.signedIn(), started, error, projects: rows.projects, email: client.session()?.user.email }),
         phoneAccount: client.signedIn() ? { email: client.session()?.user.email ?? null, seenAt: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects), build } : null,
-        team: team(), agents: [], approvals: view.approvals, supervisor: { ...SUPERVISOR, running: view.running, queued: view.queued, productOrder: view.products.map((p) => p.slug) },
-        engines: null, runsOn: null, restartNeeded: null, cloud: null,
+        team: team(), agents: [], approvals: view.approvals,
+        // What the computer says of each thread it has not started (w-24119e8784), so waiting reads Queued, not Nothing running.
+        supervisor: { ...SUPERVISOR, running: view.running, queued: view.queued, runNow: view.runNow, signInNeeded: view.signInNeeded, atLimit: view.atLimit, stalled: view.stalled, shipping: view.shipping, paused: view.paused, productOrder: view.products.map((p) => p.slug) },
+        // The coding agents the computer offers, from its settings copy, so To offers Codex there too.
+        engines: webEngines(computerOf(settingsRows)), runsOn: null, restartNeeded: null, cloud: null,
         config: { browserHome: '', browserPins: [], outsideAgents: 'off' },
       };
     },

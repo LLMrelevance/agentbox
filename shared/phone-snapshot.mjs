@@ -217,6 +217,26 @@ export function threadsWorthCarrying(items, { now = Date.now(), limits = SNAPSHO
     .slice(0, limits.items);
 }
 
+// WHY A THREAD NOTHING IS RUNNING ON IS WAITING, as the Mac's own status says
+// it (Supervisor#status), for the copy it sends up (w-24119e8784). Without it
+// the phone read every thread waiting its turn as "Nothing running". The order
+// is the desktop's: a dead worker first, then a ship owed, then a tool that
+// cannot start anything, then the queue. `paused` is the whole fleet's, and the
+// publisher lays it on each open thread with no other reason.
+export const WAIT_STATES = ['queued', 'next', 'signin', 'limit', 'paused', 'stalled', 'shipping'];
+export function phoneWaitsOf(status) {
+  const byId = {};
+  if (!status) return { byId, paused: false };
+  const set = (id, wait) => { if (typeof id === 'string' && id && !byId[id]) byId[id] = wait; };
+  for (const id of status.stalled ?? []) set(id, { state: 'stalled' });
+  for (const id of status.shipping ?? []) set(id, { state: 'shipping' });
+  for (const [id, tool] of Object.entries(status.signInNeeded ?? {})) set(id, { state: 'signin', tool: String(tool) });
+  for (const [id, l] of Object.entries(status.atLimit ?? {})) set(id, { state: 'limit', tool: String(l?.tool ?? ''), until: Number(l?.until) || 0 });
+  const next = new Set(status.runNow ?? []);
+  for (const id of status.queued ?? []) set(id, { state: next.has(id) ? 'next' : 'queued' });
+  return { byId, paused: !!status.paused };
+}
+
 // A cheap, stable fingerprint, so a thread that did not change is not sent.
 export function snapshotKey(snapshot) {
   const text = JSON.stringify(snapshot);

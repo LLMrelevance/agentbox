@@ -3,14 +3,17 @@
 // row each for where it goes, the model, the project and the priority, the
 // message under them, and attaching a file or picture at the foot.
 import { Redirect, router } from 'expo-router';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { modelLabelOf } from '../../../renderer/src/models';
+import { engineModelLabel } from '../../../renderer/src/models';
+import { readSettingsRows } from '../../../renderer/src/phone-rows';
 import { priorityIdOf, priorityLabelOf, priorityValueOf } from '../../../renderer/src/priority';
-import { laterHint, momentFromWords, mondayMorning, projectSwatch, tomorrowMorning } from '../../../renderer/src/threads/composer-rules';
+import { agentChoices, agentWordFor, laterHint, momentFromWords, mondayMorning, projectSwatch, tomorrowMorning, type Harness } from '../../../renderer/src/threads/composer-rules';
+import { computerAgents } from '../../../renderer/src/web-settings';
 import type { Choices } from '../lib/actions';
-import { newThreadChoices, onceAtATime, openingChoices, pickEffort, pickModel, pickProject, projectNow } from '../lib/compose';
+import { newThreadChoices, onceAtATime, openingChoices, openingEngine, openingFor, pickEffort, pickEngine, pickModel, pickProject, projectNow } from '../lib/compose';
+import { computerOf } from '../lib/settings-view';
 import { useDraft } from '../lib/drafts';
 import { screenGate } from '../lib/thread-gate';
 import { appStore } from '../platform/persist';
@@ -44,10 +47,29 @@ export default function NewThread() {
   const [opening] = useState(() => openingChoices(projects, appStore));
   const [picked, setPicked] = useState<string | null>(null);
   const product = projectNow(projects, picked, appStore) ?? '';
-  const [model, setModel] = useState(opening.model);
-  const [effort, setEffort] = useState<string | null>(opening.effort);
+  // WHICH CODING AGENTS THE COMPUTER OFFERS, off its settings copy
+  // (w-24119e8784): To read "Agent" and every thread went to Claude Code,
+  // whatever the computer had. Claude Code alone until the copy is read.
+  const [agents, setAgents] = useState(() => computerAgents(null));
+  useEffect(() => {
+    const cloud = c.cloud;
+    if (!cloud?.signedIn()) return;
+    let gone = false;
+    readSettingsRows((t, q) => cloud.select(t, q))
+      .then((rows) => { if (!gone) setAgents(computerAgents(computerOf(rows))); })
+      .catch(() => { /* Claude Code alone, as before */ });
+    return () => { gone = true; };
+  }, [c.cloud]);
+  const codex = { codexModels: agents.codexModels, codexDefault: agents.codexDefault };
+  const offered = agentChoices(agents.engines);
+  const [pickedEngine, setPickedEngine] = useState<Harness | null>(null);
+  const engine: Harness = offered.some((e) => e.id === pickedEngine) ? (pickedEngine as Harness) : openingEngine(appStore, agents.engines);
+  // Each agent's model and level kept apart, as the site's card keeps them.
+  const [chosen, setChosen] = useState<Partial<Record<Harness, { model: string; effort: string | null }>>>(() => ({ claude: { model: opening.model, effort: opening.effort } }));
+  const { model, effort } = chosen[engine] ?? openingFor(appStore, engine, agents.codexDefault);
+  const choose = (next: Partial<{ model: string; effort: string | null }>) => setChosen((was) => ({ ...was, [engine]: { model, effort, ...next } }));
   const [typed, setTyped] = useState('');
-  const [sheet, setSheet] = useState<'model' | 'project' | 'priority' | 'attach' | 'later' | null>(null);
+  const [sheet, setSheet] = useState<'to' | 'model' | 'project' | 'priority' | 'attach' | 'later' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const projectName = useMemo(() => projects.find((p) => p.slug === product)?.name ?? '', [projects, product]);
@@ -63,7 +85,8 @@ export default function NewThread() {
     pickProject(appStore, product);
     try {
       const saved = await c.attach(product, files);
-      await c.send({ kind: 'new', product, text, saved, choices: { ...newThreadChoices({ priority: draft.priority, model, effort }), ...later } }, null);
+      const harness = newThreadChoices({ priority: draft.priority, engine, model, effort, engineCount: agents.engines.length, ...codex });
+      await c.send({ kind: 'new', product, text, saved, choices: { ...harness, ...later } }, null);
       // The draft goes only once the thread has: a failed send keeps every word on the page.
       draft.take();
       close();
@@ -98,8 +121,12 @@ export default function NewThread() {
       />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
-          <Field label="To"><T style={{ fontSize: 15 }}>Agent</T></Field>
-          <Field label="Model"><Pickable style={{ fontSize: 15 }} onPress={() => setSheet('model')}>{modelLabelOf(model)}</Pickable></Field>
+          <Field label="To">
+            {offered.length > 1
+              ? <Pickable style={{ fontSize: 15 }} onPress={() => setSheet('to')}>{agentWordFor(agents.engines, engine)}</Pickable>
+              : <T style={{ fontSize: 15 }}>Agent</T>}
+          </Field>
+          <Field label="Model"><Pickable style={{ fontSize: 15 }} onPress={() => setSheet('model')}>{engineModelLabel(engine, model, codex)}</Pickable></Field>
           <Field label="Project">
             <Pressable onPress={() => setSheet('project')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               {!!product && <Swatch slug={product} />}
@@ -141,8 +168,13 @@ export default function NewThread() {
           )}
         </View>
       </KeyboardAvoidingView>
-      <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={effort}
-        pickModel={(id) => { setModel(id); pickModel(appStore, id); }} pickEffort={(id) => setEffort(pickEffort(appStore, effort, id))} />
+      <Sheet open={sheet === 'to'} close={() => setSheet(null)}>
+        <SheetHead>To</SheetHead>
+        {offered.map((a) => <SheetRow key={a.id} label={a.label} on={a.id === engine} onPress={() => { setPickedEngine(a.id); pickEngine(appStore, a.id); setSheet(null); }} />)}
+      </Sheet>
+      <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={effort} engine={engine} codex={codex}
+        pickModel={(id) => { choose({ model: id }); pickModel(appStore, id, engine, agents.codexDefault); }}
+        pickEffort={(id) => choose({ effort: pickEffort(appStore, effort, id, engine) })} />
       <PrioritySheet open={sheet === 'priority'} close={() => setSheet(null)} value={priorityValueOf(draft.priority ?? 'medium')} pick={(v) => draft.setPriority(priorityIdOf(v))} />
       <AttachSheet open={sheet === 'attach'} close={() => setSheet(null)} add={(more) => draft.setFiles((f) => [...f, ...more])} fail={setError} />
       <Sheet open={sheet === 'project'} close={() => setSheet(null)}>

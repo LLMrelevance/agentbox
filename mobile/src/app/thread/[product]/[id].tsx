@@ -23,6 +23,7 @@ import { typedWords } from '../../../lib/files';
 import { threadOf, type FiledRow, type Thread } from '../../../lib/thread';
 import { screenGate } from '../../../lib/thread-gate';
 import { liveOf, offersOf, shownLevel, summaryParts, type Offers } from '../../../lib/thread-offers';
+import { waitFacts } from '../../../../../renderer/src/phone-rows';
 import { replySender, type ReplyDeps } from '../../../lib/thread-reply';
 import { atEnd, keptPlace } from '../../../lib/thread-scroll';
 import { appStore } from '../../../platform/persist';
@@ -299,7 +300,8 @@ export default function ThreadScreen() {
   const item = thread.item;
   const facts = { session: thread.session, inProgress: thread.inProgress, now: c.now };
   const offers = offersOf(item, facts);
-  const live = liveOf(item, facts);
+  // With what the computer says of it while nothing runs, so waiting its turn reads Queued.
+  const live = liveOf(item, { ...facts, ...waitFacts(c.view, item.id) });
   const press = async (p: Press, on: any = item, then?: () => void) => {
     setBusy(true); setError(null);
     try { await c.send(p, on); then?.(); return true; } catch (err) { setError(String((err as Error)?.message ?? err)); return false; } finally { setBusy(false); }
