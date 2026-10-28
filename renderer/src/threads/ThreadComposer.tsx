@@ -109,8 +109,9 @@ export interface ComposeStart {
 }
 
 export function ThreadComposer({
-  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver,
+  products, items, engines, codexModels, codexModelDefault, defaultProduct, initial, scripted, onOpenMenu, onClose, onSent, onSending, onFailed, onOpenConversation, onReorderProjects, onNewProject, selectProject, agentMates, onToTeammate, inline = false, onWriting, handOver, statusLine,
 }: {
+  statusLine?: string | null;
   /** On the page: whether the keyboard is in the box or words are left in it. */
   onWriting?: (writing: boolean) => void;
   /** On the page: filled with a reading of the box, for the dialog to open on. */
@@ -1108,6 +1109,7 @@ export function ThreadComposer({
         )}
 
         {named.chips}
+        {statusLine && <div className="tc-note tc-connection-status" role="status">{statusLine}</div>}
         <textarea
           ref={textRef}
           className={`tc-text ${named.over}`}
