@@ -40,6 +40,7 @@ import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
 import { createPhoneAlerts } from './phone-alerts.mjs';
 import { PHONE_FILES_MAX, phoneFilesIn, phoneFileSafeName, phoneAttachmentRel } from '../shared/phone-files.mjs';
 import { runOfClaim, cloudCard } from '../shared/cloud-kit.mjs';
+import { isCarried } from '../shared/cloud-carry.mjs';
 
 // A file her phone sent with a reply or a new thread (shared/phone-files.mjs).
 export { phoneFilesIn };
@@ -116,6 +117,13 @@ export function createPhoneInbox({
   // to make its row and folder and join it (Supervisor#adoptCloudNewThread).
   newThreadKits = null,
   adoptNew = null,
+  // THE MAC'S OWN ROWS WITH THE LID SHUT (shared/cloud-carry.mjs): whether it
+  // is in a dark wake, the rows it would have started, and the supervisor told
+  // of each hand-over written and each taken back.
+  asleep = () => false,
+  toCarry = null,
+  handedOver = () => {},
+  takenBack = () => {},
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -362,6 +370,16 @@ export function createPhoneInbox({
       still();
       // The cloud started this one with the lid shut; it is joined, never done again (`adoptCloudRuns`).
       if (cmd.claimedBy) continue;
+      // This computer's own hand-over: left to the cloud while asleep, and
+      // taken back awake, never done as if her phone had sent it.
+      if (isCarried(cmd)) {
+        if (asleep()) continue;
+        const claim = await backend.claimPhoneCommand(cmd.id, owner);
+        if (claim === 'cloud') continue;
+        if (claim !== 'gone') { still(); await backend.markPhoneCommand(cmd.id, 'done', owner); }
+        takenBack({ project: cmd.project, item: cmd.item, command: cmd.id });
+        continue;
+      }
       // Her answer to a card the cloud put on the phone is the cloud server's to give (cloud/gateway/phone.mjs).
       if (cmd.kind === 'approve' && cloudCard(cmd.payload?.approval)) continue;
       let outcome = state.done[cmd.id];
@@ -453,10 +471,13 @@ export function createPhoneInbox({
       const project = first.project;
       // A run the cloud started for a new thread runs under the id the phone gave it.
       const started = first.kind === 'new' ? first : null;
+      // One this computer handed over runs under the row's own.
+      const handed = first.kind === 'run-now' && isCarried(first) ? first : null;
       const item = started ? madeHere(started.id) : first.item && state.made[first.item] ? state.made[first.item].id : first.item;
       const fresh = cmds.filter((c) => c.kind === 'reply' && !rec.placed.includes(c.id));
       const replies = [];
-      for (const c of fresh) {
+      // A reply this computer handed over is on the row already.
+      for (const c of fresh.filter((x) => !isCarried(x))) {
         let text = typeof c.payload?.text === 'string' ? c.payload.text : '';
         try { text = (await withPhoneFiles({ ...c, item })).payload.text; } catch (err) { if (err instanceof SignedOut) throw err; }
         replies.push(text);
@@ -473,8 +494,15 @@ export function createPhoneInbox({
             out = 'failed';
             sayOnce(`adopt:${err?.message}`, `phone: could not take in the new thread the cloud started (${item}): ${err?.message ?? err}`);
           }
+        } else if (handed && adoptNew) {
+          const p = handed.payload ?? {};
+          try { out = await adoptNew({ project, item, runId, title: String(p.title ?? ''), body: String(p.body ?? ''), command: handed.id, replies, carried: true, choices: p.engine ? { engine: p.engine } : {} }); } catch (err) {
+            out = 'failed';
+            sayOnce(`adopt:${err?.message}`, `phone: could not join the cloud's run for ${item}: ${err?.message ?? err}`);
+          }
         } else if (item && fresh.length) {
-          try { out = await adopt({ project, item, runId, replies, commands: fresh.map((c) => c.id) }); } catch (err) {
+          const carried = fresh.some(isCarried) ? { carried: true } : {};
+          try { out = await adopt({ project, item, runId, replies, commands: fresh.map((c) => c.id), ...carried }); } catch (err) {
             out = 'failed';
             sayOnce(`adopt:${err?.message}`, `phone: could not join the cloud's run for ${item}: ${err?.message ?? err}`);
           }
@@ -487,7 +515,9 @@ export function createPhoneInbox({
         rec.placed.push(...fresh.map((c) => c.id));
         n += 1;
       } else if (fresh.length && item) {
-        try { await cloudReplies?.({ project, item, runId, replies }); } catch (err) { sayOnce(`late:${runId}`, `phone: could not put a late reply on ${item}: ${err?.message ?? err}`); }
+        if (replies.length) {
+          try { await cloudReplies?.({ project, item, runId, replies }); } catch (err) { sayOnce(`late:${runId}`, `phone: could not put a late reply on ${item}: ${err?.message ?? err}`); }
+        }
         rec.placed.push(...fresh.map((c) => c.id));
       }
       if (!rec.home) {
@@ -504,6 +534,29 @@ export function createPhoneInbox({
       save();
     }
     for (const [k, v] of Object.entries(state.adopted)) if (!(now() - (v?.at ?? 0) < ADOPTED_KEPT_MS)) delete state.adopted[k];
+    return n;
+  }
+
+  // EACH ROW A SLEEPING MAC WOULD HAVE STARTED, written as its own command for
+  // the cloud server to start (shared/cloud-carry.mjs). The supervisor is told
+  // before the write, so a pass meanwhile cannot write it twice, and told it
+  // is taken back when the write fails.
+  async function handOver() {
+    if (!toCarry || !asleep()) return 0;
+    let n = 0;
+    for (const c of await toCarry()) {
+      still();
+      const id = crypto.randomUUID();
+      handedOver({ ...c, command: id });
+      try {
+        await backend.addPhoneCommand({ id, device, ...c });
+        n += 1;
+      } catch (err) {
+        takenBack({ ...c, command: id });
+        if (err instanceof SignedOut) throw err;
+        sayOnce(`carry:${err?.message}`, `phone: could not hand ${c.item} to the cloud: ${err?.message ?? err}`);
+      }
+    }
     return n;
   }
 
@@ -532,6 +585,8 @@ export function createPhoneInbox({
           if (err instanceof SignedOut) throw err;
           sayOnce(`read:${err?.message}`, `phone: could not read what the cloud took: ${err?.message ?? err}`);
         }
+        const handed = await handOver();
+        if (handed) log(`phone: asleep, handed ${handed} to the cloud`);
         const sent = await publish();
         await publishSettings(changedSettings);
         if (alerts) {

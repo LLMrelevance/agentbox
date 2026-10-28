@@ -44,6 +44,7 @@ import { cloudClients } from './cloud/clients.mjs';
 import { kitCopyPath, kitFramePath, readKitCopy, markerForCloudRun } from './cloud/kit.mjs';
 import { REPLY_MARK, replyFrame, serverJoinedKey } from '../shared/cloud-kit.mjs';
 import { NEW_THREAD, NEW_THREAD_CODEX, NEW_ITEM_MARK, NEW_TITLE_MARK, NEW_BODY_MARK, fillNewThreadKit } from '../shared/cloud-kit.mjs';
+import { macAsleep, carryCommand } from '../shared/cloud-carry.mjs';
 import { execFile as execFileCb } from 'node:child_process';
 import { CLOSED_UNSHIPPED, closedBeforeItShipped, shippedAs } from '../shared/not-shipped.mjs';
 import { handBackWhat, handsBack } from '../shared/cloud-hand-back.mjs';
@@ -572,6 +573,9 @@ export class Supervisor {
         if (held && held.tries == null) Object.assign(held, { tries: 0, next: (held.since ?? 0) + HELD_RETRY_MS[0] });
       }
       this._deadStarts = state.deadStarts ?? {};
+      // Rows handed to the cloud while asleep (`handedOver`), kept so a
+      // restart cannot start one here that the cloud may be running.
+      this._carried = state.carried && typeof state.carried === 'object' ? state.carried : {};
       // WHAT IS WRONG WITH EACH ACCOUNT, KEPT ACROSS A RESTART (w-cf0e8821b3).
       //
       // The app came back up knowing that nothing was running and no longer
@@ -1363,7 +1367,8 @@ export class Supervisor {
       // nothing again. Only one of the two facts ever changes on its own, so
       // only one of them is worth queueing for.
       const engine = engineOf(rec.engine);
-      if (this._engineCanRun(engine) && !this._roomFor(engine, item)) {
+      // A dark wake starts nothing (`asleep`); the session is resumed awake.
+      if (this._engineCanRun(engine) && (this.asleep() || !this._roomFor(engine, item))) {
         out.queued += 1;
         held.add(itemId);
         this._recoverPending = true;
@@ -3186,6 +3191,61 @@ export class Supervisor {
     if (!this._lastTickAt || now - this._lastTickAt < SLEPT_GAP_MS) return false;
     for (const session of this.sessions.values()) session.lastOutputAt = Math.max(session.lastOutputAt ?? 0, now);
     return true;
+  }
+
+  /**
+   * IN ONE OF A SHUT MAC'S FEW-SECOND WAKES, where a run started dies at the
+   * next one (shared/cloud-carry.mjs). Nothing starts then; the phone pass
+   * hands the waiting rows to the cloud instead (`carryWhileAsleep`).
+   * `idleMs` is the window's reading of the keyboard and mouse.
+   */
+  asleep(now = Date.now()) {
+    let idle = null;
+    try { idle = this.idleMs?.() ?? null; } catch { /* no reading */ }
+    return macAsleep({ now, lastTickAt: this._lastTickAt, wokeAt: this._wokeAt ?? 0, idleMs: idle, gapMs: SLEPT_GAP_MS });
+  }
+
+  /** Rows a pass while asleep would have started, as commands for the cloud to start, each once. */
+  async carryWhileAsleep(now = Date.now()) {
+    if (!this.asleep(now)) return [];
+    // A pass not yet run since the wake has not listed them; one running is waited for.
+    if (now - (this._lastTickAt ?? 0) >= SLEPT_GAP_MS) await this.tick();
+    for (let i = 0; this._ticking && i < 50; i += 1) await new Promise((r) => { setTimeout(r, 100); });
+    if (!this.asleep()) return [];
+    const out = [];
+    for (const { item, continuation } of this._asleepQueue ?? []) {
+      if (this._carried?.[item.id] || this.threadOnMac?.[item.id] || !this.leavesKitsFor(item.product)) continue;
+      const engine = engineOf(this._engineFor(item));
+      if (engine !== 'claude' && engine !== 'codex') continue;
+      if (continuation) {
+        const kit = readKitCopy(kitCopyPath(this.userDir, item.product, item.id));
+        if (!kit || kit.item !== item.id || kit.project !== item.product) continue;
+      } else {
+        // A row that has had a run resumes its conversation, which a new-thread kit does not carry.
+        if (this._rowSessions?.[item.id]) continue;
+        const kit = this._newThreadCopyFor(item.product, engine);
+        if (!kit?.newThread) continue;
+        if ((item.model && item.model !== kit.newThread.model) || (item.effort && item.effort !== kit.newThread.effort)) continue;
+      }
+      const cmd = carryCommand({ item, continuation, engine });
+      if (cmd) out.push(cmd);
+    }
+    return out;
+  }
+
+  /** The phone pass wrote this row's hand-over (`command` is its id): nothing here starts it now. */
+  handedOver({ item, command, kind }) {
+    if (!item) return;
+    (this._carried ??= {})[item] = { command: command ?? null, kind: kind ?? null, at: Date.now() };
+    this._saveState();
+  }
+
+  /** The cloud did not start it, or it is this computer's again: it runs here as usual. */
+  takenBack({ item }) {
+    if (!item || !this._carried?.[item]) return;
+    delete this._carried[item];
+    this._saveState();
+    this.wake();
   }
 
   reapHungSessions(items, now = Date.now()) {
@@ -6181,6 +6241,7 @@ export class Supervisor {
         // knowing that nothing runs without knowing why.
         profileTrouble: this._profileTrouble,
         profileCooldown: this._profileCooldown,
+        carried: this._carried,
       }));
     } catch {}
   }
@@ -6695,8 +6756,9 @@ export class Supervisor {
     // fifteen second wait back again for exactly the row that asked for it.
     if (this._ticking) { this._tickAgain = true; return; }
     this._ticking = true;
-    this.forgiveSleep(Date.now());
-    this._lastTickAt = Date.now();
+    const at = Date.now();
+    if (this.forgiveSleep(at)) this._wokeAt = at;
+    this._lastTickAt = at;
     try {
       return await this._tick();
     } finally {
@@ -6953,6 +7015,8 @@ export class Supervisor {
       // something on Friday and having it run Monday at 6am is the point, not
       // a special case.
       if (!this.store.isDue(item, now)) continue;
+      // Handed to the cloud while asleep: the phone pass takes it back or joins its run.
+      if (this._carried?.[item.id]) continue;
       const continuation = this._isContinuation(item);
       if (!continuation && !this._isFreshWork(item, now, autonomous)) continue;
       // ONE OF CLAUDE CODE'S OWN EIGHT COMMANDS, typed into this row's reply
@@ -7046,7 +7110,12 @@ export class Supervisor {
      */
     const spent = new Set();
 
-    for (const { item, continuation, command } of queue) {
+    // A SHUT MAC STARTS NOTHING (shared/cloud-carry.mjs): what it would have
+    // started is kept for the phone pass to hand to the cloud.
+    const asleep = this.asleep();
+    this._asleepQueue = asleep ? queue.filter((r) => !r.command).map(({ item, continuation }) => ({ item, continuation })) : [];
+
+    for (const { item, continuation, command } of asleep ? [] : queue) {
       // The cap is real for both kinds. Uncapped, one restart's respawn wave
       // put ten workers into one tick, which split the founder's rate limit
       // ten ways and slow-motioned everything, twice, before two agents
@@ -9166,6 +9235,12 @@ export class Supervisor {
 
   spawnWorker(item, { continuation = false, resumeSessionId = null, profile: forcedProfile = null, engine: forcedEngine = null, remoteOnly = false, shipFailure = null } = {}) {
     if (this._heldFromStarting(item)) return;
+    // Every other way in (a resume on wake, a held thread's retry) meets the
+    // same rule as the queue: a run started in a dark wake dies at the next.
+    if (this.asleep()) {
+      if (continuation && item?.answer) this.redeliverAnswer(item, item.answer);
+      return;
+    }
     if (this._compactionJobs?.has(JSON.stringify([item.product, item.id]))) return;
     // ASKED ONCE, HERE, AND ANSWERED CLAUDE CODE ON EVERY MACHINE TODAY. See
     // `_engineFor` for the two independent reasons why. It is asked ahead of
@@ -10677,10 +10752,13 @@ export class Supervisor {
    * home. 'no-kit' makes the row for an ordinary run here; 'busy' is asked
    * again later.
    */
-  async adoptCloudNewThread({ product: slug, itemId, runId, title, body = '', command, replies = [], choices = {} }) {
+  // `carried`: a row of this computer's own that it handed over while asleep;
+  // the row is there already, under the same id.
+  async adoptCloudNewThread({ product: slug, itemId, runId, title, body = '', command, replies = [], choices = {}, carried = false }) {
     const makeRow = () => {
       const had = this.store.readItem?.(slug, itemId);
       if (had) return had;
+      if (carried) return null;
       return this.store.composeItem(slug, { id: itemId, title, body, fromPhone: command, ...choices });
     };
     const copy = this._newThreadCopyFor(slug, choices?.engine);
@@ -10688,6 +10766,7 @@ export class Supervisor {
     if (!filled) {
       makeRow();
       for (const reply of replies) this.store.answerItem(slug, itemId, { answer: reply, status: 'open' });
+      if (carried) this.takenBack({ item: itemId });
       this.onChange?.();
       return 'no-kit';
     }
@@ -10725,6 +10804,7 @@ export class Supervisor {
         sessionId: null, product: slug, cwd: kit.cwd, profile, engine: codex ? 'codex' : 'claude', continuation: false, startedAt: Date.now(), cloud: true,
         ...(carrying ? { carrying } : {}),
       };
+      if (carried) delete this._carried?.[itemId];
       this._saveState();
       this._bringCloudHome(place);
       this.onChange?.();
@@ -10743,10 +10823,13 @@ export class Supervisor {
    * 'adopted', 'no-kit' (her replies are left for an ordinary run) or 'busy'
    * (other cloud work is still coming home here; asked again later).
    */
-  async adoptCloudRun({ product: slug, itemId, runId, replies = [] }) {
+  // `carried`: the run is of a reply this computer handed over while asleep,
+  // which is on the row already and is what the run carries.
+  async adoptCloudRun({ product: slug, itemId, runId, replies = [], carried = false }) {
     const kit = readKitCopy(kitCopyPath(this.userDir, slug, itemId));
     if (!kit || kit.item !== itemId || kit.project !== slug) {
       for (const reply of replies) this.store.answerItem(slug, itemId, { answer: reply, status: 'open' });
+      if (carried) this.takenBack({ item: itemId });
       this.onChange?.();
       return 'no-kit';
     }
@@ -10755,7 +10838,8 @@ export class Supervisor {
     // Before the run is joined, so the server's next reply and its idle close stop.
     await this._tellServerJoined(runId);
     writeMarker(place, markerForCloudRun(kit, runId));
-    const carrying = this._answerHeard(slug, itemId, replies);
+    const carrying = this._answerHeard(slug, itemId, replies) ?? (carried ? this._answerOnTheRowHeard(slug, itemId) : null);
+    if (carried) delete this._carried?.[itemId];
     const codex = kit.engine === 'codex';
     const configDir = kit.marker?.configDir;
     const codexHome = kit.env?.CODEX_HOME;
@@ -10795,6 +10879,16 @@ export class Supervisor {
       key = this._answerKey({ ...saved, product: slug, id: itemId });
       this._handledAnswers.add(key);
     }
+    this._saveState();
+    return key;
+  }
+
+  // The answer already on the row, marked as heard. Its key.
+  _answerOnTheRowHeard(slug, itemId) {
+    const row = this.store.readItem?.(slug, itemId);
+    if (!row?.answer) return null;
+    const key = this._answerKey({ ...row, product: slug, id: itemId });
+    this._handledAnswers.add(key);
     this._saveState();
     return key;
   }
