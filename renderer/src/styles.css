@@ -8793,6 +8793,11 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 .live-mark { width: 14px; height: 14px; gap: 1.5px; }
 .live-disclosure { gap: 6px; line-height: 20px; }
 .live-disclosure .live-span { flex: none; }
+/* Where it runs, with the list's why card (threads/pages.css) on hover,
+   opening upward because the reply box sits right under this line. */
+.live-place.has-card { position: relative; cursor: help; }
+.live-place .th-why-card { top: auto; bottom: calc(100% + 10px); }
+.live-place.has-card:hover .th-why-card { display: block; }
 .live-details { margin: 8px 0 0; }
 .live-command { margin: 0; color: var(--text-dim); }
 .live-command summary { display: flex; align-items: center; gap: 7px; height: 28px; cursor: pointer; list-style: none; }
