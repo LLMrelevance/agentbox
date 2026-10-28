@@ -282,6 +282,9 @@ const liveAnswer = (i: WorkItem) => (i.answer && i.answer !== '(withdrawn)' ? i.
 // on every snapshot.
 const NO_ORDER: string[] = [];
 const NO_RUNNING: RunningSession[] = [];
+// How soon a first read that missed is asked again, as the relay's own
+// patience does for the page (relay/phone/tunnel.mjs GAP_MS).
+const FIRST_READ_AGAIN_MS = 1_500;
 
 // THE SCREEN BEFORE THERE IS A SCREEN. The logo, its orange dot running round
 // the ring (w-eb1e55360c). It was the app's name in the faintest grey, which
@@ -1724,11 +1727,19 @@ export default function App() {
   const refreshRef = useRef<() => Promise<unknown>>();
   refreshRef.current = refresh;
 
+  // THE FIRST READ IS ASKED AGAIN UNTIL IT LANDS (w-f430aa863d). Missed, the
+  // boot screen used to wait for the next poll, which on a phone is 30 seconds,
+  // or for something to change, and said the app was not answering meanwhile.
   useEffect(() => {
-    refresh();
+    let gone = false;
+    let again: ReturnType<typeof setTimeout> | undefined;
+    const first = () => {
+      refresh().catch(() => { if (!gone) again = setTimeout(first, FIRST_READ_AGAIN_MS); });
+    };
+    first();
     const off = api.onChanged(refresh);
     const poll = setInterval(refresh, pollEvery(10_000, onPhone()));
-    return () => { off(); clearInterval(poll); };
+    return () => { gone = true; clearTimeout(again); off(); clearInterval(poll); };
   }, [refresh]);
 
   // Dev aid: ?focus=1 opens the first inbox item on load (screenshot runs).
