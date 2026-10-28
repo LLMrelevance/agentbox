@@ -45,6 +45,7 @@ import { isCarried } from '../shared/cloud-carry.mjs';
 // A file her phone sent with a reply or a new thread (shared/phone-files.mjs).
 export { phoneFilesIn };
 const HEARTBEAT_MS = 30_000;
+const SETTINGS_HEARTBEAT_MS = 5 * 60_000;
 class Refused extends Error {}
 
 // How long a thread started on the phone is remembered as the row it became:
@@ -278,7 +279,7 @@ export function createPhoneInbox({
     try { carried = phoneSettingsOf(await readSettings(), { version }); } catch (err) { troubled('read', err); return false; }
     if (!carried) return false;
     const key = JSON.stringify(carried);
-    if (key === settings.key && now() - settings.sentAt < HEARTBEAT_MS) return false;
+    if (key === settings.key && now() - settings.sentAt < SETTINGS_HEARTBEAT_MS) return false;
     still();
     try {
       await backend.putPhoneSettings({ owner, device, name: computer, settings: carried });
