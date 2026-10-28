@@ -81,7 +81,8 @@ describe('a row as a hand-over', () => {
 
 /* ------------------------------ the supervisor ------------------------------ */
 
-function makeSupervisor(items, { idle = null } = {}) {
+// Nobody at the Mac since before it slept, unless a test says otherwise.
+function makeSupervisor(items, { idle = () => 30 * MIN } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zero-asleep-'));
   const store = {
     listItems: () => items,
@@ -125,6 +126,13 @@ describe('the tick on a sleeping Mac', () => {
     sleep(sup);
     await sup.tick();
     sup._wokeAt -= ASLEEP_SETTLE_MS;
+    await sup.tick();
+    expect(real(sup)).toEqual(['w-1']);
+  });
+
+  it('a copy with no keyboard to read (headless, or a test) is never asleep, however late its pass', async () => {
+    const { sup } = makeSupervisor([fresh('w-1')], { idle: null });
+    sleep(sup);
     await sup.tick();
     expect(real(sup)).toEqual(['w-1']);
   });

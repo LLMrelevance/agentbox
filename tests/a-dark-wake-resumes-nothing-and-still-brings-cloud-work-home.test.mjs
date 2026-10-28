@@ -25,6 +25,7 @@ function interrupted() {
   const sup = new Supervisor({ storeRoot: root, maxConcurrentSessions: 3 }, store, root, root, root);
   sup._liveSessions = { 'w-1': { sessionId: 's-1', product: 'alpha', cwd: root, profile: 'default', engine: 'claude', continuation: false, startedAt: 1 } };
   sup.transcriptFile = () => __filename;
+  sup.idleMs = () => 30 * MIN;
   sup.spawned = [];
   sup.spawnWorker = (item, opts) => sup.spawned.push({ id: item.id, opts });
   return sup;

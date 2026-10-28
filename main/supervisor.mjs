@@ -3205,8 +3205,10 @@ export class Supervisor {
    * `idleMs` is the window's reading of the keyboard and mouse.
    */
   asleep(now = Date.now()) {
+    // Only the window's Mac, which can be shut; a headless copy is never asleep.
+    if (typeof this.idleMs !== 'function') return false;
     let idle = null;
-    try { idle = this.idleMs?.() ?? null; } catch { /* no reading */ }
+    try { idle = this.idleMs() ?? null; } catch { /* no reading */ }
     return macAsleep({ now, lastTickAt: this._lastTickAt, wokeAt: this._wokeAt ?? 0, idleMs: idle, gapMs: SLEPT_GAP_MS });
   }
 

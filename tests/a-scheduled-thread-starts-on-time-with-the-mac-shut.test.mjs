@@ -138,6 +138,7 @@ function handing(items, { rules = [] } = {}) {
   };
   const sup = new Supervisor({ storeRoot: root, maxConcurrentSessions: 3 }, store, root, root, root);
   sup.spawnWorker = () => {};
+  sup.idleMs = () => 30 * MIN;
   sup._phoneCarries = { device: DEVICE, slugs: new Set(['alpha']) };
   sup.leavesKitsFor = (slug) => slug === 'alpha';
   fs.mkdirSync(path.join(root, 'cloud-kits'), { recursive: true });
