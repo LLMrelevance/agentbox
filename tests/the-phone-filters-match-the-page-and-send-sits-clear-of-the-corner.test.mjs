@@ -107,9 +107,12 @@ describe('on a phone, a new thread', () => {
 });
 
 describe('on a phone, the inboxes along the bottom', () => {
-  it('keep only part of the home bar\'s inset under them, never less than a little', () => {
+  // All of the inset since 2026-10-28, as the phone app keeps it: the inset
+  // less 14px was "super duper low" beside it
+  // (the-web-app-on-a-phone-matches-the-phone-apps-text-and-tabs).
+  it('keep the home bar\'s inset under them, never less than a little', () => {
     const foot = bodiesFor(':root').match(/--phone-foot:\s*([^;]+)/);
-    expect(foot?.[1]).toMatch(/max\(\s*\d+px,\s*calc\(env\(safe-area-inset-bottom, 0px\) - \d+px\)\s*\)/);
+    expect(foot?.[1]).toMatch(/max\(\s*\d+px,\s*env\(safe-area-inset-bottom, 0px\)\s*\)/);
     expect(last('.list-pane > .th-bar', 'padding')).toMatch(/var\(--phone-foot\)/);
     expect(last('.list-pane > .th-bar', 'padding')).not.toMatch(/safe-area-inset-bottom/);
   });
