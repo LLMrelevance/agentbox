@@ -6750,6 +6750,7 @@ export default function App() {
                     // says so wherever the row is sitting, which is why this one
                     // fact is read above the In progress test in live-line.
                     silent: snap.supervisor.silent?.[focused.id] ?? null,
+                    whyNotCloud: snap.supervisor.whyNotCloud?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
                 />
