@@ -50,7 +50,7 @@
 .first-run .ob-keys { display: inline-flex; gap: 3px; align-items: center; }
 
 /* Buttons: the New thread button. The keycap sits as far in from the right as from the top. */
-.first-run .ob-btn { display: inline-flex; align-items: center; gap: 12px; height: 36px; padding: 0 7px 0 14px; font-size: 15px; color: var(--text); background: rgba(40, 38, 37, .55); border: 1px solid var(--line-strong); white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
+.first-run .ob-btn { display: inline-flex; align-items: center; gap: 12px; height: 36px; padding: 0 7px 0 14px; font-size: 15px; color: var(--text); background: var(--film-strong); border: 1px solid var(--line-strong); white-space: nowrap; transition: background .15s, border-color .15s, color .15s; }
 .first-run .ob-btn:hover:not(:disabled) { background: var(--wash-strong); }
 .first-run .ob-btn:disabled { color: var(--text-faint); }
 /* A quiet button keeps its words where they were; under the pointer it becomes the bordered button. */
@@ -95,8 +95,10 @@
 }
 .first-run .ob-write::placeholder { color: var(--text-faint); }
 .first-run .ob-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
+.first-run .ob-folder-note { margin: 12px 0 0; font-size: 14px; color: var(--text-dim); }
+.first-run .fp-title { margin: 0 0 4px; font-size: 18px; line-height: 24px; font-weight: 500; }
 .first-run .ob-chips { display: flex; gap: 10px; }
-.first-run .ob-chip { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; font-size: 15px; color: var(--text-dim); border: 1px solid var(--line-strong); background: rgba(40, 38, 37, .4); white-space: nowrap; }
+.first-run .ob-chip { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; font-size: 15px; color: var(--text-dim); border: 1px solid var(--line-strong); background: var(--film-strong); white-space: nowrap; }
 .first-run .ob-chip:hover, .first-run .ob-chip.ob-open { background: var(--wash-strong); color: var(--text); }
 .first-run .ob-chip .ob-plus { width: 10px; font-size: 16px; text-align: center; }
 .first-run .ob-chip svg { color: var(--text-faint); flex: none; }

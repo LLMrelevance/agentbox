@@ -125,6 +125,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const [idea, setIdea] = useState(-1);
   const [busy, setBusy] = useState(false);
   const field = useRef<HTMLTextAreaElement | null>(null);
+  const folderButton = useRef<HTMLButtonElement | null>(null);
 
   // WHAT IS ON THIS COMPUTER, asked once.
   useEffect(() => {
@@ -263,7 +264,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const send = useCallback(async () => {
     const said = text.trim();
     if (!said || busy) return;
-    if (!at) { chooseAnother(); return; }
+    if (!at) { folderButton.current?.focus(); return; }
     const folder = at;
     setBusy(true);
     const p = await projectFor(folder);
@@ -280,7 +281,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     }
     if (!first) { setBusy(false); setProblem('That did not send. Try again.'); return; }
     leave(first);
-  }, [text, when, busy, at, chooseAnother, projectFor, leave]);
+  }, [text, when, busy, at, projectFor, leave]);
 
   const pickIdea = useCallback((i: number) => {
     setText(IDEAS[i].text);
@@ -377,7 +378,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
 
   return (
     <div className="first-run" role="dialog" aria-label="Set up" onKeyDown={(e) => e.stopPropagation()}>
-      {browsing && <FolderPicker startIn={at ?? home} onPick={chooseFolder} onClose={() => setBrowsing(false)} />}
+      {browsing && <FolderPicker title="Choose your project folder" startIn={at ?? home} onPick={chooseFolder} onClose={() => setBrowsing(false)} />}
       {screen === 'welcome' && (
         <div className={cls} key="welcome">
           <div className="ob-col ob-mid ob-center">
@@ -454,9 +455,10 @@ export function FirstRunFlow({ snap, home, onDone }: {
               <div className="ob-bar">
                 <div className="ob-chips">
                   <span className="ob-anchor">
-                    <button type="button" className={`ob-chip${menu !== null ? ' ob-open' : ''}`} aria-haspopup="listbox" aria-expanded={menu !== null}
+                    <button ref={folderButton} type="button" className={`ob-chip${menu !== null ? ' ob-open' : ''}`} aria-haspopup="listbox" aria-expanded={menu !== null}
+                      aria-describedby={!at ? 'ob-folder-note' : undefined}
                       onMouseDown={(e) => e.preventDefault()} onClick={openMenu}>
-                      {at ? <><span className="ob-sw" style={{ background: swatchOf(at) }} />{nameOf(at)}</> : <><span className="ob-plus">+</span>Choose a folder</>}
+                      {at ? <><span className="ob-sw" style={{ background: swatchOf(at) }} />{nameOf(at)}</> : <><span className="ob-plus">+</span>Choose project folder</>}
                     </button>
                     {menu !== null && (
                       <div className="ob-menu" role="listbox" aria-label="Project">
@@ -482,9 +484,10 @@ export function FirstRunFlow({ snap, home, onDone }: {
                 </div>
                 <div className="ob-actions">
                   <button type="button" className="ob-btn ob-quiet" onClick={skip}>Not now <Key k="esc" /></button>
-                  <button type="button" className="ob-btn" disabled={!text.trim() || busy} onClick={send}>Send <Keys ks={SEND} /></button>
+                  <button type="button" className="ob-btn" disabled={!at || !text.trim() || busy} onClick={send}>Send <Keys ks={SEND} /></button>
                 </div>
               </div>
+              {!at && <p id="ob-folder-note" className="ob-folder-note">Choose the folder containing the project you want the agent to work on.</p>}
             </div>
             {problem && <p className="ob-refused">{problem}</p>}
             <div className="ob-ideas ob-in" style={{ animationDelay: '0.2s' }}>
