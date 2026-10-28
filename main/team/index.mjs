@@ -215,6 +215,7 @@ export function createTeamService({
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
       historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines * 4 }); } catch { return []; } },
       apply: phone.apply,
+      waitsOf: () => phone.waits?.() ?? null,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
       approvalsOf: () => phone.approvals?.() ?? [],
       readSettings: phone.readSettings ?? null,

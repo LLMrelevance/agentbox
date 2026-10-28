@@ -1271,7 +1271,9 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     // a sentence is what lets one screen serve both doors.
     if (r.noDialog) return { path: null, browse: true };
     if (r.canceled || !r.filePaths?.length) return { path: null };
-    const picked = r.filePaths[0];
+    // A chooser hands back whatever its location bar held, dots and all. The
+    // folder a path names is what gets stored and what gets checked (F-123).
+    const picked = path.resolve(r.filePaths[0]);
     const verdict = checkProjectFolder(picked, { home: os.homedir() });
     if (!verdict.ok) return { path: null, refused: verdict.say };
     return { path: picked };

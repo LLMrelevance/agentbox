@@ -43,16 +43,33 @@ const SYSTEM = [
 ];
 
 /**
- * Trailing slashes off, and `~` left alone: the renderer does not know whose
- *  home this is and hands paths through exactly as it got them. */
-function tidy(p) {
+ * THE FOLDER A PATH NAMES, with `.`, `..`, doubled and trailing slashes gone.
+ *
+ *  `~` is left as `~`: the renderer does not know whose home this is and hands
+ *  paths through exactly as it got them.
+ *
+ *  The dots are not pedantry. A file dialog hands back whatever its location
+ *  bar is holding, so `~/.` reaches the check as a path that is not equal to
+ *  the home folder, and the refusal below is a string comparison.
+ */
+export function tidyFolder(p) {
   const s = String(p ?? '').trim();
   if (!s) return '';
-  return s.length > 1 ? s.replace(/\/+$/, '') : s;
+  const root = s.startsWith('~') ? '~' : s.startsWith('/') ? '/' : '';
+  const parts = [];
+  for (const part of s.slice(root.length).split('/')) {
+    if (!part || part === '.') continue;
+    // Above a root there is nothing to climb to, so the climb stops there.
+    if (part === '..') { if (parts.length) parts.pop(); else if (!root) parts.push('..'); continue; }
+    parts.push(part);
+  }
+  if (root === '~') return parts.length ? `~/${parts.join('/')}` : '~';
+  if (root === '/') return `/${parts.join('/')}`;
+  return parts.join('/');
 }
 
 function underHome(p, home) {
-  const h = tidy(home);
+  const h = tidyFolder(home);
   if (!h) return null;
   if (p === h) return '';
   return p.startsWith(`${h}/`) ? p.slice(h.length + 1) : null;
@@ -68,7 +85,7 @@ function underHome(p, home) {
  *  puts it on a screen.
  */
 export function checkProjectFolder(folder, { home = '' } = {}) {
-  const p = tidy(folder);
+  const p = tidyFolder(folder);
   if (!p) return { ok: true };
 
   // `~` and `~/` are the home folder written the way our own screens write it.
@@ -136,7 +153,7 @@ export function checkProjectFolder(folder, { home = '' } = {}) {
 export function proposeParent(existing = [], { home = '~' } = {}) {
   const counts = new Map();
   for (const f of existing) {
-    const p = tidy(f);
+    const p = tidyFolder(f);
     if (!p) continue;
     const cut = p.lastIndexOf('/');
     if (cut <= 0) continue;
@@ -154,5 +171,5 @@ export function proposeParent(existing = [], { home = '~' } = {}) {
     // project happened to be listed first.
     if (n > bestN || (n === bestN && best && parent.length < best.length)) { best = parent; bestN = n; }
   }
-  return best ?? `${tidy(home) || '~'}/dev`;
+  return best ?? `${tidyFolder(home) || '~'}/dev`;
 }

@@ -13,6 +13,7 @@ import { applySkin, applyTune, normalizeSavedLook, resolveSkin, resolveTune, SKI
 // words, so a frame drawn before it lands is a reflow.
 import { applyTaskShape, resolveTaskShape, TASK_SHAPE_KEY } from './task-shape';
 import { installPictureWatch } from './phone-files';
+import { theDoorNeedsItsKey } from './browser-bridge';
 
 // A thrown React error takes the screen down without taking the process down,
 // so nothing in the main process ever hears about it. These two lines are the
@@ -74,4 +75,9 @@ const boot = () => {
 // and it left with the round it belonged to. The seventeen candidates it
 // carried are recorded in decisions.md and their raw files are in designs/.
 // tests/the-theme-lab-is-gone.test.mjs holds the door shut.
-boot();
+
+// A TAB THIS COMPUTER SERVED WITH NO KEY ON ITS ADDRESS DRAWS NOTHING. Without
+// a bridge the screen draws its fixtures, and an inbox of invented threads is
+// worse than a page saying what the link is missing, which browser-bridge.ts
+// has already put up by now.
+if (!theDoorNeedsItsKey()) boot();

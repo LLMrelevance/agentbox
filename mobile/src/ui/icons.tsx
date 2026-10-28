@@ -20,6 +20,20 @@ export const Pen = ({ size = 22, tint = color.ink }: P) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={tint} strokeWidth={1.5}><Path d="M12 20h8" /><Path d="m4 20 1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5 4 20Z" /></Svg>
 );
 
+/** The logo inside the app: the nine dots alone, the top right one lit (components/AppMark.tsx). The tile is the app icon's. */
+export const AppMark = ({ size = 24 }: { size?: number }) => (
+  <Svg width={size} height={size} viewBox="10 10 80 80">
+    {[21, 50, 79].flatMap((cy) => [21, 50, 79].map((cx) => (cx === 79 && cy === 21
+      ? <Circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={10.5} fill="#ee6018" />
+      : <Circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={10.5} fill={color.text} fillOpacity={0.38} />)))}
+  </Svg>
+);
+
+/** Done's two ticks (threads/ThreadMenu.tsx `DoneMark`). */
+export const DoneMark = ({ size = 16, tint = color.dim }: P) => (
+  <Svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={tint} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round"><Path d="m3 13 3.6 3.6L13.4 9" /><Path d="m10.6 13 3.6 3.6L21 9" /></Svg>
+);
+
 export const More = ({ size = 18, tint = color.dim }: P) => (
   <Svg width={size} height={size} viewBox="0 0 24 24" fill={tint}><Circle cx={5} cy={12} r={1.5} /><Circle cx={12} cy={12} r={1.5} /><Circle cx={19} cy={12} r={1.5} /></Svg>
 );

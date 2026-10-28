@@ -9180,6 +9180,13 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 /* THE PHONE WHOSE KEY WAS RESET (renderer/src/browser-bridge.ts). */
 #phone-locked-out { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); font: 16px/1.45 system-ui, sans-serif; text-align: center; }
 #phone-locked-out p { margin-top: 8px; opacity: .8; }
+/* THE TAB WHOSE ADDRESS NEVER HAD A KEY ON IT (renderer/src/browser-bridge.ts).
+   The app is not drawn at all behind this one, so it is the whole page. */
+#needs-its-key { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text); text-align: center; }
+#needs-its-key > div { max-width: 30em; }
+#needs-its-key strong { display: block; font-size: 17px; font-weight: 600; }
+#needs-its-key p { margin-top: 10px; color: var(--text-dim); font-size: 14px; line-height: 1.5; }
+#needs-its-key code { font-family: var(--mono); font-size: .95em; }
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
 
@@ -9190,7 +9197,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
    whatever is painted on them. It wins because the view is the last thing on the page. */
 .picture-view { position: fixed; inset: 0; z-index: 9400; outline: none; overflow: hidden;
   background: var(--read-ground); color: var(--read-paper); animation: pv-in .22s ease-out;
-  -webkit-app-region: no-drag; }
+  -webkit-app-region: no-drag; touch-action: none; }
+/* Fingers belong to the view (PictureView.tsx fingerDown); only the strip of pictures scrolls. */
+.pv-strip { touch-action: pan-x; }
+.pv-chrome button, .pv-tools button { touch-action: manipulation; }
 @keyframes pv-in { from { opacity: 0; } }
 .pv-stage { position: absolute; inset: 86px 104px 116px; z-index: 1; display: flex; align-items: center; justify-content: center; }
 .pv-img { display: block; flex: none; cursor: zoom-in; user-select: none; border-radius: var(--radius); will-change: transform;
