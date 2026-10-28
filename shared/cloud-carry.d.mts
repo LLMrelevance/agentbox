@@ -18,21 +18,22 @@ export function macAsleep(options?: {
 export interface CarryItem {
   id?: string;
   product?: string;
-  answer?: unknown;
   title?: unknown;
   body?: unknown;
+  answer?: unknown;
   model?: string | null;
   effort?: string | null;
 }
 
-export interface CarryRepeat {
-  rule: string;
-  key: string;
-}
-
-export type CarriedCommand = { project: string; item: string } & (
-  { kind: 'reply'; payload: { carried: typeof CARRIED; text: string; notBefore?: number } }
-  | { kind: 'run-now'; payload: {
+export type CarriedCommand = {
+  project: string;
+  item: string;
+} & ({
+  kind: 'reply';
+  payload: { carried: typeof CARRIED; text: string; notBefore?: number };
+} | {
+  kind: 'run-now';
+  payload: {
     carried: typeof CARRIED;
     title: string;
     body: string;
@@ -40,14 +41,14 @@ export type CarriedCommand = { project: string; item: string } & (
     model?: string;
     effort?: string;
     notBefore?: number;
-    repeat?: CarryRepeat;
-  } }
-);
+    repeat?: { rule: string; key: string };
+  };
+});
 
 export function carryCommand(options?: {
   item?: CarryItem | null;
   continuation?: boolean;
   engine?: string | null;
   notBefore?: number | null;
-  repeat?: CarryRepeat | null;
+  repeat?: { rule: string; key: string } | null;
 }): CarriedCommand | null;

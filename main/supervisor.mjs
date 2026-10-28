@@ -137,6 +137,7 @@ import {
   ENGINE_CHOICE_ENABLED, DEFAULT_ENGINE, ENGINE_IDS,
 } from '../shared/engines.mjs';
 import { createCodexAppServer } from './codex-app-server.mjs';
+import { CLAUDE_MODELS } from '../shared/claude-models.generated.mjs';
 import { codexLaunchEnv } from './codex-launch-env.mjs';
 import { CodexUsage, codexAccountReadings } from './codex-usage.mjs';
 import { createCodexWorker, mcpServerNames, resumeThreadParams, workerThreadParams } from './codex-session.mjs';
@@ -1828,7 +1829,7 @@ export class Supervisor {
     const running = engineLabel(engine);
     try {
       this.store.recordSessionResult(item.product, item.id, {
-        result: `This task asks for ${asked} and for the model "${item.model}", and ${asked} is not what would run it here. ${Name} has ${running} to run it on, and a ${asked} model is not a word ${running} knows. Nothing here will pick a stand-in for you, so this task is waiting rather than running on a model you did not choose. Either way out works: install ${asked} and it runs as written, or clear the model on this task and it runs now on ${running}.`,
+        result: `This task chose ${asked} model "${item.model}", but this computer would run it with ${running}. Nothing has been done. Pick a ${running} model to continue, or use a computer with ${asked}.`,
         status: 'open',
       });
     } catch (e) { console.warn('zero: could not say the model is for another engine:', e.message); }
@@ -9473,8 +9474,10 @@ export class Supervisor {
     // Asked here rather than inside `spawnPlan` because the answer is not a
     // narrower plan, it is no run at all -- and asked before the slot check and
     // before the product lookup, so a refusal costs the fleet nothing.
-    if (item?.model && !modelForEngine(item, engine)) {
-      this._sayTheModelIsForAnotherEngine(item, engine);
+    const claudeModelOnCodex = engine === 'codex' && !isEngine(item?.engine) && typeof item?.model === 'string'
+      && (item.model.startsWith('claude-') || CLAUDE_MODELS.some(m => m.alias === item.model));
+    if (item?.model && (!modelForEngine(item, engine) || claudeModelOnCodex)) {
+      this._sayTheModelIsForAnotherEngine(claudeModelOnCodex ? { ...item, engine: 'claude' } : item, engine);
       // THE USER'S WORDS ARE NOT DELIVERED BY A WORKER THAT NEVER STARTED. The queue
       // writes the delivery mark before it calls this method and that mark is
       // persisted, so leaving it standing would record the reply as handed over
