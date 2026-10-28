@@ -1,5 +1,6 @@
 // A fresh-user window hid the existing Codex sign-in by changing HOME.
 // Share its auth file like Claude's keychain, without bringing in sessions.
+// A linked home reproduces macOS paths such as /var resolving to /private/var.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +16,9 @@ function fixture() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'onboarding-codex-'));
   roots.push(root);
   const realHome = path.join(root, 'real');
+  const canonicalHome = path.join(root, 'canonical-real');
+  fs.mkdirSync(canonicalHome);
+  fs.symlinkSync(canonicalHome, realHome, 'dir');
   const fresh = path.join(root, 'fresh');
   const codexHome = path.join(realHome, '.codex-custom');
   fs.mkdirSync(codexHome, { recursive: true });
@@ -29,7 +33,7 @@ it('makes the existing sign-in visible without copying sessions or settings', ()
   prepareHome(fresh, { realHome, codexHome });
   const auth = path.join(fresh, '.codex', 'auth.json');
   expect(fs.existsSync(auth)).toBe(true);
-  expect(fs.realpathSync(auth)).toBe(path.join(codexHome, 'auth.json'));
+  expect(fs.realpathSync(auth)).toBe(fs.realpathSync(path.join(codexHome, 'auth.json')));
   expect(fs.existsSync(path.join(fresh, '.codex', 'sessions'))).toBe(false);
   expect(fs.existsSync(path.join(fresh, '.codex', 'config.toml'))).toBe(false);
 });
@@ -43,14 +47,14 @@ it('uses the configured Codex home when preparing a fresh copy', () => {
   const { fresh, realHome, codexHome } = fixture();
   vi.stubEnv('CODEX_HOME', codexHome);
   prepareHome(fresh, { realHome });
-  expect(fs.realpathSync(path.join(fresh, '.codex/auth.json'))).toBe(path.join(codexHome, 'auth.json'));
+  expect(fs.realpathSync(path.join(fresh, '.codex/auth.json'))).toBe(fs.realpathSync(path.join(codexHome, 'auth.json')));
 });
 it('uses the ordinary Codex home when none is configured', () => {
   const { fresh, realHome, codexHome } = fixture();
   vi.stubEnv('CODEX_HOME', '');
   fs.renameSync(codexHome, path.join(realHome, '.codex'));
   prepareHome(fresh, { realHome });
-  expect(fs.realpathSync(path.join(fresh, '.codex/auth.json'))).toBe(path.join(realHome, '.codex/auth.json'));
+  expect(fs.realpathSync(path.join(fresh, '.codex/auth.json'))).toBe(fs.realpathSync(path.join(realHome, '.codex/auth.json')));
 });
 it('works when there is no existing Codex login', () => {
   const { fresh, realHome, codexHome } = fixture();
