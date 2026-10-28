@@ -74,7 +74,7 @@ import {
 } from './drafts';
 import { approvalStage } from './approval-stage';
 import { roomForTheCard } from './room-for-the-card';
-import { approvalReads } from './approval-card';
+import { approvalAnswered, approvalReads } from './approval-card';
 // The new task card's two sentences: why it will not take one, and where the
 // one it took went. Only the second is raised from here, because by the time
 // there is anything to confirm the card has closed.
@@ -936,6 +936,9 @@ export default function App() {
     if (r && (r as { ok?: boolean }).ok === false) {
       setAnswered(null);
       showToast(`Not answered: ${(r as { error?: string }).error ?? 'it did not go through'}`);
+    } else if (onPhone()) {
+      // The stamp on the leaving card is a flash on a phone screen (./approval-card.ts).
+      showToast(approvalAnswered(allow));
     }
     await refresh();
   };

@@ -1521,10 +1521,13 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       key={`${item.product}:${item.id}`}
       change={changeFigures}
       onViewChange={() => onOpenDoc?.(changePathFor(item.id))}
-      terminal={direct ? null : terminalOpen ? 'open' : 'closed'}
+      /* A PHONE HAS NO TERMINAL AND NO ⌘J (QA batch 005, F-118), and it is the
+         only way it has of putting a thread off (F-117). */
+      terminal={direct || onPhone() ? null : terminalOpen ? 'open' : 'closed'}
       onToggleTerminal={() => window.dispatchEvent(new Event('task-terminal-toggle'))}
       onFinish={canFinish ? onResolve : null}
       onRunNow={waiting && onRunNow ? onRunNow : null}
+      onLater={onPhone() && canFinish ? onSnooze ?? null : null}
       // A finished thread has nothing to be pinned for.
       pinned={canFinish && onPin ? !!item.pinned : null}
       onPin={onPin}

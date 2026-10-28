@@ -114,9 +114,17 @@ describe('on a phone, the inboxes along the bottom', () => {
     expect(last('.list-pane > .th-bar', 'padding')).not.toMatch(/safe-area-inset-bottom/);
   });
 
+  // The box grew to a thumb's 44 (QA batch 005, F-121) by taking the empty
+  // room under the words, so the underline is still drawn on the line the
+  // 32px box's border drew rather than falling to the foot of a taller box,
+  // which is the thing this test has always been about. Measured in Chromium:
+  // the words sit at 8..25 from the top of the bar either way, and the line
+  // at 30..32 (a-phones-controls-are-big-enough-for-a-thumb).
   it('underline the picked one just under its word, not at the foot of the bar', () => {
-    expect(last('.tm-tab', 'height')).toBe('32px');
-    expect(last('.tm-tab', 'border-bottom')).toMatch(/2px solid transparent/);
+    expect(last('.tm-tab', 'height')).toBe('44px');
+    expect(last('.tm-tab', 'padding')).toBe('6px 0 0');
+    expect(last('.tm-tab', 'border-bottom')).toBe('0');
+    expect(last('.tm-tab.on::after', 'top')).toBe('30px');
   });
 
   it('and everything that floats above them uses the same inset', () => {

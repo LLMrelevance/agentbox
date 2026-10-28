@@ -17,6 +17,25 @@ export function webSettingsPages(computer: SettingsRow | null): Set<string> {
   return new Set(['general', 'appearance', 'phone', 'alpha', 'claude', ...(codex ? ['codex'] : []), 'running', 'projects']);
 }
 
+/**
+ * WHICH GROUPS AN AGENT'S PAGE DRAWS (F-119). It used to say "Claude Code is
+ * not on this computer" and then offer its accounts and its permission mode
+ * underneath: three answers where there is one, and nothing to sign in to.
+ */
+export function webSettingsGroups(workspace: any, engine: 'claude' | 'codex'): string[] {
+  return workspace?.[engine]?.found ? ['accounts', 'permissions'] : ['status'];
+}
+
+/**
+ * The second line on a project's row in the web app's Projects list. A project
+ * never shared with the phone says so (F-118): its settings are still the
+ * computer's to change from here, but its threads are not here.
+ */
+export function webProjectRow(project: { onPhone?: boolean; running?: number }): { desc: string | undefined } {
+  if (project.onPhone === false) return { desc: 'Not on this phone' };
+  return { desc: project.running ? `${project.running} running` : undefined };
+}
+
 /** What Settings reads: no desktop model, the computer heard from last, and every setting command, those just sent too. */
 export function webSettingsModel(rows: SettingsRow[], commands: Command[], sent: Command[]) {
   const known = new Set(commands.map((c) => c.id));
