@@ -330,12 +330,12 @@ const WORDS = new RegExp(`${esc(NEW_TITLE_MARK)}|${esc(NEW_BODY_MARK)}`, 'g');
  */
 export function fillNewThreadKit(kit, { itemId, title = '', body = '' }) {
   const n = kit?.newThread;
-  if (!n || typeof n.brief !== 'string' || typeof n.mainSha !== 'string' || !ID.test(String(itemId ?? ''))) return null;
+  if (!n || typeof n.brief !== 'string' || (!kit.plain && typeof n.mainSha !== 'string') || !ID.test(String(itemId ?? ''))) return null;
   const swap = (v) => (typeof v === 'string' ? v.split(NEW_ITEM_MARK).join(itemId)
     : Array.isArray(v) ? v.map(swap)
       : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, swap(x)])) : v);
   const { newThread: _n, ...rest } = kit;
   const filled = { ...swap(rest), item: itemId };
   const prompt = swap(n.brief).replace(WORDS, (m) => (m === NEW_TITLE_MARK ? String(title) : String(body)));
-  return { kit: filled, prompt, refs: { [`refs/heads/${filled.branch}`]: n.mainSha }, mainSha: n.mainSha };
+  return { kit: filled, prompt, refs: kit.plain ? null : { [`refs/heads/${filled.branch}`]: n.mainSha }, mainSha: kit.plain ? null : n.mainSha };
 }
