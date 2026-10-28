@@ -1228,6 +1228,29 @@ export class Supervisor {
     return cleared;
   }
 
+  /* ------------------------- when this Mac slept --------------------------- */
+  // Heard from powerMonitor (main/main.mjs). A wake with no sleep heard before
+  // it is a sleep that ended then.
+  noteSleep(at = Date.now()) {
+    this._sleeps = [...(this._sleeps ?? []).slice(-9), { from: at, to: null }];
+  }
+
+  noteWake(at = Date.now()) {
+    const last = this._sleeps?.at(-1);
+    if (last && last.to === null) last.to = at;
+    else this._sleeps = [...(this._sleeps ?? []).slice(-9), { from: at, to: at }];
+  }
+
+  // A sleep that ended after the run started, and no more than ten minutes
+  // ago. One whose wake was never heard is taken to have lasted an hour at most.
+  _sleptDuring(session, now = Date.now()) {
+    const started = session?.startedAt ?? now;
+    return (this._sleeps ?? []).some((s) => {
+      const end = s.to ?? Math.min(now, s.from + 60 * 60_000);
+      return end >= started && now - end <= 10 * 60_000;
+    });
+  }
+
   /* ---------------------- coming back after the lid ----------------------- */
   // WHAT HAPPENS WHEN SHE OPENS THE LAPTOP, and at every startup, which is what
   // covers a crash rather than a sleep.
@@ -3445,6 +3468,7 @@ export class Supervisor {
         planEnded,
         gaveUp,
         retryAt: gaveUp ? null : this.restingUntil(item),
+        slept: this._sleptDuring(session),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass

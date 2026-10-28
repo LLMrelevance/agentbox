@@ -743,6 +743,8 @@ export default function App() {
   // your name again, and you stayed on General with Sign out one tab away.
   const [settingsVisit, setSettingsVisit] = useState(0);
   const [settingsPage, setSettingsPage] = useState<string | null>(null);
+  // The same page by its full name (`project:kestrel`), for the reload note.
+  const [settingsAt, setSettingsAt] = useState<string | null>(null);
   const [productFilter, setProductFilter] = useState<string | null>(null);
   // THE BOX FILTER'S OTHER TWO PARTS (w-aa3fa4cbf0). The project part is
   // `productFilter` above, kept under its old name because the practice run and
@@ -5720,7 +5722,10 @@ export default function App() {
     if (focused) place.item = { product: focused.product, id: focused.id };
     if (focusedRepeat) place.repeat = { product: focusedRepeat.product, id: focusedRepeat.id };
     if (openDoc) place.doc = { product: openDoc.product, src: openDoc.src };
-    if (settingsOpen) place.settings = true;
+    if (settingsOpen) {
+      place.settings = true;
+      if (settingsAt) place.settingsPage = settingsAt;
+    }
     if (search !== null) place.search = search;
     if (current) place.row = current.id;
     writePlace(window.localStorage, place);
@@ -5729,7 +5734,7 @@ export default function App() {
     // would rewrite this file every ten seconds to say what it already said.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloaded, restored, view, focused?.id, focused?.product, focusedRepeat?.id,
-    openDoc?.src, openDoc?.product, settingsOpen, search, current?.id]);
+    openDoc?.src, openDoc?.product, settingsOpen, settingsAt, search, current?.id]);
 
   // READING IT BACK, once, on a page that is coming back and never on a fresh
   // launch. Opening Agentbox in the morning still opens on the inbox: that is
@@ -5759,7 +5764,10 @@ export default function App() {
     if (place.repeat && repeats.length === 0) return;
     setRestored(true);
     setView(place.view);
-    if (place.settings) setSettingsOpen(true);
+    if (place.settings) {
+      setSettingsPane(place.settingsPage ?? null);
+      setSettingsOpen(true);
+    }
     if (place.search !== undefined) {
       searchReturn.current = { view: place.view, selected: 0 };
       setSearch(place.search);
@@ -6796,6 +6804,7 @@ export default function App() {
                     // says so wherever the row is sitting, which is why this one
                     // fact is read above the In progress test in live-line.
                     silent: snap.supervisor.silent?.[focused.id] ?? null,
+                    whyNotCloud: snap.supervisor.whyNotCloud?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
                 />
@@ -7432,6 +7441,7 @@ export default function App() {
           usageReadings={snap.usageByEngine ?? (snap.usage ? [snap.usage] : [])}
           now={now}
           onSectionChange={setSettingsPage}
+          onPaneChange={setSettingsAt}
           look={pickedLook ?? look}
           onSetLook={setLook}
           keyHints={keyHints}
