@@ -169,7 +169,7 @@ export function answerWhatOnlyTheWindowAnswered(ipcMain) {
  *  sends nothing and the other reports that there is nothing to update, which
  *  is the truth for a copy run out of npm.
  */
-export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, userDir = dataDir, openExternal = openInBrowser } = {}) {
+export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, userDir = dataDir, openExternal = openInBrowser, host = null } = {}) {
   const config = loadConfig(dataDir);
   // The browser editor uses the same user files as the desktop. Finish the
   // older migrations first so only user content enters the combined file.
@@ -192,7 +192,9 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
   const store = await new Store(config).init();
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   const window = broadcastingWindow();
-  const host = nodeHost({ openExternal });
+  // A caller may bring its own three, which is how a test asks what the
+  // handlers do with an answer only a real file dialog gives.
+  host = host ?? nodeHost({ openExternal });
   // THE TEAM, as on the desktop (main/main.mjs), with no Electron: the session
   // file is plain JSON readable only by this user, kept in this copy's own
   // folder and not in the store (headlessSessionFile), and Google sign-in opens
@@ -251,6 +253,27 @@ export function picturesTheAppOwns({ config, store }) {
  * made from that key, changes when it is reset, and opens nothing but /f/.
  */
 export const fileKey = (token) => crypto.createHmac('sha256', String(token ?? '')).update('agentbox-files').digest('base64url').slice(0, 32);
+
+/**
+ * THE PAGE SAYS WHICH DOOR IT CAME THROUGH.
+ *
+ * The screen draws its canned fixtures whenever it has no bridge
+ * (renderer/src/api.ts), which is what a design preview wants and was a lie in
+ * a tab opened here with no key: three products nobody owns and fifteen threads
+ * nobody wrote, with nothing saying they were invented. This mark is how the
+ * page tells the two apart. It rides in the html because a navigation cannot
+ * read a header, and it says a door is here rather than what opens it.
+ */
+export const DOOR_MARK = '<meta name="agentbox-door" content="this-computer">';
+
+export function markTheDoor(html) {
+  const text = typeof html === 'string' ? html : String(html);
+  if (text.includes('name="agentbox-door"')) return text;
+  const head = /<head[^>]*>/i.exec(text);
+  if (!head) return DOOR_MARK + text;
+  const after = head.index + head[0].length;
+  return text.slice(0, after) + DOOR_MARK + text.slice(after);
+}
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -448,16 +471,17 @@ export function createHandler({ channels, token, listeners = new Set(), dist = p
             return;
           }
           res.writeHead(200, { 'content-type': MIME['.html'] });
-          res.end(index);
+          res.end(markTheDoor(index));
         });
         return;
       }
+      const type = MIME[path.extname(file)] ?? 'application/octet-stream';
       // A built file's name carries a hash of what is in it, so a phone may
       // keep it for good rather than fetch the screen again on every open
       // (w-f430aa863d). The page itself is never kept: it names the files.
       const kept = /^\/assets\/[^/]+$/.test(rel) ? { 'cache-control': 'public, max-age=31536000, immutable' } : {};
-      res.writeHead(200, { 'content-type': MIME[path.extname(file)] ?? 'application/octet-stream', ...kept });
-      res.end(buf);
+      res.writeHead(200, { 'content-type': type, ...kept });
+      res.end(type === MIME['.html'] ? markTheDoor(buf) : buf);
     });
   };
 }

@@ -1,5 +1,8 @@
 // HTML files kept a tall, independently scrolling frame in chat. Their compact
 // preview must offer the full reader without weakening the phone sandbox.
+// A blanket iframe rule also blocked video controls; check the reader's override
+// and keep thumbnail cards passive.
+import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createElement as h } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -14,6 +17,15 @@ const draw = (path = 'designs/review.html', expanded = false) => renderToStaticM
 }));
 
 describe('an HTML file preview', () => {
+  it('accepts clicks in the compact and expanded reader, while thumbnails stay passive', () => {
+    const css = readFileSync(new URL('../renderer/src/workspace-navigation.css', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.workspace-layout \.focus-pane \.one-frame\s*\{[^}]*pointer-events:\s*auto\s*;/);
+    expect(css).toMatch(/\.artifact-thumbnail iframe\s*\{[^}]*pointer-events:\s*none\s*;/);
+    for (const expanded of [false, true]) {
+      expect(draw('designs/review.html', expanded)).toContain(`class="one-frame${expanded ? ' is-expanded' : ''}"`);
+    }
+  });
+
   it.each(['designs/review.html', 'designs/review.htm'])('bounds %s and offers the full reader', (path) => {
     const html = draw(path);
     expect(html).toContain('document-preview-frame');
