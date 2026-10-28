@@ -6,12 +6,15 @@
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, TextInput, View } from 'react-native';
-import { modelLabelOf } from '../../../renderer/src/models';
+import { engineModelLabel } from '../../../renderer/src/models';
+import { readSettingsRows } from '../../../renderer/src/phone-rows';
 import { priorityIdOf, priorityLabelOf, priorityValueOf } from '../../../renderer/src/priority';
-import { laterHint, momentFromWords, mondayMorning, projectSwatch, tomorrowMorning } from '../../../renderer/src/threads/composer-rules';
+import { agentChoices, agentWordFor, laterHint, momentFromWords, mondayMorning, projectSwatch, tomorrowMorning, type Harness } from '../../../renderer/src/threads/composer-rules';
+import { computerAgents } from '../../../renderer/src/web-settings';
 import type { Choices } from '../lib/actions';
-import { newThreadChoices, onceAtATime, openingChoices, pickEffort, pickModel, pickProject, projectNow } from '../lib/compose';
+import { newThreadChoices, onceAtATime, openingChoices, openingEngine, openingFor, pickEffort, pickEngine, pickModel, pickProject, projectNow } from '../lib/compose';
 import { useDraft } from '../lib/drafts';
+import { computerOf } from '../lib/settings-view';
 import { appStore } from '../platform/persist';
 import { useCloud } from '../state/cloud';
 import { AttachSheet, Attached } from './Attach';
@@ -43,9 +46,28 @@ export function useNewThread(sent: () => void) {
   const [opening] = useState(() => openingChoices(projects, appStore));
   const [picked, setPicked] = useState<string | null>(null);
   const product = projectNow(projects, picked, appStore) ?? '';
-  const [model, setModel] = useState(opening.model);
-  const [effort, setEffort] = useState<string | null>(opening.effort);
-  const [sheet, setSheet] = useState<'model' | 'project' | 'priority' | 'attach' | 'later' | null>(null);
+  // WHICH CODING AGENTS THE COMPUTER OFFERS, off its settings copy
+  // (w-24119e8784): To read "Agent" and every thread went to Claude Code,
+  // whatever the computer had. Claude Code alone until the copy is read.
+  const [agents, setAgents] = useState(() => computerAgents(null));
+  useEffect(() => {
+    const cloud = c.cloud;
+    if (!cloud?.signedIn()) return;
+    let gone = false;
+    readSettingsRows((t, q) => cloud.select(t, q))
+      .then((rows) => { if (!gone) setAgents(computerAgents(computerOf(rows))); })
+      .catch(() => { /* Claude Code alone, as before */ });
+    return () => { gone = true; };
+  }, [c.cloud]);
+  const codex = { codexModels: agents.codexModels, codexDefault: agents.codexDefault };
+  const offered = agentChoices(agents.engines);
+  const [pickedEngine, setPickedEngine] = useState<Harness | null>(null);
+  const engine: Harness = offered.some((e) => e.id === pickedEngine) ? (pickedEngine as Harness) : openingEngine(appStore, agents.engines);
+  // Each agent's model and level kept apart, as the site's card keeps them.
+  const [chosen, setChosen] = useState<Partial<Record<Harness, { model: string; effort: string | null }>>>(() => ({ claude: { model: opening.model, effort: opening.effort } }));
+  const { model, effort } = chosen[engine] ?? openingFor(appStore, engine, agents.codexDefault);
+  const choose = (next: Partial<{ model: string; effort: string | null }>) => setChosen((was) => ({ ...was, [engine]: { model, effort, ...next } }));
+  const [sheet, setSheet] = useState<'to' | 'model' | 'project' | 'priority' | 'attach' | 'later' | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const projectName = useMemo(() => projects.find((p) => p.slug === product)?.name ?? '', [projects, product]);
@@ -57,7 +79,8 @@ export function useNewThread(sent: () => void) {
     pickProject(appStore, product);
     try {
       const saved = await c.attach(product, draft.files);
-      await c.send({ kind: 'new', product, text: draft.text, saved, choices: { ...newThreadChoices({ priority: draft.priority, model, effort }), ...later } }, null);
+      const harness = newThreadChoices({ priority: draft.priority, engine, model, effort, engineCount: agents.engines.length, ...codex });
+      await c.send({ kind: 'new', product, text: draft.text, saved, choices: { ...harness, ...later } }, null);
       // The draft goes only once the thread has: a failed send keeps every word on the page.
       draft.take();
       sent();
@@ -69,8 +92,12 @@ export function useNewThread(sent: () => void) {
   const [send] = useState(() => onceAtATime((later?: Choices) => latest.current(later)));
   const talk = useDictation(draft, () => void send());
   return {
-    draft, product, projectName, projects, model, setModel, effort, setEffort, sheet, setSheet, busy, error, setError, canSend, send, talk,
+    draft, product, projectName, projects, model, effort, sheet, setSheet, busy, error, setError, canSend, send, talk,
+    agents, offered, engine, codex,
     pickProject: (slug: string) => { setPicked(slug); pickProject(appStore, slug); },
+    pickEngine: (id: Harness) => { setPickedEngine(id); pickEngine(appStore, id); },
+    pickModel: (id: string) => { choose({ model: id }); pickModel(appStore, id, engine, agents.codexDefault); },
+    pickEffort: (id: string) => choose({ effort: pickEffort(appStore, effort, id, engine) }),
   };
 }
 export type NewThread = ReturnType<typeof useNewThread>;
@@ -94,11 +121,15 @@ export function SendButtons({ form }: { form: NewThread }) {
 
 /** The four rows and the message. `inline` is the empty inbox's: a shorter box that does not take the keyboard on its own. */
 export function NewThreadFields({ form, inline = false, onFocus, onBlur }: { form: NewThread; inline?: boolean; onFocus?: () => void; onBlur?: () => void }) {
-  const { draft, talk, product, projectName, model, setSheet, error } = form;
+  const { draft, talk, product, projectName, model, setSheet, error, agents, offered, engine, codex } = form;
   return (
     <>
-      <Field label="To"><T style={{ fontSize: 15 }}>Agent</T></Field>
-      <Field label="Model"><Pickable style={{ fontSize: 15 }} onPress={() => setSheet('model')}>{modelLabelOf(model)}</Pickable></Field>
+      <Field label="To">
+        {offered.length > 1
+          ? <Pickable style={{ fontSize: 15 }} onPress={() => setSheet('to')}>{agentWordFor(agents.engines, engine)}</Pickable>
+          : <T style={{ fontSize: 15 }}>Agent</T>}
+      </Field>
+      <Field label="Model"><Pickable style={{ fontSize: 15 }} onPress={() => setSheet('model')}>{engineModelLabel(engine, model, codex)}</Pickable></Field>
       <Field label="Project">
         <Pressable onPress={() => setSheet('project')} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {!!product && <Swatch slug={product} />}
@@ -153,13 +184,17 @@ export function NewThreadFoot({ form, foot = 0, send }: { form: NewThread; foot?
 
 /** The pickers the form opens. */
 export function NewThreadSheets({ form, now }: { form: NewThread; now: number }) {
-  const { draft, sheet, setSheet, model, setModel, effort, setEffort, projects, product, send, setError } = form;
+  const { draft, sheet, setSheet, model, effort, projects, product, send, setError, offered, engine, codex } = form;
   const [typed, setTyped] = useState('');
   const moment = momentFromWords(typed, now);
   return (
     <>
-      <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={effort}
-        pickModel={(id) => { setModel(id); pickModel(appStore, id); }} pickEffort={(id) => setEffort(pickEffort(appStore, effort, id))} />
+      <Sheet open={sheet === 'to'} close={() => setSheet(null)}>
+        <SheetHead>To</SheetHead>
+        {offered.map((a) => <SheetRow key={a.id} label={a.label} on={a.id === engine} onPress={() => { form.pickEngine(a.id); setSheet(null); }} />)}
+      </Sheet>
+      <ModelSheet open={sheet === 'model'} close={() => setSheet(null)} model={model} effort={effort} engine={engine} codex={codex}
+        pickModel={form.pickModel} pickEffort={form.pickEffort} />
       <PrioritySheet open={sheet === 'priority'} close={() => setSheet(null)} value={priorityValueOf(draft.priority ?? 'medium')} pick={(v) => draft.setPriority(priorityIdOf(v))} />
       <AttachSheet open={sheet === 'attach'} close={() => setSheet(null)} add={(more) => draft.setFiles((f) => [...f, ...more])} fail={setError} />
       <Sheet open={sheet === 'project'} close={() => setSheet(null)}>
