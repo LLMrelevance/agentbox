@@ -1,5 +1,4 @@
-// The cards over Everything else: two rows unless you choose otherwise, the
-// rest scrolled to, a line under them, and over an open chat a grip.
+// The cards over Everything else: two rows unless you choose otherwise.
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from 'react';
 import { HiddenList } from './TeamStrip';
 import { moreLine, rowsAfterDrag, rowsShown, type CardRows, type Member } from './members';
@@ -24,10 +23,8 @@ function measure(box: HTMLElement): Row[] {
 
 const same = (a: Row[], b: Row[]) => a.length === b.length && a.every((r, i) => r.top === b[i].top && r.end === b[i].end && r.members === b[i].members);
 
-export function CardsArea({ rows: choice, onRows, picked, grip, hidden, onShow, children }: {
+export function CardsArea({ rows: choice, onRows, picked, hidden, onShow, children }: {
   rows: CardRows; onRows: (rows: CardRows) => void; picked: string | null;
-  /** Over an open chat, so the cards can be dragged shorter and the chat get the room. */
-  grip: boolean;
   hidden: Member[]; onShow: (m: Member) => void; children: ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -80,11 +77,10 @@ export function CardsArea({ rows: choice, onRows, picked, grip, hidden, onShow, 
       {line && <button type="button" className="ev-more" onClick={onLine}>{line.words}</button>}
       <HiddenList hidden={hidden} onShow={onShow} />
     </div>}
-    {grip && <Grip box={box} ends={rows.map((r) => r.end)} shown={shown} choice={choice} onRows={choose} />}
+    <Grip box={box} ends={rows.map((r) => r.end)} shown={shown} choice={choice} onRows={choose} />
   </>;
 }
 
-/** Between the cards and an open chat: drag it up and the cards give the chat their rows. */
 function Grip({ box, ends, shown, choice, onRows }: {
   box: RefObject<HTMLDivElement | null>; ends: number[]; shown: number; choice: CardRows; onRows: (rows: CardRows) => void;
 }) {
@@ -109,7 +105,7 @@ function Grip({ box, ends, shown, choice, onRows }: {
     const next = e.key === 'ArrowUp' ? Math.max(0, shown - 1) : shown + 1;
     onRows(next >= ends.length ? 'all' : next);
   };
-  return <div className="ev-grip" role="separator" aria-orientation="horizontal" aria-label="Drag to make the chat taller"
-    title="Drag to make the chat taller. Double-click for two rows of cards." tabIndex={0}
+  return <div className="ev-grip" role="separator" aria-orientation="horizontal" aria-label="Drag to resize the cards"
+    title="Drag to resize the cards. Double-click for two rows of cards." tabIndex={0}
     onPointerDown={start} onDoubleClick={() => onRows(null)} onKeyDown={keys} />;
 }
