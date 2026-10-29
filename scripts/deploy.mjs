@@ -87,7 +87,9 @@ console.log(`  main is at ${commit.slice(0, 8)}${checkOnly && behind ? ` (this f
 // is how the same number went out twice.
 say('picking the version');
 const tags = quiet('git', ['ls-remote', '--tags', `https://github.com/${RELEASE_REPO}.git`], 30_000);
-const onNpm = quiet('npm', ['view', PACKAGE, 'versions', '--json', '--fetch-timeout=20000'], 40_000);
+// --prefer-online on every `npm view`: npm's cache of the package can be
+// minutes old, and on 0.1.20 it called a finished release unfinished.
+const onNpm = quiet('npm', ['view', PACKAGE, 'versions', '--json', '--prefer-online', '--fetch-timeout=20000'], 40_000);
 if (!tags.ok || !onNpm.ok) stop('Could not read which versions are already out, from GitHub and npm. Check the internet connection.');
 const taken = [
   ...tags.out.split('\n').flatMap((l) => l.match(/refs\/tags\/v([\d.]+)$/)?.[1] ?? []),
@@ -226,7 +228,7 @@ const serverOk = live('node', ['scripts/cloud-gateway-setup.mjs'], { AGENTBOX_CL
 // ---------------------------------------------------------------------------
 // 8. EACH PLACE, READ BACK.
 say('reading back what is live');
-const npmNow = quiet('npm', ['view', PACKAGE, 'version', '--fetch-timeout=20000'], 30_000);
+const npmNow = quiet('npm', ['view', PACKAGE, 'version', '--prefer-online', '--fetch-timeout=20000'], 30_000);
 const tagNow = quiet('gh', ['release', 'view', '--repo', RELEASE_REPO, '--json', 'tagName', '--jq', '.tagName']);
 const feedNow = quiet('curl', ['-sL', '-m', '20', `https://github.com/${RELEASE_REPO}/releases/latest/download/latest-mac.yml`]);
 const serverNow = quiet('aws', ['lambda', 'get-function-configuration', '--region', REGION, '--function-name', SERVER,

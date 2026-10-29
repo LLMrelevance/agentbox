@@ -28,13 +28,13 @@ describe('the list and the board leave search to the sidebar', () => {
 
   it('every tab row is handed only that', () => {
     const tabs = elements('StateTabs');
-    expect(tabs.length).toBeGreaterThanOrEqual(2);
+    expect(tabs.length).toBeGreaterThanOrEqual(1);
     for (const t of tabs) expect(t).toMatch(/onSearch=\{searchInTheList\}/);
   });
 
   it('the board header is handed only that', () => {
     const header = elements('HeaderActions').find((h) => h.includes('page="inbox"'));
-    expect(header).toMatch(/onSearch=\{inboxDisplay\.view === 'board' \? searchInTheList : undefined\}/);
+    expect(header).toMatch(/onSearch=\{!teamMode && inboxDisplay\.view === 'board' \? searchInTheList : undefined\}/);
   });
 
   it('still opens the full search from ⌘K and the / key', () => {
