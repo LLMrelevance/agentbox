@@ -34,6 +34,15 @@
 
 There are two ways to run it: in the browser, or as a Mac app. Both need Node 22 and Claude Code or Codex installed and signed in.
 
+**As a desktop app.** Build it from this repo. `npm start` is the desktop command on Omarchy and on a Mac:
+
+```
+git clone https://github.com/savannahfeder/agentbox.git
+cd agentbox
+npm install
+npm start
+```
+
 **In your browser.** One command, nothing to install first:
 
 ```
@@ -48,15 +57,6 @@ From a checkout, build the screen once, then start it the same way. The install 
 npm install
 npm run build
 npx agentbox-app
-```
-
-**As a desktop app.** Build it from this repo. `npm start` is the desktop command on Omarchy and on a Mac:
-
-```
-git clone https://github.com/savannahfeder/agentbox.git
-cd agentbox
-npm install
-npm start
 ```
 
 On Linux, `npm install` puts `agentbox` on `~/.local/bin` and adds the app to the launcher. The entry is `$XDG_DATA_HOME/applications/agentbox.desktop` (`~/.local/share/applications` when that variable is unset), and it runs `agentbox`. That command starts this checkout, and it is written before Electron has downloaded its binary, so the first launch off the launcher does that download. Open the app from the launcher.
