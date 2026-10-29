@@ -495,7 +495,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
               ))}
               <div role="option" aria-selected={cursor === places.length} className={`ob-item${cursor === places.length ? ' ob-on' : ''}`}
                 onMouseEnter={() => setCursor(places.length)} onClick={() => pickPlace(places.length)}>
-                <div className="ob-slot"><span className="ob-plus">+</span></div>
+                {places.length > 0 && <div className="ob-slot"><span className="ob-plus">+</span></div>}
                 <div className={`ob-name${cursor === places.length ? '' : ' ob-dim'}`}><span>{places.length ? 'Choose another folder' : 'Choose its folder'}</span></div>
               </div>
             </div>

@@ -55,6 +55,12 @@ describe('the project screen', () => {
     expect(between('const pickPlace = useCallback', '}, [')).toContain('void chooseAnother()');
   });
 
+  it('centers a lone row on its words, with no plus beside them', () => {
+    expect(where).toContain('{places.length > 0 && <div className="ob-slot"><span className="ob-plus">+</span></div>}');
+    const css = fs.readFileSync(new URL('../renderer/src/components/first-run.css', import.meta.url), 'utf8');
+    expect(css).toContain('.first-run .ob-places.ob-alone .ob-item { grid-template-columns: auto; }');
+  });
+
   it('sends the task to the folder just chosen, with nothing more to press', () => {
     expect(between('const chooseFolder = useCallback', '}, [')).toContain('void sendTo(folder)');
   });
