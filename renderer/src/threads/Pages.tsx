@@ -557,8 +557,8 @@ const ClearMark = () => <svg className="th-clear-mark" width="22" height="22" vi
 
 /** The other tabs, empty: one quiet line where the rows would be. The words
  *  are in ./page-rules (`emptyTabWords`), where a test can read them. */
-export function EmptyTab({ view, starting = false }: { view: TabView; starting?: boolean }) {
-  return <div className="th-empty"><span>{emptyTabWords(view, starting)}</span></div>;
+export function EmptyTab({ view, starting = false, waiting = 0 }: { view: TabView; starting?: boolean; waiting?: number }) {
+  return <div className="th-empty"><span>{emptyTabWords(view, starting, waiting)}</span></div>;
 }
 
 /* ------------------------------------------------------------ one thread's cells */

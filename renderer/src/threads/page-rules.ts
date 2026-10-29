@@ -419,9 +419,17 @@ export function filteredEmptyWords(view: TabName | string, hidden: number): { he
  * `starting` is a send whose row has not landed yet, and it only changes In
  * progress: Later and Done say nothing about a task on its way to them. Here
  * rather than in the component so a test can read the words.
+ *
+ * `waiting` is what Needs you holds, because "Nothing is running." alone was
+ * read as the first task having vanished, the tab beside it holding the thread
+ * that had just finished (F-142).
  */
-export function emptyTabWords(view: View | string, starting = false): string {
-  if (view === 'progress') return starting ? 'Starting your task…' : 'Nothing is running.';
+export function emptyTabWords(view: View | string, starting = false, waiting = 0): string {
+  if (view === 'progress') {
+    if (starting) return 'Starting your task…';
+    if (!waiting) return 'Nothing is running.';
+    return `Nothing is running. ${waiting === 1 ? 'One thread waits' : `${waiting} threads wait`} in Needs you.`;
+  }
   // A finished thread waits in Needs you until its owner closes it, which a
   // persona read as the app losing it.
   return {
