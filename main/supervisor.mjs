@@ -634,6 +634,8 @@ export class Supervisor {
       }
       // How many times the cloud has handed each thread back (`_keptHereByUs`).
       this.cloudHandBacks = Object.fromEntries(Object.entries(state.cloudHandBacks ?? {}).filter(([, v]) => Number.isFinite(v)));
+      // What each handed-back thread needed, for its cloud button's panel.
+      this._movedWhy = Object.fromEntries(Object.entries(state.movedWhy ?? {}).filter(([, v]) => v && typeof v.why === 'string'));
     } catch {
       this._handledAnswers = new Set();
       this._resumedWaits = new Set();
@@ -3997,7 +3999,7 @@ export class Supervisor {
       // Their choice either way replaces the app's count of hand-backs too, so
       // "Run on the cloud" on a thread the app kept here sends it back now and
       // the cloud gets two fresh chances before it is kept again.
-      if (keep !== undefined && this.cloudHandBacks?.[id]) { delete this.cloudHandBacks[id]; changed = true; }
+      if (keep !== undefined && this.cloudHandBacks?.[id]) { delete this.cloudHandBacks[id]; delete this._movedWhy?.[id]; changed = true; }
       if (keep === null || keep === false) this._handedBack?.delete(id);
       const session = this.sessions.get(id);
       // A cloud run picked back up after a restart is followed in `_comingHome`, not `sessions`.
@@ -4146,8 +4148,10 @@ export class Supervisor {
       const place = this.threadPlaces[i.id];
       const pinned = this.threadPins[i.id] === true;
       const onMac = this.threadOnMac[i.id] === true || this._keptHereByUs(i.id);
-      if (!Number.isFinite(place) && !pinned && !onMac) return i;
-      return { ...i, ...(pinned ? { pinned: true } : {}), ...(Number.isFinite(place) ? { place } : {}), ...(onMac ? { onMac: true } : {}) };
+      const moved = this._keptHereByUs(i.id) || i.id in (this.movedToMac ?? {});
+      const needsMac = moved && this._movedWhy?.[i.id]?.why === 'handed-back' ? this._movedWhy[i.id].detail ?? null : null;
+      if (!Number.isFinite(place) && !pinned && !onMac && !needsMac) return i;
+      return { ...i, ...(pinned ? { pinned: true } : {}), ...(Number.isFinite(place) ? { place } : {}), ...(onMac ? { onMac: true } : {}), ...(needsMac ? { needsMac } : {}) };
     });
   }
 
@@ -4958,6 +4962,8 @@ export class Supervisor {
       notInCloud: setUp ? this._cloudNotSignedInHere(now) : [],
       signIns: setUp ? this._cloudSignInsNow() : [],
       projects: setUp ? (this.store.listProducts?.() ?? []).filter((p) => this._cloudTakesProject(p)).map((p) => p.slug) : [],
+      // The Agentbox Cloud plan the server last said ('none' is no plan).
+      plan: this.cloudPlan ?? null,
       // Runs on this Mac it could take now (`_movableToCloud`).
       movable: setUp && this.sessions.size && this._cloudUsable('claude') ? this._movableIds(this.store.listItems(now)) : [],
     };
@@ -6480,6 +6486,7 @@ export class Supervisor {
         threadOnMac: this.threadOnMac,
         movedToMac: this.movedToMac,
         cloudHandBacks: Object.fromEntries(Object.entries(this.cloudHandBacks ?? {}).slice(-500)),
+        movedWhy: Object.fromEntries(Object.entries(this._movedWhy ?? {}).slice(-500)),
         liveSessions: this._liveSessions,
         rowSessions: this._rowSessions,
         stoppedSessions: this._stoppedSessions,

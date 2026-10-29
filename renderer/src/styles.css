@@ -1666,9 +1666,6 @@ body {
 }
 .live-word { color: var(--text-dim); font-weight: 500; }
 .live-span { color: var(--text-faint); font-variant-numeric: tabular-nums; }
-/* Beside "on this Mac": the cloud menu's small square button. */
-.live-move { flex: none; height: 24px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: var(--tag-radius); background: none; color: var(--text-dim); font: inherit; font-size: 12.5px; cursor: pointer; }
-.live-move:hover { color: var(--text); border-color: var(--text-faint); }
 /* THE SHIMMER. A soft band travelling through predominantly full ink, which is what
    Claude Code and Codex both do to say "this word is live" without moving the
    word. The letters keep solid ink and the band is a moving mask over them, so

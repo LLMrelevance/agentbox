@@ -24,7 +24,7 @@ const TICK_MS = 15_000;
 // Only this lowest status line owns the lattice and shimmer (2026-09-19).
 // The task header repeats status in plain text, never another animation.
 
-export function Live({ item, facts, onMoveToCloud }: { item: WorkItem; facts: LiveFacts; onMoveToCloud?: () => void }) {
+export function Live({ item, facts }: { item: WorkItem; facts: LiveFacts }) {
   const [expanded, setExpanded] = useState(false);
   const detailId = useId();
   const [history, setHistory] = useState<AgentWork[]>([]);
@@ -79,7 +79,7 @@ export function Live({ item, facts, onMoveToCloud }: { item: WorkItem; facts: Li
   const activity = facts.session?.activity ?? [];
   const current = activity[activity.length - 1];
   const word = working ? (current?.label || 'Thinking') : shortWord(live.state, facts.session?.helpers ?? 0);
-  const place = working ? livePlace({ ...facts, movable: facts.movable || !!onMoveToCloud }) : null;
+  const place = working ? livePlace(facts) : null;
   const finished = previousActivity(history, activity);
   // The newest few, oldest at the top and what is running now at the foot, the
   // way Codex stacks them. The rest of this group is one quiet count.
@@ -108,7 +108,6 @@ export function Live({ item, facts, onMoveToCloud }: { item: WorkItem; facts: Li
             <svg className="live-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="m4 2 4 4-4 4" /></svg>
           </button>
         ) : <span className="live-word">{live.state === 'signin' || live.state === 'limit' ? live.line : word}</span>}
-        {working && onMoveToCloud && <button type="button" className="live-move" onClick={onMoveToCloud}>Move to cloud</button>}
         {!working && span && <span className="live-span">{span}</span>}
         <span className="live-announcement" role="status">{working ? word : live.line}</span>
       </div>

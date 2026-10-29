@@ -100,8 +100,6 @@ export interface LiveFacts {
   paused?: boolean;
   /** `supervisor.whyNotCloud[id]`: why it runs locally or waits, with the cloud on Everything. */
   whyNotCloud?: WhyNotCloud | null;
-  /** A run here the cloud could take now (CloudStatus `movable`). */
-  movable?: boolean;
   /** How many workers are up, and how many may be. Both measured, both real. */
   running?: number;
   capacity?: number;
@@ -218,9 +216,8 @@ export function livePlace(facts: LiveFacts, { mac = MAC, tab = inATab() }: { mac
   if (!session) return null;
   if (session.where === 'cloud') return { word: 'in the cloud', why: null };
   const away = facts.whyNotCloud;
+  if (away?.at !== 'mac') return null;
   const machine = tab ? 'your computer' : mac ? 'this Mac' : 'this computer';
-  // Said beside its Move to cloud button whatever the cloud is set to.
-  if (away?.at !== 'mac') return facts.movable ? { word: `on ${machine}`, why: null } : null;
   return { word: `on ${machine}`, why: { head: `Running on ${machine}`, body: whyWords(away).body } };
 }
 

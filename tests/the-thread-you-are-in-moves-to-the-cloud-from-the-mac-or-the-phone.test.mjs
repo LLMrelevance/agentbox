@@ -23,8 +23,8 @@ import { createPhoneInbox, applyThrough } from '../main/phone-inbox.mjs';
 import { PHONE_COMMANDS } from '../shared/phone-snapshot.mjs';
 import { REQUEST_CHANNELS } from '../shared/bridge-map.mjs';
 import { threadPlace } from '../renderer/src/cloud-menu.ts';
-import { livePlace } from '../renderer/src/live-line.ts';
-import { Live } from '../renderer/src/components/Live';
+import { ThreadMenu } from '../renderer/src/threads/ThreadMenu.tsx';
+import { placeView } from '../renderer/src/threads/PlaceButton.tsx';
 import { ThreadCells, MoveToCloudContext } from '../renderer/src/threads/Pages.tsx';
 import { FleetContext } from '../renderer/src/fleet.ts';
 import { commandFor, phoneView, phoneSlug } from '../renderer/src/phone-rows';
@@ -90,15 +90,12 @@ describe('on the Mac', () => {
     expect(threadPlace({ id: 'w-b', product: 'p' }, {}, cloud)).toBe('here');
   });
 
-  it('the working line has a Move to cloud button beside "on this Mac", and none on a run that cannot move', () => {
-    const session = { startedAt: NOW - 3 * 60_000, tail: [], activity: [{ id: 'a', label: 'Editing App.tsx', detail: '', startedAt: NOW }] };
-    const draw = (props) => renderToStaticMarkup(React.createElement(Live, { item: { id: 'w-a', status: 'claimed' }, ...props }));
-    const moving = draw({ facts: { session }, onMoveToCloud: () => {} });
-    expect(moving).toContain('>Move to cloud</button>');
-    expect(moving).toContain('on this');
-    expect(draw({ facts: { session } })).not.toContain('Move to cloud');
-    expect(livePlace({ session, movable: true }, { mac: true, tab: false })).toEqual({ word: 'on this Mac', why: null });
-    expect(livePlace({ session }, { mac: true, tab: false })).toBeNull();
+  // The working line's own button was turned down ("looks very bad"); the top
+  // bar's place button carries the move (the-cloud-button-on-a-thread-...).
+  it('the top bar says the run is on this Mac, and picking Cloud moves it', () => {
+    const html = renderToStaticMarkup(React.createElement(ThreadMenu, { onFinish: () => {}, place: 'move', onPlace: () => {} }));
+    expect(html).toMatch(/class="ts-done ts-place[^"]*"[^>]*>.*This Mac/);
+    expect(placeView({ place: 'move' }).pickCloud).toBe('move');
   });
 
   it('the list row offers it on hover', () => {

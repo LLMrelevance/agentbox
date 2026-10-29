@@ -16,6 +16,8 @@ export interface WorkItem {
   pinned?: boolean;
   /** Kept on this Mac whatever the cloud is set to (Supervisor#setThreadOnMac). */
   onMac?: boolean;
+  /** What the cloud handed this thread back for, in the run's own words ("your Stripe key"). */
+  needsMac?: string;
   // WHAT PEOPLE PUT ON EACH MESSAGE IN A CONVERSATION (w-560647d4db): by the
   // message's line uid, then by emoji, then the people on it. Folded out of the
   // presses the ledger holds (shared/work-items.mjs); absent on every row

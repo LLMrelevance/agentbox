@@ -102,6 +102,7 @@ import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
+import { whyWords } from '../where-why';
 import { offersRunNow } from '../run-now';
 import { AttachRow } from './AttachRow';
 import { BackToWhatSheWasReading } from './UrgentBar';
@@ -1533,6 +1534,12 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       onPin={onPin}
       // A finished thread runs nowhere.
       place={canFinish ? runsIn : null}
+      placeFacts={{
+        running: !!session && session.where !== 'cloud',
+        moving: live.whyNotCloud?.why === 'moving',
+        why: live.whyNotCloud ? whyWords(live.whyNotCloud).body : null,
+        needs: item.needsMac ?? null,
+      }}
       onPlace={onPlace}
     />
   );
@@ -1950,8 +1957,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             (w-6246b0c91f). Handing them to `Live` as
             well is what made one screen say "Codex" twice. */}
         {/* A chat says nothing about agents until one you called in is working. */}
-        {!heldByPerson && !(inChats && !session) && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }}
-          onMoveToCloud={runsIn === 'move' && onPlace ? () => onPlace('move') : undefined} />}
+        {!heldByPerson && !(inChats && !session) && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }} />}
 
         {/* NO LINE UNDER A CONVERSATION OFFERING TO HAND IT TO AN AGENT
             (w-2e8aa16f0f): it read as one more message, and it made the whole

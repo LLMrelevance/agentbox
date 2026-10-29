@@ -180,8 +180,9 @@ describe('with the cloud on "when this Mac is full"', () => {
     expect(threadPlace({ id: 'w-a', product: 'p' }, {}, cloud)).toBe('move');
     expect(threadPlace({ id: 'w-b', product: 'p' }, {}, cloud)).toBe('here');
     expect(threadPlace({ id: 'w-a', product: 'p' }, {}, { ...cloud, mode: 'all' })).toBe('move');
-    expect(threadMenuRows({ change: false, terminal: null, finish: true, place: 'move' })[0]).toEqual({ id: 'place', ...PLACE_ROW.move, key: null });
+    // ⌘K still offers it by these words; the ⋯ menu no longer has the row.
     expect(PLACE_ROW.move.label).toBe('Move to the cloud');
+    expect(threadMenuRows({ change: false, terminal: null, finish: true }).map((r) => r.id)).toEqual(['done']);
   });
 });
 

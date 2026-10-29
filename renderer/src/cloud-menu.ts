@@ -83,6 +83,8 @@ export interface CloudStatus {
   versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
   /** The slugs of the projects whose threads the cloud may run (supervisor `_cloudTakesProject`). */
   projects?: string[];
+  /** The Agentbox Cloud plan the server last said; 'none' is no plan. */
+  plan?: string | null;
   /** Runs on this Mac the cloud could take now (supervisor `_movableToCloud`). */
   movable?: string[];
 }
@@ -244,6 +246,12 @@ export function cloudMonthLine(month: CloudMonth): string {
   return `${hours(month.agentHours)} agent-hours`;
 }
 
+/** Set up for the cloud, and not on Agentbox Cloud without a plan. */
+export function onCloudPlan(cloud: CloudStatus | null | undefined): cloud is CloudStatus {
+  if (!cloud?.setUp) return false;
+  return !(cloud.managed && (cloud.plan === 'none' || cloud.noRoom?.error === 'plan'));
+}
+
 /**
  * WHERE ONE THREAD RUNS, for its menu's row (threads/ThreadMenu.tsx): in the
  * cloud now, kept on this Mac, or here and free to go to the cloud. Null where
@@ -251,14 +259,15 @@ export function cloudMonthLine(month: CloudMonth): string {
  * not kept, or a project the cloud does not take.
  */
 export function threadPlace(
-  item: { id: string; product: string; onMac?: boolean; labels?: string[] },
+  item: { id: string; product: string; onMac?: boolean; needsMac?: string; labels?: string[] },
   session: { where?: string; movable?: boolean } | null,
   cloud: CloudStatus | null,
-): 'cloud' | 'here' | 'kept' | 'move' | null {
+): 'cloud' | 'here' | 'kept' | 'move' | 'needs' | null {
   if (teammateIdOf(item)) return null;
   // The phone has no cloud status, only the computer's word on each run.
   if (session?.movable && session.where !== 'cloud') return 'move';
-  if (!cloud?.setUp) return null;
+  if (!onCloudPlan(cloud)) return null;
+  if (item.needsMac) return 'needs';
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;
