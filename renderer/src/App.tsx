@@ -182,6 +182,7 @@ import { ProjectShare, ProjectWho } from './team/ProjectShare';
 import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, MoveToCloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
+import { factsFor } from './status-word';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
 import type { PlaceAct } from './threads/ThreadMenu';
@@ -6842,28 +6843,19 @@ export default function App() {
                   onSnooze={walking ? undefined : () => openSnooze(focused)}
                   onReopen={() => sendBack(focused)}
                   session={snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null}
-                  // WHAT THE FLEET IS DOING ABOUT THIS ROW. All of it was
-                  // already on the snapshot; the pane simply never read any of
-                  // it, so a task she opened could not say whether an agent was
-                  // on it, waiting for a slot, or not coming. `inProgress` is
-                  // the tab's own rule rather than a fourth definition of what
-                  // is under way: `stoppable` IS `belongsInProgress`, and one
-                  // rule is the point of that file.
+                  // WHAT THE FLEET IS DOING ABOUT THIS ROW, through `factsFor`,
+                  // which is the builder every row already reads. Written out
+                  // by hand here, it fell a fact behind the rows and the pane
+                  // said the wrong thing (w-93ab9b1fcb). What is added below is
+                  // only what no row needs. `inProgress` is the tab's own rule
+                  // rather than a fourth definition of what is under way:
+                  // `stoppable` IS `belongsInProgress`, and one rule is the
+                  // point of that file.
                   live={{
-                    queued: snap.supervisor.queued,
-                    signInNeeded: snap.supervisor.signInNeeded,
-                    atLimit: snap.supervisor.atLimit,
-                    runNow: snap.supervisor.runNow,
-                    paused: snap.supervisor.paused,
+                    ...factsFor(fleet, focused.id),
                     running: snap.supervisor.running.length,
                     capacity: snap.supervisor.capacity,
                     inProgress: belongsInProgress(focused, { deferredUntil: dueAt(focused), now, live: liveIds.has(focused.id), shipping: shippingIds.has(focused.id), stopped: stalledIds.has(focused.id) }),
-                    shipping: shippingIds.has(focused.id),
-                    // A run ended on this row and wrote nothing down. The pane
-                    // says so wherever the row is sitting, which is why this one
-                    // fact is read above the In progress test in live-line.
-                    silent: snap.supervisor.silent?.[focused.id] ?? null,
-                    whyNotCloud: snap.supervisor.whyNotCloud?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
                 />

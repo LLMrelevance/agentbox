@@ -6,10 +6,11 @@
 // `certain` says we may tell them it is missing, and is meant to be hard to earn.
 //
 // The user's login shell is asked first, because it has their real PATH and
-// profile. The fixed list is for when it cannot answer: a double-clicked
-// Electron app inherits launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin), which
-// has no nvm, volta or Homebrew. A shell probe that throws falls through to the
-// list and does not count as an answer.
+// profile. Then the PATH this app was started with, which a login shell on
+// Debian throws away (/etc/profile sets PATH outright). The fixed list is last,
+// for when neither can answer: a double-clicked Electron app inherits launchd's
+// PATH (/usr/bin:/bin:/usr/sbin:/sbin), which has no nvm, volta or Homebrew. A
+// shell probe that throws falls through and does not count as an answer.
 //
 // A path somebody set (`claudeBin`, `codexBin`) wins and is never searched
 // around; that is what makes "point at it yourself" work (main/ipc.mjs,
@@ -411,6 +412,15 @@ function askedShell(lookup) {
 }
 
 /**
+ * The directories on the PATH the app was started with. Absolute ones only:
+ * `.` and the empty entry both mean whatever folder the app sits in, which is
+ * nobody's install.
+ */
+export function pathDirs(env = process.env) {
+  return String(env?.PATH ?? '').split(path.delimiter).filter((dir) => dir.startsWith('/'));
+}
+
+/**
  * The first trace the tool left behind, or null. Never spawned; it only stops
  * the app saying the tool is missing. A dangling candidate counts too.
  */
@@ -453,6 +463,15 @@ export function findEngine(key, {
   const searched = spec.candidates(home, readdir);
   if (fromShell.path) {
     return { path: fromShell.path, found: true, certain: true, from: 'shell', searched, evidence: null };
+  }
+
+  // Above the list because it is a fact about this machine and the list is a
+  // guess about it. Only the directories the list does not already hold, so a
+  // hit anywhere the list covers is still the list's, in the list's own order.
+  const onList = new Set(searched);
+  for (const candidate of pathDirs(env).map((dir) => path.join(dir, spec.bin))) {
+    if (onList.has(candidate)) continue;
+    if (exists(candidate)) return { path: candidate, found: true, certain: true, from: 'path', searched, evidence: null };
   }
 
   for (const candidate of searched) {
