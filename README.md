@@ -85,22 +85,6 @@ someone to review the work at the right moment. Agentbox drops the chat window
 and gives each agent a row in an inbox instead, so you can run far more of them
 than you could ever watch and only deal with one when it actually needs you.
 
-## An interface that helps you hyperfocus
-
-The app keeps one decision in front of you at a time.
-
-- **You only see the agents that need you.** Anything still working stays out
-  of the inbox, so there is nothing to check on and no window to watch.
-- **Each one opens as a single card.** What the agent did, what it needs from
-  you, and the options it is offering, numbered.
-- **One key answers it.** `1` `2` `3` take an option, `E` approves the
-  recommendation, `R` replies in your own words. The next card is already on
-  screen.
-- **Urgent tasks first.** Your project order decides the rest, so the card in
-  front of you is always the one worth answering next.
-
-<img src="docs/readme/hyperfocus.webp" alt="An agent's card shows what it found and three numbered options, then a key is pressed and the next card is already there" width="100%">
-
 ## How it works
 
 ### 1. File the work
@@ -153,6 +137,22 @@ editing the test instead of the code, which is exactly the moment you want to be
 asked. Code changes open right beside the row.
 
 <img src="docs/readme/loop.webp" alt="An agent reports the usage test passes; the change beside it shows it edited the expected value in the test, and the reply sends it back to fix the code" width="100%">
+
+## An interface that helps you hyperfocus
+
+The app keeps one decision in front of you at a time.
+
+- **You only see the agents that need you.** Anything still working stays out
+  of the inbox, so there is nothing to check on and no window to watch.
+- **Each one opens as a single card.** What the agent did, what it needs from
+  you, and the options it is offering, numbered.
+- **One key answers it.** `1` `2` `3` take an option, `E` approves the
+  recommendation, `R` replies in your own words. The next card is already on
+  screen.
+- **Urgent tasks first.** Your project order decides the rest, so the card in
+  front of you is always the one worth answering next.
+
+<img src="docs/readme/hyperfocus.webp" alt="An agent's card shows what it found and three numbered options, then a key is pressed and the next card is already there" width="100%">
 
 ## What matters most goes first
 
