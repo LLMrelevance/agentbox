@@ -2,7 +2,7 @@
 // beside the words and a box to type in at the foot. Its name over the chat
 // switches group; People sits at the bar's right. A reply opens its thread,
 // as on the desktop (renderer/src/team/rooms/RoomChat.tsx).
-import { useEffect, useMemo, useRef, useState, type ComponentRef } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentRef, type ReactNode } from 'react';
 import { AppState, KeyboardAvoidingView, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import type { Room, RoomMessage } from '../../../renderer/src/types';
@@ -124,7 +124,8 @@ function Switcher({ rooms, current, open, close, pick, now }: { rooms: Room[]; c
   );
 }
 
-export function GroupsPlace() {
+/** `tabs` are the inbox's tabs, drawn under the bar as the inbox draws them. */
+export function GroupsPlace({ tabs }: { tabs?: ReactNode } = {}) {
   const c = useCloud();
   const g = useGroups();
   const rooms = g.state.rooms;
@@ -163,13 +164,13 @@ export function GroupsPlace() {
 
   if (!g.state.ready) {
     return <>
-      <TopBar title="Groups" />
+      <TopBar title="Groups" below={tabs} />
       <View style={{ flex: 1 }}>{g.state.error && <T style={{ padding: size.inset, fontSize: 14, color: color.dim }}>{g.state.error}</T>}</View>
     </>;
   }
   if (!room) {
     return <>
-      <TopBar title="Groups" />
+      <TopBar title="Groups" below={tabs} />
       <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: 32, paddingBottom: 80 }}>
         <T style={{ fontFamily: font.medium, fontSize: 18, lineHeight: 23, marginBottom: 8 }}>You are not in any groups yet.</T>
         <T style={{ fontSize: 14, lineHeight: 21, color: color.dim }}>{`Start one or find one to join in ${Name} on your computer. It shows up here.`}</T>
@@ -202,7 +203,7 @@ export function GroupsPlace() {
   return (
     <>
       <TopBar left={root ? <IconButton label="Back to the chat" onPress={() => setThread(null)}><Back size={18} /></IconButton> : undefined} title={title}
-        right={<IconButton label="People" onPress={() => setSheet('people')}><PeopleGlyph /></IconButton>} />
+        right={<IconButton label="People" onPress={() => setSheet('people')}><PeopleGlyph /></IconButton>} below={root ? undefined : tabs} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView ref={scroll} style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: size.inset, paddingBottom: 16 }} keyboardShouldPersistTaps="handled"
           onContentSizeChange={() => scroll.current?.scrollToEnd({ animated: false })}>

@@ -13,6 +13,9 @@
 .first-run * { box-sizing: border-box; }
 .first-run button { font: inherit; cursor: pointer; }
 .first-run button:disabled { cursor: default; }
+.first-run .ob-back { position: absolute; left: 40px; top: 64px; z-index: 3; display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px; border: 0; border-radius: 0; background: transparent; color: var(--text-dim); font-size: 14px; }
+.first-run .ob-back:hover:not(:disabled), .first-run .ob-back:focus-visible { background: var(--wash-strong); color: var(--text); }
+.first-run .ob-back:disabled { opacity: .5; }
 
 .first-run .ob-screen { position: absolute; inset: 0; transition: opacity .26s ease, transform .26s cubic-bezier(.2, .7, .2, 1); }
 .first-run .ob-screen.ob-leaving { opacity: 0; transform: translateY(-10px); }
@@ -95,7 +98,6 @@
 }
 .first-run .ob-write::placeholder { color: var(--text-faint); }
 .first-run .ob-bar { display: flex; align-items: center; justify-content: space-between; margin-top: 16px; }
-.first-run .ob-folder-note { margin: 12px 0 0; font-size: 14px; color: var(--text-dim); }
 .first-run .fp-title { margin: 0 0 4px; font-size: 18px; line-height: 24px; font-weight: 500; }
 .first-run .ob-chips { display: flex; gap: 10px; }
 .first-run .ob-chip { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 13px; font-size: 15px; color: var(--text-dim); border: 1px solid var(--line-strong); background: var(--film-strong); white-space: nowrap; }

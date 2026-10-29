@@ -32,6 +32,7 @@ import { useCloud } from '../../../state/cloud';
 import { AttachSheet, Attached } from '../../../ui/Attach';
 import { SentFiles, ThreadFiles, useMessageFiles } from '../../../ui/Files';
 import { Back, Clip, DoneMark, More, Panel } from '../../../ui/icons';
+import { Waiting } from '../../../ui/LogoOrbit';
 import { Markdown, type MessageFiles } from '../../../ui/Markdown';
 import { footRoom, IconButton, Pickable, PriorityBars, RunningMark, T, TopBar, Wall } from '../../../ui/parts';
 import { ModelSheet, ModeSheet, PrioritySheet, barsFor } from '../../../ui/Pickers';
@@ -292,13 +293,13 @@ export default function ThreadScreen() {
 
   const back = () => (router.canGoBack() ? router.back() : router.replace('/'));
   const gate = screenGate(c);
-  if (gate === 'wait') return <Wall><View /></Wall>;
+  if (gate === 'wait') return <Wall><Waiting /></Wall>;
   if (gate === 'sign-in') return <Redirect href="/sign-in" />;
   if (!thread) {
     return (
       <Wall>
         <TopBar left={<IconButton label="Back" onPress={back}><Back /></IconButton>} />
-        <T style={{ padding: size.inset, color: color.dim }}>{c.loading ? '' : 'This thread is not on your phone.'}</T>
+        {c.loading ? <Waiting list /> : <T style={{ padding: size.inset, color: color.dim }}>This thread is not on your phone.</T>}
       </Wall>
     );
   }

@@ -980,7 +980,13 @@ export class Supervisor {
   // Founder interrupt: kill the child now. The exit handler reaps the session;
   // heartbeats stop with the process, so the claim lapses on its own.
   stopSession(itemId) {
-    if (this._preparing?.delete(itemId)) return true;
+    const preparing = this._preparing?.get(itemId);
+    if (preparing) {
+      this._preparing.delete(itemId);
+      // A start that never began delivered nothing, as at a quit.
+      if (preparing.opts?.continuation && preparing.item?.answer) this.redeliverAnswer(preparing.item, preparing.item.answer);
+      return true;
+    }
     const session = this.sessions.get(itemId);
     if (!session) {
       const joined = this._comingHome?.get(itemId);
@@ -1226,6 +1232,29 @@ export class Supervisor {
     if (cleared) this._saveState();
     this.tick().catch(() => {});
     return cleared;
+  }
+
+  /* ------------------------- when this Mac slept --------------------------- */
+  // Heard from powerMonitor (main/main.mjs). A wake with no sleep heard before
+  // it is a sleep that ended then.
+  noteSleep(at = Date.now()) {
+    this._sleeps = [...(this._sleeps ?? []).slice(-9), { from: at, to: null }];
+  }
+
+  noteWake(at = Date.now()) {
+    const last = this._sleeps?.at(-1);
+    if (last && last.to === null) last.to = at;
+    else this._sleeps = [...(this._sleeps ?? []).slice(-9), { from: at, to: at }];
+  }
+
+  // A sleep that ended after the run started, and no more than ten minutes
+  // ago. One whose wake was never heard is taken to have lasted an hour at most.
+  _sleptDuring(session, now = Date.now()) {
+    const started = session?.startedAt ?? now;
+    return (this._sleeps ?? []).some((s) => {
+      const end = s.to ?? Math.min(now, s.from + 60 * 60_000);
+      return end >= started && now - end <= 10 * 60_000;
+    });
   }
 
   /* ---------------------- coming back after the lid ----------------------- */
@@ -3445,6 +3474,7 @@ export class Supervisor {
         planEnded,
         gaveUp,
         retryAt: gaveUp ? null : this.restingUntil(item),
+        slept: this._sleptDuring(session),
       });
       const written = this.store.recordSessionResult(item.product, item.id, { result, status: 'open' });
       // REMEMBER THAT WE SAID IT, keyed on the run we said it about. The pass
@@ -7680,9 +7710,12 @@ export class Supervisor {
     // A CONVERSATION GOING BACK TO WORK IS NOT TOLD AGAIN WHAT IT ALREADY HEARD
     // (`_noteHeard`). Only that conversation: a fork or a fresh session needs
     // every word.
+    // Not `_answerDelivered`: that mark is written when a start is picked, and
+    // a start still being set up is taken over by the next reply, so the mark
+    // stands on words no agent read (w-5f577f2cae).
     if (continuation && item.answer && this.store?.readHistory) {
       const conversation = forkFrom ? null : resumeId;
-      const answer = queuedReplyText(item, this.store.readHistory(item.product, item.id), (row) => this._answerDelivered(row) || this._heardIn(row, conversation));
+      const answer = queuedReplyText(item, this.store.readHistory(item.product, item.id), (row) => this._heardIn(row, conversation));
       if (answer !== item.answer) item = { ...item, answer };
     } else if (continuation && toldBy(item)) {
       item = { ...item, answer: framedTeammate(toldBy(item).name, item.answer) };
