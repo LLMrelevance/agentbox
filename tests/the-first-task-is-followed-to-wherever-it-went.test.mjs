@@ -44,7 +44,7 @@ describe('the inbox after the first task is sent', () => {
   });
 
   it('says the task is starting, not that nothing is running, until its row arrives', () => {
-    expect(app).toContain('<EmptyTab view={view} starting={!!landOn} />');
+    expect(app).toMatch(/<EmptyTab view=\{view\} starting=\{!!landOn\}/);
     const draw = (props) => renderToStaticMarkup(React.createElement(EmptyTab, props));
     expect(draw({ view: 'progress', starting: true })).toContain('Starting your task…');
     expect(draw({ view: 'progress', starting: false })).toContain('Nothing is running.');

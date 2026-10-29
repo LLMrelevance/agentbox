@@ -145,6 +145,19 @@ export function needsPlan(readiness: Array<Pick<EngineSetupState, 'found' | 'sig
 }
 
 /**
+ * WHETHER THE INBOX MAY SAY IT OUT LOUD (F-141).
+ *
+ * `needsPlan` asks a question, and asking one whose answer is already yes
+ * costs nothing. The bar makes a CLAIM, that no agent can start, off a probe
+ * taken once when the walk ends. An agent that started is the app disagreeing
+ * with its own probe, so the agent wins. Nothing runs on a computer with no
+ * plan, which leaves the sentence everywhere it is still true.
+ */
+export function planBarShows({ noPlan, agentsRan }: { noPlan: boolean; agentsRan: boolean }): boolean {
+  return noPlan && !agentsRan;
+}
+
+/**
  * WHAT A LOOK AT THE COMPUTER FOUND, AND IT NEVER STARTS ANYTHING. There is no
  *  answer here that mounts the setup card, because that card opens the tool's
  *  own login on its first render, and a browser may only be opened by a press

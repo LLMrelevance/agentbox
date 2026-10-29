@@ -137,7 +137,7 @@ import { PlanBar, PlanSetupCard } from './components/PlanSetup';
 import { CloudSetup } from './components/CloudSetup';
 import { SETUP, newlyFailedSignIns } from './cloud-setup';
 import { AppMark } from './components/AppMark';
-import { needsPlan, type Plan } from './plan-setup';
+import { needsPlan, planBarShows, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
 import { ModeScreen, isModeVariant } from './components/ModeScreen';
 import { practiceRemembered, rememberProject, rememberedProject } from './compose-project';
@@ -1958,6 +1958,14 @@ export default function App() {
   // status says, until its session exits (w-bc976fd247). Up here because every
   // list below reads it.
   const liveIds = useMemo(() => new Set(runningRows.map((r) => r.itemId)), [runningRows]);
+  // AND ONE WORKER IS THE WHOLE ANSWER TO "agents cannot start" (`planBarShows`).
+  // The supervisor's own list rather than `runningRows`, which carries the
+  // walk's folder read, where no agent is. Kept once true: the bar has to stay
+  // gone after the run ends and the thread moves to Needs you.
+  const [agentsRan, setAgentsRan] = useState(false);
+  useEffect(() => {
+    if (snap?.supervisor.running?.length) setAgentsRan(true);
+  }, [snap?.supervisor.running]);
   // AND THE THREADS WHOSE AGENT IS STOPPED ON A PERMISSION REQUEST. Each
   // approval in the spool names the thread it came from, and that one fact
   // turns a Working row into a row that needs you, in both lists.
@@ -6656,7 +6664,7 @@ export default function App() {
       )}
       <div ref={setArtifactBody} hidden={settingsOpen || teamShown} className="body">
             <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}${evFill ? ' ev-open' : ''}`}>
-              {noPlan && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
+              {planBarShows({ noPlan, agentsRan }) && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
               {teammatesShown ? (evOn ? <>{evTabsRow}{evTop}<div className="ev-space">{teammatesUi.page}</div></> : teammatesUi.page) : focusedRepeat ? (
                 <RepeatFocus
                   rule={focusedRepeat}
@@ -6927,7 +6935,7 @@ export default function App() {
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
                       ? run === null && !landing && <InboxClear slot={setClearSlot} />
-                      : <EmptyTab view={view} starting={!!landOn} />
+                      : <EmptyTab view={view} starting={!!landOn} waiting={needsYouCount.inbox} />
                 ) : <List
                   lead={view === 'inbox' && search === null && roomsUi.mentions.length
                     ? <MentionRows mentions={roomsUi.mentions} faces={roomsUi.faces} now={now} onOpen={roomsUi.openMention} /> : null}
