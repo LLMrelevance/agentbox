@@ -326,6 +326,21 @@ export function parseRepeat(raw: string): RepeatParse {
   return null;
 }
 
+// Repeat's presets, with "Once" first as the way back off rather than as a
+// thing to notice. The When picker, the New thread card's "Repeat it" and the
+// phone app all offer these, and two lists of them would drift the way the two
+// priority lists once did.
+export function repeatPresets(now = Date.now()): Array<{ label: string; rule: RepeatRuleValue | null }> {
+  const weekday = new Date(now).getDay();
+  const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekday];
+  return [
+    { label: 'Once', rule: null },
+    { label: 'Every morning at 8:00am', rule: { every: 'day', at: '08:00' } as RepeatRuleValue },
+    { label: 'Every weekday at 9:00am', rule: { every: 'weekday', at: '09:00' } as RepeatRuleValue },
+    { label: `Every ${dayName} at 9:00am`, rule: { every: 'week', on: weekday, at: '09:00' } as RepeatRuleValue },
+  ];
+}
+
 /**
  * A rule typed ALONE in a box, which is every picker that asks how often: the
  * When picker (`readWhen`) and the composer's Repeat it page. The same grammar

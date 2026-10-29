@@ -6,13 +6,17 @@ import { useState } from 'react';
 import { parseWhen } from '../../../renderer/src/format';
 import { laterRows, typedLater, typedLine } from '../lib/later';
 import { TimeBox, TypingSheet } from './Later';
+import { Pin } from './icons';
 import { SheetHead, SheetRow, SheetSep } from './parts';
 
-export function ThreadMenu({ open, close, now, laterNow, runNow, onLater, onBack, onRunNow, onClose }: {
+export function ThreadMenu({ open, close, now, laterNow, runNow, pinned, onPin, onLater, onBack, onRunNow, onClose }: {
   open: boolean; close: () => void; now: number;
   /** Already put off: "Now (back to inbox)" comes first. */
   laterNow: boolean;
   runNow: boolean;
+  /** Pin thread or Unpin thread; null where it cannot be pinned (a closed thread, one no computer has made). */
+  pinned: boolean | null;
+  onPin: (pin: boolean) => void;
   onLater: (until: number, label: string) => void;
   onBack: () => void;
   onRunNow: () => void;
@@ -40,6 +44,7 @@ export function ThreadMenu({ open, close, now, laterNow, runNow, onLater, onBack
       ))}
       <SheetSep />
       {runNow && <SheetRow label="Run now" onPress={() => { done(); onRunNow(); }} />}
+      {pinned !== null && <SheetRow label={pinned ? 'Unpin thread' : 'Pin thread'} lead={<Pin size={15} />} onPress={() => { done(); onPin(!pinned); }} />}
       <SheetRow label="Close this thread" onPress={() => { done(); onClose(); }} />
     </TypingSheet>
   );

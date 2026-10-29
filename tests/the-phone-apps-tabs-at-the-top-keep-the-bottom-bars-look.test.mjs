@@ -39,8 +39,9 @@ describe("the phone app's tabs, now at the top", () => {
     expect(tabs).toMatch(/height: 32, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: on === t\.id \? color\.accent : 'transparent'/);
     expect(tabs).not.toMatch(/position: 'absolute'/);
   });
-  it('are drawn once, inside the title bar, and never at the foot', () => {
-    expect(inbox).toMatch(/below=\{board \? undefined : <Tabs on=\{tab\} counts=\{counts\} pick=\{setTab\} \/>\}/);
-    expect(inbox.match(/<Tabs /g)).toHaveLength(1);
+  it('are drawn inside the title bar, on the list and on Groups, and never at the foot', () => {
+    expect(inbox).toMatch(/below=\{board \? undefined : <Tabs on=\{tab\} counts=\{counts\} pick=\{setPlace\} groups=\{groups\.on\} \/>\}/);
+    expect(inbox).toMatch(/<GroupsPlace tabs=\{<Tabs on="groups"/);
+    expect(inbox.match(/<Tabs /g)).toHaveLength(2);
   });
 });

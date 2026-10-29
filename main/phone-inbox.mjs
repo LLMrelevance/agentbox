@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, phoneRepeatsOf, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
 import { createPhoneAlerts } from './phone-alerts.mjs';
@@ -96,6 +96,10 @@ export function createPhoneInbox({
   approvalsOf = () => [],
   // async () -> the window's settings model (main/settings.mjs readSettings); none sends no settings.
   readSettings = null,
+  // () -> { [threadId]: true }, the threads pinned on this computer.
+  pinsOf = () => ({}),
+  // () -> every project's repeating tasks (store.listRepeats); they ride with the settings.
+  repeatsOf = null,
   version = '',
   // This computer as her phone names it.
   name = os.hostname().replace(/\.local$/i, ''),
@@ -202,6 +206,8 @@ export function createPhoneInbox({
     try { waits = waitsOf(); } catch { /* the supervisor's trouble, not the phone's */ }
     const waitOf = (item) => waits?.byId?.[item.id] ?? (waits?.paused && item.status !== 'done' ? { state: 'paused' } : null);
     const known = new Set(chosen.map((p) => p.slug));
+    let pins = {};
+    try { pins = pinsOf() ?? {}; } catch { /* the supervisor's trouble, not the phone's */ }
     for (const p of chosen) {
       await breathe();
       const key = `project:${p.slug}`;
@@ -218,7 +224,8 @@ export function createPhoneInbox({
       const rows = threadsWorthCarrying(listItems(p.slug), { now: now() });
       const batch = [];
       const here = new Set();
-      for (const item of rows) {
+      for (const raw of rows) {
+        const item = pins[raw.id] === true ? { ...raw, pinned: true } : raw;
         if (here.size && here.size % THREADS_PER_TURN === 0) await breathe();
         here.add(item.id);
         const sk = `${p.slug}:${item.id}`;
@@ -291,6 +298,9 @@ export function createPhoneInbox({
     let carried = null;
     try { carried = phoneSettingsOf(await readSettings(), { version }); } catch (err) { troubled('read', err); return false; }
     if (!carried) return false;
+    if (repeatsOf) {
+      try { carried = { ...carried, repeats: phoneRepeatsOf(repeatsOf(), projects().map((p) => p.slug), { home }) }; } catch (err) { troubled('read the repeating tasks for', err); }
+    }
     const key = JSON.stringify(carried);
     if (key === settings.key && now() - settings.sentAt < SETTINGS_HEARTBEAT_MS) return false;
     still();

@@ -433,6 +433,8 @@ export default function ThreadScreen() {
         onLater={(until, label) => void press({ kind: 'later', until, label }, item, back)}
         onBack={() => void press({ kind: 'later', until: 0 })}
         onRunNow={() => void press({ kind: 'run-now' })}
+        pinned={item.status === 'done' || item.waitsForMac ? null : !!item.pinned}
+        onPin={(pin) => void press({ kind: 'pin', pinned: pin })}
         onClose={close} />
       {summary && <Summary thread={thread} now={c.now} close={() => setSummary(false)} />}
     </Wall>
