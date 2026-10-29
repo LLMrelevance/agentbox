@@ -38,12 +38,12 @@ const SERVER = 'agentbox-gateway';
 const REGION = 'us-east-1';
 
 const pkgPath = path.join(repo, 'package.json');
-let versionWritten = false;
+let packageWritten = false;
 
 function restorePackageJson() {
-  if (!versionWritten) return;
+  if (!packageWritten) return;
   spawnSync('git', ['checkout', '--', 'package.json'], { cwd: repo });
-  versionWritten = false;
+  packageWritten = false;
 }
 
 function stop(...lines) {
@@ -106,9 +106,10 @@ const identity = quiet('security', ['find-identity', '-v', '-p', 'codesigning'])
 if (!identity) missing.push('No Developer ID certificate in the Keychain, so nothing can be signed (Xcode → Settings → Accounts → Manage Certificates).');
 const team = identity?.[1];
 
-let posthog = false;
-try { posthog = Boolean(JSON.parse(fs.readFileSync(path.join(repo, 'zero.config.json'), 'utf8')).posthogKey); } catch {}
-if (!posthog && !process.env.AGENTBOX_POSTHOG_KEY) missing.push('No "posthogKey" in zero.config.json in this folder, so the app would count nobody.');
+// The environment first, as scripts/release.mjs reads it for the Mac build.
+let posthog = process.env.AGENTBOX_POSTHOG_KEY?.trim() || null;
+try { posthog ||= JSON.parse(fs.readFileSync(path.join(repo, 'zero.config.json'), 'utf8')).posthogKey?.trim() || null; } catch {}
+if (!posthog) missing.push('No "posthogKey" in zero.config.json in this folder, so the app would count nobody.');
 
 const home = path.join(os.homedir(), '.agentbox');
 if (![path.join(repo, 'cloud', 'team.config.json'), path.join(home, 'team.config.json')].some((f) => fs.existsSync(f))) {
@@ -169,14 +170,13 @@ if (checkOnly) {
   process.exit(0);
 }
 
-// The version goes into package.json for this run only, because every step
-// below reads it from there. It is put back at the end, so main's file is
-// never edited in this folder.
-if (version !== JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version) {
-  const text = fs.readFileSync(pkgPath, 'utf8');
-  fs.writeFileSync(pkgPath, text.replace(/("version":\s*")[^"]+(")/, `$1${version}$2`));
-  versionWritten = true;
-}
+// The version and the counting key go into package.json for this run only,
+// because every step below reads the version from there and `npm publish` packs
+// the file as it stands: the key is what lets `npx agentbox-app` count, as
+// electron-builder's extraMetadata does for the Mac app. It is put back at the
+// end, so main's file never carries either.
+fs.writeFileSync(pkgPath, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(pkgPath, 'utf8')), version, bakedPosthogKey: posthog }, null, 2)}\n`);
+packageWritten = true;
 process.on('exit', restorePackageJson);
 process.on('SIGINT', () => { restorePackageJson(); process.exit(130); });
 

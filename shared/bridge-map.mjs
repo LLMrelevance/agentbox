@@ -199,7 +199,7 @@ export const PUSH_CHANNELS = {
 // under is part of the contract and belongs here beside the channel.
 export const WRAPPED_ARGS = {
   notify: ['arrivals', 'needsYou'],
-  track: ['name'],
+  track: ['name', 'count'],
   instructionWrite: ['id', 'text'],
   instructionVersion: ['id', 'at'],
 };

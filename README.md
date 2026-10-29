@@ -250,11 +250,12 @@ matter:
 
 <br>
 
-Nothing, unless you are running a build that was signed and released with a
-PostHog key baked into it. A build made from this repo has no key, so a clone
-and a fork are silent, and with no key the whole path is off at every send.
+Nothing, unless you are running a released copy: the Mac app, or
+`npx agentbox-app`, each of which has a PostHog key baked in when it is
+released. A build made from this repo has no key, so a clone and a fork are
+silent, and with no key the whole path is off at every send.
 
-A released build counts eighteen things, and they are counts:
+A released copy counts eighteen things, and they are counts:
 
 - the app was opened
 - the app was used today, once a day
@@ -275,7 +276,8 @@ A released build counts eighteen things, and they are counts:
 - setup imported agents
 - counts were turned off
 
-Each carries a random install id, the app and platform version, and at most
+Each carries a random install id, the app and platform version, whether it
+came from the Mac app or the browser copy, and at most
 seven other things: how long something took, how many of a thing there were,
 which kind of row it was out of six fixed words, whether an agent or you did
 it, whether an agent's run failed, whether it happened in setup's practice

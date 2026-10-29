@@ -19,7 +19,7 @@ import { WhenPicker, WHEN_NOW, type WhenValue } from './When';
 import FolderPicker from './FolderPicker';
 import { checkProjectFolder } from '../../../shared/project-folder-check.mjs';
 import {
-  chatChoices, chatsHeadline, firstRunOf, folderChoices, ideasFor, isSend, listKey, previousScreen, projectsToMake, readyEngines, stepsFor,
+  chatChoices, chatsHeadline, FIRST_RUN_STEP, firstRunOf, folderChoices, ideasFor, isSend, listKey, previousScreen, projectsToMake, readyEngines, stepsFor,
   type Engine, type FolderChoice, type Screen, type Step,
 } from '../first-run';
 import './first-run.css';
@@ -124,6 +124,10 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const [busy, setBusy] = useState(false);
   const field = useRef<HTMLTextAreaElement | null>(null);
 
+  useEffect(() => {
+    try { window.zero?.track?.('first_run_step', FIRST_RUN_STEP[screen]); } catch {}
+  }, [screen]);
+
   // WHAT IS ON THIS COMPUTER, asked once.
   useEffect(() => {
     let live = true;
@@ -200,6 +204,8 @@ export function FirstRunFlow({ snap, home, onDone }: {
     setTimeout(() => { setScreen(next); setCursor(0); setLeaving(false); }, LEAVE_MS);
   }, []);
   const leave = useCallback((sent: string | null) => {
+    // Sending the first task is finishing; leaving without one is not.
+    if (sent) { try { window.zero?.track?.('first_run_finished'); } catch {} }
     setLeaving(true);
     setTimeout(() => onDone(sent, when.runAt, sent ? undefined : text), LEAVE_MS);
   }, [onDone, when.runAt, text]);

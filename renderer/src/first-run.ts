@@ -11,6 +11,10 @@ export type Step = 'chats' | 'task' | 'where';
 export type Screen = 'welcome' | Step;
 export type Engine = 'claude' | 'codex';
 
+/** The number each screen is counted under as `first_run_step`. In the twenties
+ *  because the walk this replaced counted 1 to 15 (BEAT in ./onboarding.ts). */
+export const FIRST_RUN_STEP: Record<Screen, number> = { welcome: 21, chats: 22, task: 23, where: 24 };
+
 export function previousScreen(screen: Screen, { chats }: { chats: number }): Screen | null {
   if (screen === 'welcome') return null;
   if (screen === 'where') return 'task';

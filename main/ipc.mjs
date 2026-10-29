@@ -112,7 +112,7 @@ const NO_UPDATER = {
 const TEAMMATE_OPS = new Set(['create', 'describe', 'start', 'update', 'stop', 'remove', 'post', 'goAhead', 'remember', 'forget']);
 const ROOM_OPS = new Set(['refresh', 'send', 'markRead', 'markUnread', 'react', 'edit', 'deleteMessage', 'putFile', 'file', 'older', 'saveProfile', 'goInvisible', 'comeBack', 'link', 'revokeLink', 'preview', 'listed', 'invitesSent', 'joinByLink', 'joinListed', 'acceptInvite', 'invite', 'create', 'rename', 'leave', 'remove', 'pin', 'mute']);
 
-export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null }) {
+export function registerIpc({ store, supervisor, config, window, analytics = NO_ANALYTICS, docGrants = null, updater = NO_UPDATER, host, team = null, onCount = () => {} }) {
   // The three Electron things, or a plain Node stand-in for them. There is no
   // default: a caller that forgets says so here rather than throwing eighty
   // lines further down on `ipcMain.handle` of undefined.
@@ -229,6 +229,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // a number (2026-10-06): which setup step was reached.
   ipcMain.handle('zero:track', (_e, { name, count } = {}) => {
     if (!EVENT_NAMES.includes(name)) return false;
+    onCount();
     return analytics.track(name, Number.isFinite(count) ? { count } : undefined);
   });
 

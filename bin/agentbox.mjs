@@ -132,7 +132,11 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
     console.log('\n  Stopping.');
     newChatsWatch?.stop();
     booted.host.app.quit();
-    server.close(() => process.exit(0));
+    // The quit count and whatever is still queued, or a copy opened once is
+    // never heard from. `shutdown` rather than `flush`, because flush does not
+    // wait for a count captured a moment ago. The timer below still ends it.
+    const sent = booted.analytics?.enabled ? booted.analytics.shutdown() : null;
+    Promise.resolve(sent).catch(() => {}).finally(() => server.close(() => process.exit(0)));
     setTimeout(() => process.exit(0), 3000).unref();
   });
 }
