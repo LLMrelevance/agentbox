@@ -6293,6 +6293,9 @@ export default function App() {
   // the page while pointed at; it is never pinned open. A phone keeps its own
   // top bar (phone.css).
   const narrowSidebar = !onPhone();
+  // The sidebar's Search row and ⌘K search threads on a desktop; a phone has
+  // neither, so only there does the list draw its own magnifier.
+  const searchInTheList = onPhone() ? openSearch : undefined;
   const sideFolded = !railOpen;
   // A teammate's direct record is one of your groups, so Groups is the page it is on.
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
@@ -6337,7 +6340,7 @@ export default function App() {
   // The tabs over a chat that is open under the cards, the same row the list draws.
   const needsYouCount = { inbox: (mineShown ? shownCount(inbox) : 0) + theirCount('inbox') + roomsUi.mentions.length };
   const evTabsRow = teamTabs ? <StateTabs view={view} counts={needsYouCount}
-    needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={openSearch} team={teamTabs} /> : null;
+    needs={team ? needsWord(picked, team.me) : undefined} lit={needsYouLit(inbox, needsLookedAt)} onView={goNeedsYou} onSearch={searchInTheList} team={teamTabs} /> : null;
   const evTop = evOn ? <>
     <CardsArea rows={evRows} onRows={setEvRows} picked={evKey} hidden={evSplit.hidden} onShow={showCard}>
       <TeamStrip members={evSplit.shown} picked={evKey} onPick={(key) => pickMember(key)} onMove={reorderMembers}
@@ -6581,7 +6584,7 @@ export default function App() {
               // reading her threads (w-5a08121f99: about forty projects).
               items={items}
               onCompose={() => setModal('compose')}
-              onSearch={inboxDisplay.view === 'board' ? openSearch : undefined}
+              onSearch={inboxDisplay.view === 'board' ? searchInTheList : undefined}
               shown={displayedBox.length + theirRows.length}
               total={(mineShown ? shownBox.length : 0) + theirRows.length}
               tab={view}
@@ -6935,7 +6938,7 @@ export default function App() {
                     needs={team ? needsWord(picked, team.me) : undefined}
                     lit={needsYouLit(inbox, needsLookedAt)}
                     onView={(next) => { roomsUi.leave(); setView(next as View); setSelected(0); setMultiSel(new Set()); }}
-                    onSearch={openSearch}
+                    onSearch={searchInTheList}
                     team={teamTabs}
                   />
                 )}
