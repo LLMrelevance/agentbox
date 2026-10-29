@@ -114,9 +114,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
   // Projects this run made, by folder, until a snapshot carries them.
   const [made, setMade] = useState<Record<string, Project>>({});
   const [extra, setExtra] = useState<FolderChoice[]>([]);
-  const [place, setPlace] = useState<string | null>(null);
-  // The row the keyboard is on in the project menu; null while it is shut.
-  const [menu, setMenu] = useState<number | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -124,7 +121,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const [idea, setIdea] = useState(-1);
   const [busy, setBusy] = useState(false);
   const field = useRef<HTMLTextAreaElement | null>(null);
-  const folderButton = useRef<HTMLButtonElement | null>(null);
 
   // WHAT IS ON THIS COMPUTER, asked once.
   useEffect(() => {
@@ -175,7 +171,9 @@ export function FirstRunFlow({ snap, home, onDone }: {
     ].filter((f) => !seen.has(f.folder) && seen.add(f.folder));
     return [...found, ...more];
   }, [threads, home, made, extra]);
-  const at = place ?? places[0]?.folder ?? null;
+  // The folder the project screen's keyboard is on. The last row there opens
+  // the folder window, so it has no folder.
+  const at = screen === 'where' ? places[cursor]?.folder ?? null : null;
 
   const known = useMemo(() => [
     ...(snap?.products ?? []).map((p) => ({ slug: p.slug, name: p.name, repoPath: p.repoPath ?? null })),
@@ -194,7 +192,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const swatchOf = (folder: string) => projectSwatch(ownerOf(folder)?.slug ?? slugFor(nameOf(folder)));
 
   const go = useCallback((next: Screen) => {
-    setMenu(null);
     setProblem(null);
     setIdea(-1);
     setLeaving(true);
@@ -213,28 +210,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
     const s = await api.engineSetup('start', engine).catch(() => null);
     setSetup({ engine, phase: s?.phase ?? 'installing', error: s?.error ?? null });
   }, []);
-
-  const chooseFolder = useCallback((picked: string) => {
-    const folder = bare(picked);
-    const verdict = checkProjectFolder(folder, { home });
-    if (!verdict.ok) { setProblem(verdict.say ?? 'Choose a project folder.'); setBrowsing(false); return; }
-    setBrowsing(false);
-    setProblem(null);
-    const choice: FolderChoice = { folder, name: projectNameFor({ name: folder.split('/').pop() ?? '' }), short: shortPath(folder, home), chats: 0, when: Date.now() };
-    setExtra((had) => (had.some((f) => f.folder === folder) ? had : [...had, choice]));
-    setPlace(folder);
-    field.current?.focus();
-  }, [home]);
-
-  // The system's folder window has the person's sidebar, recents and search.
-  // Only a browser tab, which has none, gets the picker the app draws.
-  const chooseAnother = useCallback(async () => {
-    setMenu(null);
-    const { path: picked, refused: why, browse } = await api.chooseFolder(at ?? (home || undefined));
-    if (browse) { setBrowsing(true); return; }
-    if (why) { setProblem(why); return; }
-    if (picked) chooseFolder(picked);
-  }, [at, home, chooseFolder]);
 
   /** The folder's project, made now if it has none. `counted` says this press was already counted once. */
   const projectFor = useCallback(async (folder: string, counted = false): Promise<Project | null> => {
@@ -268,11 +243,13 @@ export function FirstRunFlow({ snap, home, onDone }: {
     go('task');
   }, [busy, picked, projectFor, go]);
 
-  const send = useCallback(async () => {
+  const next = useCallback(() => {
+    if (text.trim() && !busy) go('where');
+  }, [text, busy, go]);
+
+  const sendTo = useCallback(async (folder: string) => {
     const said = text.trim();
     if (!said || busy) return;
-    if (!at) { folderButton.current?.focus(); return; }
-    const folder = at;
     setBusy(true);
     const p = await projectFor(folder);
     if (!p) { setBusy(false); setProblem('That folder could not be used. Choose another.'); return; }
@@ -288,7 +265,34 @@ export function FirstRunFlow({ snap, home, onDone }: {
     }
     if (!first) { setBusy(false); setProblem('That did not send. Try again.'); return; }
     leave(first);
-  }, [text, when, busy, at, projectFor, leave]);
+  }, [text, when, busy, projectFor, leave]);
+
+  const chooseFolder = useCallback((picked: string) => {
+    const folder = bare(picked);
+    const verdict = checkProjectFolder(folder, { home });
+    setBrowsing(false);
+    if (!verdict.ok) { setProblem(verdict.say ?? 'Choose a project folder.'); return; }
+    setProblem(null);
+    const choice: FolderChoice = { folder, name: projectNameFor({ name: folder.split('/').pop() ?? '' }), short: shortPath(folder, home), chats: 0, when: Date.now() };
+    setExtra((had) => (had.some((f) => f.folder === folder) ? had : [...had, choice]));
+    void sendTo(folder);
+  }, [home, sendTo]);
+
+  // The system's folder window has the person's sidebar, recents and search.
+  // Only a browser tab, which has none, gets the picker the app draws.
+  const chooseAnother = useCallback(async () => {
+    if (busy) return;
+    const { path: picked, refused: why, browse } = await api.chooseFolder(places[0]?.folder ?? (home || undefined));
+    if (browse) { setBrowsing(true); return; }
+    if (why) { setProblem(why); return; }
+    if (picked) chooseFolder(picked);
+  }, [busy, places, home, chooseFolder]);
+
+  const pickPlace = useCallback((i: number) => {
+    const folder = places[i]?.folder;
+    if (folder) void sendTo(folder);
+    else void chooseAnother();
+  }, [places, sendTo, chooseAnother]);
 
   const pickIdea = useCallback((i: number) => {
     setText(IDEAS[i].text);
@@ -302,18 +306,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
   }, []);
 
   const skip = useCallback(() => leave(null), [leave]);
-
-  const openMenu = useCallback(() => {
-    if (!at) { void chooseAnother(); return; }
-    setMenu((m) => (m === null ? Math.max(0, places.findIndex((p) => p.folder === at)) : null));
-  }, [at, places, chooseAnother]);
-  const pickPlace = useCallback((i: number) => {
-    if (i >= places.length) { void chooseAnother(); return; }
-    setPlace(places[i].folder);
-    setProblem(null);
-    setMenu(null);
-    field.current?.focus();
-  }, [places, chooseAnother]);
 
   // THE KEYBOARD, for every screen.
   useEffect(() => {
@@ -342,16 +334,16 @@ export function FirstRunFlow({ snap, home, onDone }: {
         if (k === 'skip') go('task');
         return;
       }
+      if (screen === 'where') {
+        if (busy) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(places.length, c + 1)); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(0, c - 1)); }
+        else if (e.key === 'Enter') { e.preventDefault(); pickPlace(cursor); }
+        else if (e.key === 'Escape') { e.preventDefault(); go('task'); }
+        return;
+      }
       if (screen === 'task') {
-        if (menu !== null) {
-          const rows = places.length + 1;
-          if (e.key === 'ArrowDown') { e.preventDefault(); setMenu((m) => Math.min(rows - 1, (m ?? 0) + 1)); }
-          else if (e.key === 'ArrowUp') { e.preventDefault(); setMenu((m) => Math.max(0, (m ?? 0) - 1)); }
-          else if (e.key === 'Enter') { e.preventDefault(); pickPlace(menu); }
-          else if (e.key === 'Escape') { e.preventDefault(); setMenu(null); field.current?.focus(); }
-          return;
-        }
-        if (isSend(e)) { e.preventDefault(); send(); return; }
+        if (isSend(e)) { e.preventDefault(); next(); return; }
         if (e.key === 'Escape') { e.preventDefault(); skip(); return; }
         const inField = document.activeElement === field.current;
         const onLastLine = inField && !text.slice(field.current?.selectionStart ?? 0).includes('\n');
@@ -367,7 +359,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [screen, leaving, hasReady, chats, cursor, menu, places, idea, text, browsing, go, start, startSetup, bringIn, send, skip, pickPlace, pickIdea]);
+  }, [screen, leaving, hasReady, chats, cursor, busy, places, idea, text, browsing, go, start, startSetup, bringIn, next, skip, pickPlace, pickIdea]);
 
   useEffect(() => {
     if (browsing) document.querySelector<HTMLInputElement>('.first-run .fp-path')?.focus();
@@ -386,7 +378,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
 
   return (
     <div className="first-run" role="dialog" aria-label="Set up" onKeyDown={(e) => e.stopPropagation()}>
-      {browsing && <FolderPicker title="Choose your project folder" startIn={at ?? home} onPick={chooseFolder} onClose={() => setBrowsing(false)} />}
+      {browsing && <FolderPicker title="Choose your project folder" startIn={places[0]?.folder ?? home} onPick={chooseFolder} onClose={() => setBrowsing(false)} />}
       {backTo && !browsing && <button type="button" className="ob-back" disabled={busy || leaving} onClick={() => go(backTo)}>
         <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="m9.5 3-5 5 5 5" /></svg>
         Back
@@ -457,49 +449,22 @@ export function FirstRunFlow({ snap, home, onDone }: {
 
       {screen === 'task' && (
         <div className={cls} key="task">
-          {steps.length > 1 && <Steps steps={steps} now="task" />}
-          {menu !== null && <div className="ob-scrim" onClick={() => setMenu(null)} />}
+          <Steps steps={steps} now="task" />
           <div className="ob-col">
-            <h1 className="ob-in">Give an agent its first task</h1>
+            <h1 className="ob-in">What’s the first task you want to give your agent?</h1>
             <div className="ob-compose ob-in" style={{ marginTop: 36, animationDelay: '0.1s' }}>
               <textarea ref={field} className="ob-write" rows={1} value={text} placeholder="What do you need done?"
                 onChange={(e) => { setText(e.target.value); setIdea(-1); }} onFocus={() => setIdea(-1)} />
               <div className="ob-bar">
                 <div className="ob-chips">
-                  <span className="ob-anchor">
-                    <button ref={folderButton} type="button" className={`ob-chip${menu !== null ? ' ob-open' : ''}`} aria-haspopup="listbox" aria-expanded={menu !== null}
-                      onMouseDown={(e) => e.preventDefault()} onClick={openMenu}>
-                      {at ? <><span className="ob-sw" style={{ background: swatchOf(at) }} />{nameOf(at)}</> : <><span className="ob-plus">+</span>Choose project folder</>}
-                    </button>
-                    {menu !== null && (
-                      <div className="ob-menu" role="listbox" aria-label="Project">
-                        <span className="ob-menu-head">Project</span>
-                        {places.map((p, i) => (
-                          <button key={p.folder} type="button" role="option" aria-selected={p.folder === at}
-                            className={`ob-row${menu === i ? ' ob-on' : ''}`} onMouseDown={(e) => e.preventDefault()}
-                            onMouseEnter={() => setMenu(i)} onClick={() => pickPlace(i)}>
-                            <span className="ob-sw" style={{ background: swatchOf(p.folder) }} />
-                            <span className="ob-row-name">{nameOf(p.folder)}</span>
-                            <small>{p.short}</small>
-                          </button>
-                        ))}
-                        <span className="ob-menu-rule" />
-                        <button type="button" className={`ob-row${menu === places.length ? ' ob-on' : ''}`} onMouseDown={(e) => e.preventDefault()}
-                          onMouseEnter={() => setMenu(places.length)} onClick={() => pickPlace(places.length)}>
-                          <span className="ob-plus">+</span><span className="ob-row-name">Choose another folder</span>
-                        </button>
-                      </div>
-                    )}
-                  </span>
                   <FirstTaskSchedule value={when} onChange={setWhen} />
                 </div>
                 <div className="ob-actions">
                   <button type="button" className="ob-btn ob-quiet" onClick={skip}>Not now <Key k="esc" /></button>
-                  <button type="button" className="ob-btn" disabled={!at || !text.trim() || busy} onClick={send}>Send <Keys ks={SEND} /></button>
+                  <button type="button" className="ob-btn" disabled={!text.trim() || busy} onClick={next}>Next <Keys ks={SEND} /></button>
                 </div>
               </div>
             </div>
-            {problem && <p className="ob-refused">{problem}</p>}
             <div className="ob-ideas ob-in" style={{ animationDelay: '0.2s' }}>
               {IDEAS.map((t, i) => (
                 <div key={t.text} className={`ob-item ob-noslot${idea === i ? ' ob-on' : ''}`} onClick={() => pickIdea(i)}>
@@ -510,6 +475,39 @@ export function FirstRunFlow({ snap, home, onDone }: {
             </div>
           </div>
           <Legend pairs={[[['↓'], 'Pick an idea']]} />
+        </div>
+      )}
+
+      {screen === 'where' && (
+        <div className={cls} key="where">
+          <Steps steps={steps} now="where" />
+          <div className="ob-col ob-mid ob-center">
+            <p className="ob-said ob-in">{text.trim()}</p>
+            <h1 className="ob-big ob-in" style={{ animationDelay: '0.1s' }}>Which project is it for?</h1>
+            {places.length > 0 ? (
+              <div className="ob-list ob-places ob-in" style={{ animationDelay: '0.2s' }} role="listbox" aria-label="Project">
+                {places.map((p, i) => (
+                  <div key={p.folder} role="option" aria-selected={cursor === i} className={`ob-item${cursor === i ? ' ob-on' : ''}`}
+                    onMouseEnter={() => setCursor(i)} onClick={() => pickPlace(i)}>
+                    <div className="ob-slot"><span className="ob-sw" style={{ background: swatchOf(p.folder) }} /></div>
+                    <div className={`ob-name${cursor === i ? '' : ' ob-dim'}`}><span>{nameOf(p.folder)}</span></div>
+                    <div className="ob-path">{p.short}</div>
+                  </div>
+                ))}
+                <div role="option" aria-selected={cursor === places.length} className={`ob-item${cursor === places.length ? ' ob-on' : ''}`}
+                  onMouseEnter={() => setCursor(places.length)} onClick={() => pickPlace(places.length)}>
+                  <div className="ob-slot"><span className="ob-plus">+</span></div>
+                  <div className={`ob-name${cursor === places.length ? '' : ' ob-dim'}`}><span>Choose another folder</span></div>
+                </div>
+              </div>
+            ) : (
+              <div className="ob-actions ob-in" style={{ animationDelay: '0.2s', marginTop: 40 }}>
+                <button type="button" className="ob-btn" disabled={busy} onClick={() => void chooseAnother()}>Choose its folder <Key k="↵" /></button>
+              </div>
+            )}
+            {problem && <p className="ob-refused">{problem}</p>}
+          </div>
+          {places.length > 0 && <Legend pairs={[[['↑', '↓'], 'Move'], [['↵'], 'Send']]} />}
         </div>
       )}
     </div>
