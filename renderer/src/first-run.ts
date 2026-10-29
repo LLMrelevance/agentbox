@@ -7,12 +7,13 @@ import { occurrenceId, periodKey, type RepeatShape } from '../../shared/repeats.
 import { projectNameFor } from './agent-import-card';
 import { shortPath } from './onboarding';
 
-export type Step = 'chats' | 'task';
+export type Step = 'chats' | 'task' | 'where';
 export type Screen = 'welcome' | Step;
 export type Engine = 'claude' | 'codex';
 
 export function previousScreen(screen: Screen, { chats }: { chats: number }): Screen | null {
   if (screen === 'welcome') return null;
+  if (screen === 'where') return 'task';
   return screen === 'task' && chats > 0 ? 'chats' : 'welcome';
 }
 
@@ -118,7 +119,7 @@ export function chatsHeadline(chats: Array<{ source?: string }>): string {
 }
 
 export function stepsFor({ chats }: { chats: number }): Step[] {
-  return chats > 0 ? ['chats', 'task'] : ['task'];
+  return chats > 0 ? ['chats', 'task', 'where'] : ['task', 'where'];
 }
 
 export interface Idea {

@@ -180,13 +180,14 @@ export function createPhoneInbox({
       return { label: label.length > 160 ? `${label.slice(0, 159)}…` : label, startedAt: Number(d?.startedAt) || now() };
     });
     const was = lives.get(sk);
-    const sameRun = was && was.since === raw.since && was.where === raw.where;
+    const movable = raw.where !== 'cloud' && raw.movable === true;
+    const sameRun = was && was.since === raw.since && was.where === raw.where && !!was.movable === movable;
     const runId = raw.runId ?? (sameRun ? was.runId : undefined);
     const same = sameRun && was.runId === runId;
     const steps = (l) => JSON.stringify(l.doing.map((d) => d.label));
     if (same && now() - was.at < STEP_EVERY_MS) return was;
     if (same && now() - was.at < STILL_RUNNING_MS && steps(was) === steps({ doing })) return was;
-    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now(),
+    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now(), ...(movable ? { movable } : {}),
       ...(raw.where === 'cloud' && /^[A-Za-z0-9._-]{1,120}$/.test(runId ?? '') ? { runId } : {}),
     };
     lives.set(sk, live);
@@ -700,6 +701,7 @@ const ROUTES = {
   snooze: (c) => ['zero:snooze', { product: c.project, id: c.item, snoozedUntil: c.payload.until }],
   stop: (c) => ['zero:stop-session', { product: c.project, id: c.item }],
   'run-now': (c) => ['zero:run-now', { product: c.project, id: c.item }],
+  'move-to-cloud': (c) => ['zero:move-to-cloud', { ids: [c.item] }],
   'send-now': (c) => ['zero:send-now', { product: c.project, id: c.item }],
   reopen: (c) => ['zero:reopen', { product: c.project, id: c.item }],
   schedule: (c) => ['zero:schedule', { product: c.project, id: c.item, runAt: c.payload.runAt }],

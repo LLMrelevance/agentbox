@@ -477,7 +477,7 @@ export const api = {
         base.cloud = { setUp: false, offered: true, mode: 'full', whenOn: 'full', running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: 0 }, accounts: [], signIns: [] } as typeof base.cloud;
       } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
         base.cloud = {
-          setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
+          setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3, projects: base.products.map((p) => p.slug),
           month: { runs: 6, agentHours: 2.4, estimatedCost: 0.31, costPerAgentHour: 0.13 },
           accounts: [
             { engine: 'claude', key: 'a1', name: 'me@example.com', ready: true, state: 'ready' },
@@ -503,6 +503,17 @@ export const api = {
           delete (first as { where?: string }).where;
           const kept = base.items.find((i) => i.id === first.itemId);
           if (kept) kept.onMac = true;
+        }
+        // &needs draws the top thread in Needs you handed back for a key only this Mac has.
+        if (params.has('needs')) {
+          const first = base.items.find((i) => /^The first row a new project/.test(i.title));
+          if (first) Object.assign(first, { onMac: true, needsMac: 'your Stripe key' });
+        }
+        // &moving draws the other running threads on this Mac, all of which the cloud could take now.
+        if (params.has('moving') && base.cloud) {
+          const here = base.supervisor.running.filter((r) => (r as { where?: string }).where !== 'cloud').map((r) => r.itemId);
+          base.cloud.movable = here;
+          if (cloud === 'all') base.supervisor.whyNotCloud = Object.fromEntries(here.map((id) => [id, { at: 'mac' as const, why: 'moving' }]));
         }
       }
       // &cloud=managed draws Agentbox Cloud signed in through its server, and
@@ -866,6 +877,17 @@ export const api = {
   async setThreadOnMac(onMac: Record<string, true | null>): Promise<void> {
     if (useFixtures || !window.zero?.setThreadOnMac) return;
     await window.zero.setThreadOnMac({ onMac });
+  },
+
+  /**
+   * Move runs on this Mac to the cloud as it has room; how many will go. One
+   * thread names its project too, which the phone's command needs.
+   */
+  async moveToCloud(ids: string[], product?: string): Promise<number> {
+    if (useFixtures || !window.zero?.moveToCloud) return 0;
+    const out = await window.zero.moveToCloud({ ids, ...(product && ids.length === 1 ? { product, id: ids[0] } : {}) });
+    // The phone leaves a command for the computer, which says nothing back yet.
+    return out?.moving ?? (out?.ok ? ids.length : 0);
   },
 
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
@@ -1468,6 +1490,8 @@ export const api = {
         const turnedDown = checkProjectFolder('~');
         return { path: null, refused: turnedDown.ok ? undefined : turnedDown.say };
       }
+      // A browser tab's answer, so the picker the app draws can be shot too.
+      if (params.has('drawnPicker')) return { path: null, browse: true };
       return { path: '/Users/you/Desktop/dev/house' };
     }
     const zero = window.zero as any;

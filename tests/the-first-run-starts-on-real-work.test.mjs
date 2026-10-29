@@ -168,11 +168,11 @@ describe('the projects a press makes', () => {
 });
 
 describe('the steps', () => {
-  it('are the chats and a first task when there are chats to bring in', () => {
-    expect(stepsFor({ chats: 3 })).toEqual(['chats', 'task']);
+  it('are the chats, a first task and its project when there are chats to bring in', () => {
+    expect(stepsFor({ chats: 3 })).toEqual(['chats', 'task', 'where']);
   });
-  it('are only the first task when there are none', () => {
-    expect(stepsFor({ chats: 0 })).toEqual(['task']);
+  it('are the first task and its project when there are none', () => {
+    expect(stepsFor({ chats: 0 })).toEqual(['task', 'where']);
   });
 });
 
