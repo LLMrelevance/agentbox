@@ -61,7 +61,7 @@ import { readImportableThreads, readSearchableThreads } from './importable-threa
 import { readChatEnds } from './agent-sessions.mjs';
 import { markImported } from '../shared/agent-import.mjs';
 import { codexIdOf, importChoice, isCodexImportRow, isNotImportedRow } from '../shared/codex-import.mjs';
-import { checkProjectFolder } from '../shared/project-folder-check.mjs';
+import { checkProjectFolder, chooserStartsIn } from '../shared/project-folder-check.mjs';
 import { openFreshUser } from './fresh-user.mjs';
 import { openDemo } from './demo.mjs';
 import { AgentSchedule } from './agent-schedule.mjs';
@@ -1262,7 +1262,15 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   // The refusal is HERE rather than on the screens, so the path never reaches
   // the renderer at all and no screen can take it by accident. What comes back
   // is the sentence, which the screens show as it stands.
+  // AND IT OPENS WHERE THE PROJECTS ARE, NOT ON HOME (F-148). A first run with
+  // nothing connected yet opened the window on the home folder, which is the
+  // one folder the check above refuses: a tester saw a single folder listed and
+  // had to press Ctrl+L to type a path. shared/project-folder-check.mjs orders
+  // the candidates; the first that exists on this disk is the one.
   ipcMain.handle('zero:choose-folder', async (_e, { startIn } = {}) => {
+    const connected = store.listProducts().map((p) => p.repoPath).filter(Boolean);
+    const isDir = (p) => { try { return fsWatch.statSync(p).isDirectory(); } catch { return false; } };
+    const openAt = chooserStartsIn(startIn, { known: connected, home: os.homedir() }).find(isDir) ?? null;
     const r = await dialog.showOpenDialog(window, {
       // The title is what the screen behind it asks. On Linux the chooser
       // draws one, and it was still asking "Where is its code?", the heading
@@ -1270,7 +1278,7 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
       title: 'Pick a project folder',
       buttonLabel: 'Use this folder',
       properties: ['openDirectory', 'createDirectory'],
-      ...(startIn ? { defaultPath: startIn } : {}),
+      ...(openAt ? { defaultPath: openAt } : {}),
     });
     // NO MAC DIALOG TO OPEN, WHICH IS THE BROWSER AND NOT AN ERROR. The screen
     // draws its own picker instead, on `zero:list-folders` below, and comes
