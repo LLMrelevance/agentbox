@@ -43,8 +43,8 @@ it. Three are habits on every change:
   workers start.
 
 `correct` (turn a repeated mistake into a check that fails), `interrogate`
-(Claude and Codex both review a diff) and `handoff` (GPT-6.1-Sol tests your
-change and you fix only what is likely and bad) run when someone asks.
+(Claude and Codex both review a diff) and `handoff` (the best Codex model tests
+your change and you fix only what is likely and bad) run when someone asks.
 
 Do not design for rare or future cases nobody asked about.
 
