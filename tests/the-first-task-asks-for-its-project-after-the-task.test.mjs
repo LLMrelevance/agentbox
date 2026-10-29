@@ -47,19 +47,31 @@ describe('the project screen', () => {
     expect(where).toContain('{text.trim()}');
   });
 
-  it('draws one list, recent folders or not, ending on the row that opens the folder window', () => {
-    expect(where).not.toContain('places.length > 0 ? (');
-    expect(where).not.toContain('className="ob-btn"');
-    expect(where).toContain("places.length ? 'Choose another folder' : 'Choose its folder'");
+  it('lists recent folders, ending on the row that opens the folder window', () => {
+    expect(where).toContain('Choose another folder');
     expect(where).toContain('onClick={() => pickPlace(places.length)}');
     expect(between('const pickPlace = useCallback', '}, [')).toContain('void chooseAnother()');
   });
 
-  it('centers a lone row on its words, with no plus beside them', () => {
-    expect(where).toContain('{places.length > 0 && <div className="ob-slot"><span className="ob-plus">+</span></div>}');
-    const css = fs.readFileSync(new URL('../renderer/src/components/first-run.css', import.meta.url), 'utf8');
-    expect(css).toContain('.first-run .ob-places.ob-alone .ob-item { grid-template-columns: auto; }');
+  it('gives a new user the welcome screen’s button, not a lone row', () => {
+    // The welcome's own: a centered ob-btn 40px under the heading, with its key.
+    expect(where).toContain("<div className=\"ob-actions ob-in\" style={{ animationDelay: '0.2s', marginTop: 40 }}>");
+    expect(where).toMatch(/className="ob-btn"[^>]*onClick=\{\(\) => void chooseAnother\(\)\}>Choose its folder <Key k="↵" \/><\/button>/);
+    expect(where).not.toContain('ob-alone');
   });
+});
+
+describe('the schedule chip on the task screen', () => {
+  const css = fs.readFileSync(new URL('../renderer/src/components/first-run.css', import.meta.url), 'utf8');
+
+  it('drops its menu from the chip’s left edge, not from the time inside it', () => {
+    expect(css).toContain('.first-run .ob-repeat { position: relative; }');
+    expect(css).toContain('.first-run .ob-repeat .when-wrap { position: static; }');
+    expect(css).toMatch(/\.first-run \.ob-repeat \.when-menu \{ left: -1px; top: calc\(100% \+ 6px\); \}/);
+  });
+});
+
+describe('choosing a folder', () => {
 
   it('sends the task to the folder just chosen, with nothing more to press', () => {
     expect(between('const chooseFolder = useCallback', '}, [')).toContain('void sendTo(folder)');
