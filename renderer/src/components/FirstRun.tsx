@@ -484,30 +484,24 @@ export function FirstRunFlow({ snap, home, onDone }: {
           <div className="ob-col ob-mid ob-center">
             <p className="ob-said ob-in">{text.trim()}</p>
             <h1 className="ob-big ob-in" style={{ animationDelay: '0.1s' }}>Which project is it for?</h1>
-            {places.length > 0 ? (
-              <div className="ob-list ob-places ob-in" style={{ animationDelay: '0.2s' }} role="listbox" aria-label="Project">
-                {places.map((p, i) => (
-                  <div key={p.folder} role="option" aria-selected={cursor === i} className={`ob-item${cursor === i ? ' ob-on' : ''}`}
-                    onMouseEnter={() => setCursor(i)} onClick={() => pickPlace(i)}>
-                    <div className="ob-slot"><span className="ob-sw" style={{ background: swatchOf(p.folder) }} /></div>
-                    <div className={`ob-name${cursor === i ? '' : ' ob-dim'}`}><span>{nameOf(p.folder)}</span></div>
-                    <div className="ob-path">{p.short}</div>
-                  </div>
-                ))}
-                <div role="option" aria-selected={cursor === places.length} className={`ob-item${cursor === places.length ? ' ob-on' : ''}`}
-                  onMouseEnter={() => setCursor(places.length)} onClick={() => pickPlace(places.length)}>
-                  <div className="ob-slot"><span className="ob-plus">+</span></div>
-                  <div className={`ob-name${cursor === places.length ? '' : ' ob-dim'}`}><span>Choose another folder</span></div>
+            <div className={`ob-list ob-places ob-in${places.length ? '' : ' ob-alone'}`} style={{ animationDelay: '0.2s' }} role="listbox" aria-label="Project">
+              {places.map((p, i) => (
+                <div key={p.folder} role="option" aria-selected={cursor === i} className={`ob-item${cursor === i ? ' ob-on' : ''}`}
+                  onMouseEnter={() => setCursor(i)} onClick={() => pickPlace(i)}>
+                  <div className="ob-slot"><span className="ob-sw" style={{ background: swatchOf(p.folder) }} /></div>
+                  <div className={`ob-name${cursor === i ? '' : ' ob-dim'}`}><span>{nameOf(p.folder)}</span></div>
+                  <div className="ob-path">{p.short}</div>
                 </div>
+              ))}
+              <div role="option" aria-selected={cursor === places.length} className={`ob-item${cursor === places.length ? ' ob-on' : ''}`}
+                onMouseEnter={() => setCursor(places.length)} onClick={() => pickPlace(places.length)}>
+                <div className="ob-slot"><span className="ob-plus">+</span></div>
+                <div className={`ob-name${cursor === places.length ? '' : ' ob-dim'}`}><span>{places.length ? 'Choose another folder' : 'Choose its folder'}</span></div>
               </div>
-            ) : (
-              <div className="ob-actions ob-in" style={{ animationDelay: '0.2s', marginTop: 40 }}>
-                <button type="button" className="ob-btn" disabled={busy} onClick={() => void chooseAnother()}>Choose its folder <Key k="↵" /></button>
-              </div>
-            )}
+            </div>
             {problem && <p className="ob-refused">{problem}</p>}
           </div>
-          {places.length > 0 && <Legend pairs={[[['↑', '↓'], 'Move'], [['↵'], 'Send']]} />}
+          <Legend pairs={places.length ? [[['↑', '↓'], 'Move'], [['↵'], 'Send']] : [[['↵'], 'Choose']]} />
         </div>
       )}
     </div>

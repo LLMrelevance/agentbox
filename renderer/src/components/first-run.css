@@ -137,6 +137,9 @@
 .first-run .ob-said + h1.ob-big { margin-top: 0; }
 .first-run .ob-places { width: 560px; margin-top: 32px; text-align: left; }
 .first-run .ob-places .ob-item { cursor: pointer; }
+/* One row under a centered heading is centered too. */
+.first-run .ob-places.ob-alone { width: auto; }
+.first-run .ob-places.ob-alone .ob-item { grid-template-columns: 14px auto; }
 .first-run .ob-path { font-family: var(--mono); font-size: 11.5px; color: var(--text-faint); white-space: nowrap; }
 .first-run .ob-ideas .ob-item { height: 44px; border: 0; cursor: pointer; }
 .first-run .ob-ideas .ob-item:hover .ob-name { color: var(--text); }

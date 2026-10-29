@@ -47,9 +47,12 @@ describe('the project screen', () => {
     expect(where).toContain('{text.trim()}');
   });
 
-  it('opens the folder window from its one button when there are no recent folders', () => {
-    expect(where).toContain('Choose its folder');
-    expect(where).toMatch(/onClick=\{\(\) => void chooseAnother\(\)\}/);
+  it('draws one list, recent folders or not, ending on the row that opens the folder window', () => {
+    expect(where).not.toContain('places.length > 0 ? (');
+    expect(where).not.toContain('className="ob-btn"');
+    expect(where).toContain("places.length ? 'Choose another folder' : 'Choose its folder'");
+    expect(where).toContain('onClick={() => pickPlace(places.length)}');
+    expect(between('const pickPlace = useCallback', '}, [')).toContain('void chooseAnother()');
   });
 
   it('sends the task to the folder just chosen, with nothing more to press', () => {
