@@ -5,6 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../api';
 import { splitHeadline, type Spot } from '../one-thing-at-a-time';
+import { ArtifactControlGlyph } from './ArtifactControlGlyph';
 import { DocumentPreview } from './DocumentPreview';
 import { HtmlPreview } from './HtmlPreview';
 import '../one-thing-at-a-time.css';
@@ -143,8 +144,13 @@ export function FilePreviewHeader({ path, folded, expanded, onFold, onCondense, 
       <div className="one-fileactions">
         {expanded && !folded && <button type="button" className="one-filecondense"
           onClick={() => { onCondense(); name.current?.focus({ preventScroll: true }); }}>Show preview</button>}
-        {onSide && <button type="button" className="one-fileopen" onClick={onSide}>Open on the side</button>}
-        <button type="button" className="one-fileopen" onClick={onOpen}>Open full screen</button>
+        {onSide && <button type="button" className="one-fileopen" aria-label="Open on the side" title="Open on the side" onClick={onSide}>
+          <ArtifactControlGlyph><rect x="3" y="4" width="14" height="12" rx=".5" /><path d="M11 4v12" /></ArtifactControlGlyph>
+        </button>}
+        {/* The same corners the open file's own full screen mark draws (FocusControl). */}
+        <button type="button" className="one-fileopen" aria-label="Open full screen" title="Open full screen" onClick={onOpen}>
+          <ArtifactControlGlyph><path d="M7 3H3v4m10-4h4v4M3 13v4h4m6 0h4v-4" /></ArtifactControlGlyph>
+        </button>
       </div>
     </div>
   );

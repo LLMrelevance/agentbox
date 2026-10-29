@@ -79,7 +79,8 @@ describe('a page or a note the answer names is read in place', () => {
   const md = (t) => h('div', null, t);
   it('heads it with its name and a way to open it full screen', () => {
     const html = renderToStaticMarkup(h(QueueFile, { product: 'p', path: '/a/designs/w-1/review.html', md, onOpen: noop }));
-    expect(visible(html)).toBe('review.html Open full screen');
+    expect(visible(html)).toBe('review.html');
+    expect(html).toContain('aria-label="Open full screen"');
     expect(html).toContain('one-file one-page');
   });
   it('tells a note from a page', () => {
