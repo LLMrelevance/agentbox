@@ -30,6 +30,7 @@ import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pic
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
 import { LogoOrbit } from './components/LogoOrbit';
+import { cameBackFromACrash, keepHeldWriter, RELOADED_AFTER_A_CRASH } from './after-a-crash';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
@@ -73,6 +74,7 @@ import { ago, closesTheTask, discardsTheChange, itemOptions, liveOption, needsYo
 import { discardAsk } from './discard-asks-first';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
+  markReplyInFlight, replyLanded, repliesInFlight, bringBackUnsent,
   type SentDraft, type ComposeDraft,
 } from './drafts';
 import { approvalStage, approvalClickAllowed } from './approval-stage';
@@ -177,11 +179,12 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
+import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, MoveToCloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
+import type { PlaceAct } from './threads/ThreadMenu';
 import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, crumbTab, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
@@ -1690,6 +1693,8 @@ export default function App() {
   // (./phone-holds).
   useEffect(() => {
     const off = window.zero?.onWriteHeld?.(flushPending);
+    // Not taken back on unmount: a crash unmounts this, and that is when it is needed.
+    keepHeldWriter(flushPending);
     const onHide = () => { void flushPending(); };
     window.addEventListener('pagehide', onHide);
     const offHidden = onPhone() ? writeHeldWhenHidden(document, flushPending) : null;
@@ -3752,6 +3757,8 @@ export default function App() {
   // common reason ⌘R "does nothing" is that the renderer was never rebuilt,
   // which a build time that has not moved makes obvious.
   useEffect(() => {
+    const crashed = cameBackFromACrash(Date.now());
+    if (crashed) showToast(RELOADED_AFTER_A_CRASH);
     // No bridge at all (a plain browser, a screenshot harness): nobody is going
     // to answer, so say "fresh launch" now rather than leave the boot screen
     // waiting on a promise that does not exist.
@@ -3769,6 +3776,7 @@ export default function App() {
       // over, so a second call would answer "fresh launch" and the restore
       // would never happen.
       setReloaded(!!info?.reloaded);
+      if (crashed) return;
       if (info?.recovered) { showToast(info.recovered); return; }
       if (!info?.reloaded) return;
       const stamp = info.builtAt
@@ -4210,6 +4218,10 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
+    // The box has already emptied; the words stay stored until the write lands
+    // and the next load puts them back if it never does (drafts.ts).
+    const inFlight = sent ? markReplyInFlight(item, sent, text) : null;
+    const landed = () => { if (inFlight !== null) replyLanded(item, inFlight); };
     // Replying to a blocked item is the redirect: it goes straight back to
     // the agent with your words; nothing acts on a blocked item otherwise.
     //
@@ -4231,6 +4243,7 @@ export default function App() {
     // is looking. If she is not, the words wait in this row's box and a toast
     // she can click says where.
     const putBack = (error: unknown) => {
+      landed();
       restoreFailedDraft(item, sent?.words ?? text, sent?.attachments ?? []);
       const here = focusedNow.current?.id === item.id && focusedNow.current?.product === item.product;
       if (here) {
@@ -4248,6 +4261,7 @@ export default function App() {
     // reply but forces you to do 'e'".
     if (runRef.current?.step === 'answer' && runRef.current.item === item.id) {
       await api.answer({ product: item.product, id: item.id, answer: text, ...(status ? { status } : {}) });
+      landed();
       fire({ t: 'replied', at: Date.now() });
       await refresh();
       return;
@@ -4351,6 +4365,7 @@ export default function App() {
         // only so the queue cannot grow for as long as the app is open; nothing
         // she sees turns on it.
         accepted: async () => {
+          landed();
           await refresh();
           setTimeout(() => setSending((q) => q.filter((s) => s !== mine && s !== gone)), LANDED_MS);
         },
@@ -4396,6 +4411,7 @@ export default function App() {
         // her message was back in a box she is not looking at, which is the
         // same broken promise this whole row is about.
         restore: (): Restored => {
+          landed();
           setSending((q) => q.filter((s) => s !== mine));
           const back = restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []);
           if (back) setModal('reply');
@@ -4445,6 +4461,7 @@ export default function App() {
     setSending((q) => [...q, mine]);
     const restore = (): Restored => {
       setSending((q) => q.filter((s) => s !== mine));
+      landed();
       return restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []) ? { item } : null;
     };
     // A REPLY IS A CLAIM ON NOW, so it cancels a schedule rather than queueing
@@ -4489,6 +4506,7 @@ export default function App() {
         putBack(error);
         return;
       }
+      landed();
       setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
       if (wasScheduled) {
         if (priorRunAt > Date.now()) await api.schedule({ product: item.product, id: item.id, runAt: 0 });
@@ -4515,6 +4533,28 @@ export default function App() {
     }, talking ? 'Sent' : `Sent → ${item.productName}`, restore, stay, { product: item.product, id: item.id }, undid, holdsReplies(onPhone()) ? UNDO_GRACE_MS : 0);
   }, [deferCommit, snap?.supervisor.running, snap?.products, showToast, refresh, markSeen, pushUndo, startChatAgents, fire, movesOn]);
   answerWithRef.current = answerWith;
+
+  // A REPLY THE LAST PAGE NEVER SAW LAND goes back in its box (drafts.ts). It
+  // waits out the undo hold first, so a send another open window is still
+  // holding has the chance to land and let go of its own words.
+  const phoneWaitingRef = useRef(snap?.phoneWaiting);
+  phoneWaitingRef.current = snap?.phoneWaiting;
+  const toastRef = useRef(showToast);
+  toastRef.current = showToast;
+  const loaded = !!snap;
+  useEffect(() => {
+    if (!loaded) return;
+    const timers = repliesInFlight().map((left) => setTimeout(async () => {
+      const still = new Set((repliesInFlight().find((r) => r.product === left.product && r.id === left.id)?.replies ?? []).map((r) => r.at));
+      const replies = left.replies.filter((r) => still.has(r.at));
+      if (!replies.length) return;
+      const history = await api.itemHistory({ product: left.product, id: left.id }).catch(() => ({ ok: false, lines: [] }));
+      const waiting = (phoneWaitingRef.current ?? []).filter((w) => w.product === left.product && w.id === left.id).map((w) => w.text);
+      const back = bringBackUnsent(left, replies, history.ok ? history.lines : [], waiting);
+      if (back) toastRef.current(back === 1 ? 'Your reply didn’t send. It’s back in the box.' : `${back} replies didn’t send. They’re back in the box.`, { product: left.product, id: left.id });
+    }, Math.max(0, Math.max(...left.replies.map((r) => r.at)) + UNDO_GRACE_MS + 5000 - Date.now())));
+    return () => timers.forEach(clearTimeout);
+  }, [loaded]);
 
   /* ------------------------ answering one of her agents -------------------- */
   // THE ONE THING AGENTBOX SAYS OUT LOUD TO THE REST OF HER MACHINE. The reply goes
@@ -6130,7 +6170,14 @@ export default function App() {
   const ruleOf = (item: WorkItem) => repeats.find((r) => r.product === item.product && r.id === ruleIdOf(item)) ?? null;
   const focusedRule = focused ? ruleOf(focused) : null;
 
-  const placeThread = (item: WorkItem, keep: boolean) => {
+  const moveToCloud = async (ids: string[], product?: string) => {
+    const moving = await api.moveToCloud(ids, product);
+    showToast(moving
+      ? `Moving ${moving === 1 ? 'this thread' : `${moving} threads`} to the cloud. ${moving === 1 ? 'It keeps' : 'They keep'} working until the cloud has room.`
+      : 'The cloud can’t take this thread right now');
+  };
+  const placeThread = (item: WorkItem, keep: PlaceAct) => {
+    if (keep === 'move') { void moveToCloud([item.id], item.product); return; }
     void api.setThreadOnMac({ [item.id]: keep ? true : null });
     showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
   };
@@ -6292,12 +6339,17 @@ export default function App() {
   // from below, so the class and the card cannot disagree about what is asked.
   const stage = approvalStage(snap?.approvals, answered, frontApproval.current, signInGate || phoneSignInSettling);
   const cardOnScreen = !!stage.card;
+  const mover = {
+    ids: new Set([...(snap?.cloud?.movable ?? []), ...(snap?.supervisor.running ?? []).filter((r) => r.movable).map((r) => r.itemId)]),
+    move: (id: string, product: string) => { void moveToCloud([id], product); },
+  };
 
   return (
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
     <CloudContext.Provider value={cloudIds}>
+    <MoveToCloudContext.Provider value={mover}>
     <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
     <TeammatesContext.Provider value={teammatesById}>
@@ -6503,6 +6555,7 @@ export default function App() {
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
               onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
+              onCloudMove={(ids) => { void moveToCloud(ids); }}
               filters={!roomShown && (!evOn || evKey === 'me')}
               view={roomShown ? roomsUi.viewButton : null}
             />
@@ -8096,6 +8149,7 @@ export default function App() {
     </TeammatesContext.Provider>
     </WaitingContext.Provider>
     </FleetContext.Provider>
+    </MoveToCloudContext.Provider>
     </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>

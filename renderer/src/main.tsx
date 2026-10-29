@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import {AgentUpdates} from './components/AgentUpdates';
+import { ScreenCrash } from './components/ScreenCrash';
 import '@fontsource-variable/source-sans-3';
 import './styles.css';
 import './workspace-navigation.css';
@@ -65,7 +66,7 @@ const boot = () => {
   installPictureWatch();
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
-      <AgentUpdates><App /></AgentUpdates>
+      <ScreenCrash><AgentUpdates><App /></AgentUpdates></ScreenCrash>
     </React.StrictMode>
   );
 };

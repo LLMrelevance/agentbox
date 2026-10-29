@@ -361,11 +361,11 @@ export function buildTools({ holder, ownItem = process.env.ZERO_ITEM || null, re
 
   if (typeof requestCloudResource === 'function') tools.push({
     name: 'request_cloud_resource',
-    description: 'Fetch a missing task file or installed skill from this thread’s computer without moving the conversation there. Files use a relative path under this task checkout or its product documents; skills use their installed name. Delivered resources get a separate scratch path, preserving cloud edits. Returns delivered, denied, not_found, too_large, or unavailable. A delivered skill includes its scripts and references; read its returned SKILL.md. When the computer is unavailable, continue independent work and explain what is missing.',
+    description: 'Fetch a missing file, folder or installed skill from this thread’s computer without moving the conversation there. A file or folder is any path under this task checkout or the account’s documents, other products’ folders included: relative with a scope, or written out in full (`~/…` or absolute) with no scope. Skills use their installed name. Delivered resources get a separate scratch path, preserving cloud edits. Returns delivered, folder (its files, to ask for one by one), denied, not_found, too_large, or unavailable, with the reason. A delivered skill includes its scripts and references; read its returned SKILL.md. If the request names what could not be delivered, end the turn with the hand-back line rather than building around a guess; otherwise continue and explain what is missing.',
     schema: {
       kind: z.enum(['file', 'skill']),
-      path: z.string().describe('relative file path, or installed skill name'),
-      scope: z.enum(['task', 'documents']).optional().describe('required for a file; omitted for a skill'),
+      path: z.string().describe('file or folder path (relative, ~/…, or absolute), or installed skill name'),
+      scope: z.enum(['task', 'documents', 'account']).optional().describe('for a relative file path: this task, this product\'s documents, or the account\'s documents; omitted for a full path or a skill'),
     },
     run: async (args) => json(await requestCloudResource(args)),
   });
