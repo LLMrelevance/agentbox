@@ -6046,6 +6046,7 @@ export class Supervisor {
       swap,
       lastStartAt: this._lastStartAt ?? 0,
       heldSince: this._memHeldSince ?? null,
+      roomy: autoAgents({ ...this._machine(), gated: false, nudge: this.config.agentsNudge }),
     });
     if (d.start) {
       if (d.why === 'off' || d.why === 'normal' || d.why === 'no-reading') this._memHeldSince = null;
