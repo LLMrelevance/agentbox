@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { bootHeadless, createServer, newToken, picturesTheAppOwns } from '../main/serve.mjs';
 import { appHome } from '../main/store/home.mjs';
+import { NO_TERMINAL, ptyIsHere } from '../main/pty.mjs';
 import { learnShellDataDirs } from '../main/shell-path.mjs';
 import { startFreezeRecorder } from '../main/freeze-recorder.mjs';
 import { watchNewChatsFor } from '../main/new-chats-watch.mjs';
@@ -110,6 +111,9 @@ server.listen(wanted, '127.0.0.1', () => {
   // ran this line expecting that one has to be told here: the README is not
   // what they are looking at.
   console.log(`\n  agentbox is running in your browser.\n\n  ${url}\n\n  Store: ${dataDir}\n  The desktop app is built from the repository: https://github.com/savannahfeder/agentbox#install\n  Stop it with control-C.\n`);
+  // The install that skipped node-pty may be one npm cached for this command,
+  // run once and long scrolled past, so this is said at every start.
+  if (!ptyIsHere()) console.log(`  ${NO_TERMINAL}\n`);
   if (!args.includes('--no-open')) open(url);
 });
 
