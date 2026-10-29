@@ -97,7 +97,7 @@ export function QueueAnswer({ text, md, name = '' }: { text: string; md: (text: 
  * none) keeps its name and the way to open it; a note that cannot be read
  * draws nothing, and the answer still names it.
  */
-export function QueueFile({ product, path, md, onOpen }: { product: string; path: string; md: (text: string) => ReactNode; onOpen: () => void }) {
+export function QueueFile({ product, path, md, onOpen, onSide }: { product: string; path: string; md: (text: string) => ReactNode; onOpen: () => void; onSide?: () => void }) {
   const page = /\.html?$/i.test(path);
   const [url, setUrl] = useState<string | null | undefined>(undefined);
   const [text, setText] = useState<string | null | undefined>(undefined);
@@ -123,16 +123,16 @@ export function QueueFile({ product, path, md, onOpen }: { product: string; path
     <section className={`${page ? 'one-file one-page' : 'one-file one-note'}${folded ? ' one-folded' : expanded ? ' one-expanded' : ''}`}>
       <FilePreviewHeader path={path} folded={folded} expanded={expanded}
         onFold={() => { setExpanded(false); setFolded((f) => !f); }}
-        onCondense={() => setExpanded(false)} onOpen={onOpen} />
+        onCondense={() => setExpanded(false)} onOpen={onOpen} onSide={onSide} />
       {!folded && page && url && <HtmlPreview key={`${product}:${path}`} url={url} path={path} expanded={expanded} onExpandedChange={setExpanded} />}
       {!folded && !page && text != null && <DocumentPreview key={`${product}:${path}`} expanded={expanded} onExpandedChange={setExpanded}><div className="markdown one-notebody">{md(text)}</div></DocumentPreview>}
     </section>
   );
 }
 
-export function FilePreviewHeader({ path, folded, expanded, onFold, onCondense, onOpen }: {
+export function FilePreviewHeader({ path, folded, expanded, onFold, onCondense, onOpen, onSide }: {
   path: string; folded: boolean; expanded: boolean;
-  onFold: () => void; onCondense: () => void; onOpen: () => void;
+  onFold: () => void; onCondense: () => void; onOpen: () => void; onSide?: () => void;
 }) {
   const name = useRef<HTMLButtonElement>(null);
   return (
@@ -143,6 +143,7 @@ export function FilePreviewHeader({ path, folded, expanded, onFold, onCondense, 
       <div className="one-fileactions">
         {expanded && !folded && <button type="button" className="one-filecondense"
           onClick={() => { onCondense(); name.current?.focus({ preventScroll: true }); }}>Show preview</button>}
+        {onSide && <button type="button" className="one-fileopen" onClick={onSide}>Open on the side</button>}
         <button type="button" className="one-fileopen" onClick={onOpen}>Open full screen</button>
       </div>
     </div>

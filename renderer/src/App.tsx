@@ -9,6 +9,7 @@ import {reviewLabEnabled} from './review-lab';
 import { deliverReply } from './deliver-reply.mjs';
 import { ArtifactSurface } from './components/ArtifactSurface';
 import { artifactPlacement, artifactFraction, type ArtifactMode } from './artifact-layout';
+import { besideDocument } from './message-artifacts';
 import { chromeIsUp, CHROME_HOLD, CHROME_REACH } from './full-screen-chrome';
 // the app's renderer: one state machine, keyboard-first. The Superhuman grammar:
 // arrows move, Enter focuses, E archives (never approves), R replies, C composes, Tab cycles
@@ -2931,10 +2932,23 @@ export default function App() {
   const previewTreatment = 'margin-left';
   const [designToolbar, setDesignToolbar] = useState('corner');
   const toolbarExploration = api.isFixtures && new URLSearchParams(location.search).has('artifactTweaks');
+  // A file the thread opened by itself and the person closed stays closed
+  // until the agent's next answer.
+  const closedBeside = useRef(new Set<string>());
+  const besideKey = (card: WorkItem, src: string) => `${card.product}\n${card.id}\n${src}\n${card.result ?? ''}`;
+  const openDocNow = useRef(openDoc);
+  openDocNow.current = openDoc;
+  const putDocDown = () => {
+    const card = focusedNow.current, doc = openDocNow.current;
+    if (card && doc?.auto) closedBeside.current.add(besideKey(card, doc.src));
+    setOpenDoc(null);
+  };
   const closeArtifact = () => {
     if (artifactMode === 'focus' && artifactReturnBeside) setArtifactMode('beside');
-    else setOpenDoc(null);
+    else putDocDown();
   };
+  // Full screen is for one look. Once the file is put down, the next one opens beside.
+  useEffect(() => { if (!openDoc) setArtifactMode('beside'); }, [openDoc]);
   const [artifactBody, setArtifactBody] = useState<HTMLDivElement | null>(null);
   const [artifactWidth, setArtifactWidth] = useState(1000);
   useEffect(() => {
@@ -2998,7 +3012,7 @@ export default function App() {
       if (meant === 'close') {
         if (!escapeInTheFileClosesIt(openDoc)) return;
         (document.activeElement as HTMLElement | null)?.blur?.();
-        setOpenDoc(null);
+        putDocDown();
         return;
       }
       if (meant === 'palette') {
@@ -3058,6 +3072,29 @@ export default function App() {
     // while she reads must not push a document back over a pane she closed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focused?.id, focused?.product]);
+
+  // THE NOTE OR PAGE THE NEWEST ANSWER SETS ON ITS OWN LINE OPENS BESIDE IT
+  // (besideDocument, message-artifacts.ts). Never over a file opened by hand, never
+  // over full screen, and never on a window too narrow to have a side.
+  const besideSrc = focused
+    ? besideDocument(focused.result, snap?.products.find((p) => p.slug === focused.product)?.dir ?? null)
+    : null;
+  const roomBeside = artifactPlacement('beside', artifactWidth) === 'beside';
+  useEffect(() => {
+    const card = focused;
+    if (!card || !besideSrc || !roomBeside || closedBeside.current.has(besideKey(card, besideSrc))) return;
+    let live = true;
+    // Resolved first: a path the worker got wrong would open half a window
+    // saying the file could not be found.
+    api.resolveDoc({ product: card.product, src: besideSrc }).then((r) => {
+      const cur = openDocNow.current;
+      if (!live || !r?.ok || !r.opened) return;
+      if (cur && (!cur.auto || cur.src === besideSrc || artifactMode !== 'beside')) return;
+      setOpenDoc({ product: card.product, src: besideSrc, auto: true });
+    }).catch(() => { /* the pane stays shut */ });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focused?.id, focused?.product, focused?.result, besideSrc, roomBeside]);
 
   /* --------------------------- arrival side-effects ----------------------- */
   // WHAT ARRIVED, not what to say about it. This page owns the definition of
@@ -7062,7 +7099,10 @@ export default function App() {
                 focusControlStyle={reviewLab ? focusControlStyle : 'corners-bare'}
                 headerTarget={artifactView === 'focus' ? artifactHeader : null}
               mode={artifactMode}
-                onMode={mode => { setArtifactReturnBeside(artifactMode === 'beside'); setArtifactMode(mode); }}
+                onMode={mode => {
+                  if (mode === 'beside' && !roomBeside) { putDocDown(); return; }
+                  setArtifactReturnBeside(artifactMode === 'beside'); setArtifactMode(mode);
+                }}
                 split={artifactFraction(split, artifactWidth)}
                 onSplit={resizeDoc}
                 onClose={closeArtifact}

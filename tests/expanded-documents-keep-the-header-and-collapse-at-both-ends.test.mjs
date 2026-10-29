@@ -35,6 +35,14 @@ describe('a compact document', () => {
     expect(words(header(false))).toBe('release-plan.md Open full screen');
   });
 
+  it('offers the side before full screen when it can open there', () => {
+    const html = renderToStaticMarkup(h(FilePreviewHeader, {
+      path: 'reports/release-plan.md', expanded: false, folded: false,
+      onFold: noop, onCondense: noop, onOpen: noop, onSide: noop,
+    }));
+    expect(words(html)).toBe('release-plan.md Open on the side Open full screen');
+  });
+
   it('can still fold down to its header', () => {
     expect(header(false, true)).toContain('class="one-filefold" aria-expanded="false"');
   });

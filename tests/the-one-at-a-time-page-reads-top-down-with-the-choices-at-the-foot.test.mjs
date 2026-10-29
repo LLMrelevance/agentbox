@@ -87,7 +87,7 @@ describe('a page or a note the answer names is read in place', () => {
   });
   it('and the thread page draws them in this mode in place of the tiles', () => {
     const focus = read('renderer/src/components/Focus.tsx');
-    expect(focus).toContain('inlineArtifacts && !previewSample && page && previewPaths.filter(readsInPlace).map((path) => <QueueFile');
+    expect(focus).toContain('inlineArtifacts && !previewSample && page && previewPaths.filter(readsInPlace).map((path) => path !== openDoc && <QueueFile');
     expect(focus).toContain('{!page && inlineArtifacts && !previewSample && <MessageFiles');
   });
 });
