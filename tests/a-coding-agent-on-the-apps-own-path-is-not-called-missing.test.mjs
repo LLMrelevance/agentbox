@@ -1,121 +1,171 @@
-// "NO CODING AGENT FOUND" ON A MACHINE WHOSE PATH HELD CODEX (F-140).
+// A CODING AGENT ON THE APP'S OWN PATH IS NOT CALLED MISSING.
 //
-// The README's own desktop path is `git clone && npm install && npm start`,
-// so the app is started FROM A TERMINAL and inherits that terminal's PATH. On
-// the Linux QA box 2026-10-28 that PATH had `/home/box/.local/bin/codex` on it
-// and the first screen still said NO CODING AGENT FOUND, with Install Codex
-// under it. Three fresh homes out of three.
+// WHAT BROKE (QA batch 006, F-131). A brand-new Linux user started
+// agentbox-app 0.1.18 from a terminal where `codex` ran, and the first screen
+// said "No coding agent found" and offered to install a second copy. The
+// binary was at /home/box/.local/bin/codex and that directory was on the
+// PATH the app process itself inherited.
 //
-// WHY THE SEARCH MISSED IT. The shell probe goes first and it is a LOGIN
-// shell, and measured here on Debian 13 with the real /bin/bash:
+// WHY THE FINDER MISSED IT. `findEngine` asks the login shell first and walks
+// a hand-written list of install directories second. It never reads the PATH
+// it was handed. On Debian that is the whole bug: /etc/profile is
 //
-//   PATH=/tmp/fakehome/bin:$PATH HOME=/tmp/fakehome bash -lic 'echo $PATH'
-//   /usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
+//     if [ "$(id -u)" -eq 0 ]; then
+//       PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+//     else
+//       PATH="/usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games"
+//     fi
 //
-// /etc/profile sets PATH outright, so the login shell throws away the PATH the
-// app was started with and `command -v codex` honestly says no. The fixed list
-// is searched under the app's HOME, and the QA box's fresh HOME has no
-// ~/.local/bin. Nothing in the search ever looked at the app's own PATH, which
-// is where the tool was all along.
+// which overwrites the inherited PATH rather than adding to it. ~/.profile
+// normally puts ~/.local/bin back, so most people never notice; anyone whose
+// PATH comes from somewhere the profile files do not read -- a container's
+// ENV, a desktop session, direnv, nix, a parent shell, or a HOME that has no
+// profile yet -- gets a login shell that confidently reports "not on PATH"
+// about a program the app could spawn that second.
 //
-// So the app's own PATH is searched too, after the list and before the desktop
-// apps' copies: nothing that was found before is found anywhere else now, and
-// a tool that is plainly on the PATH we were handed is no longer missing.
+// MEASURED on Debian 13, 2026-10-29, with a tool only on the inherited PATH:
 //
-// It is not in `searched`, which is the fixed list and is read as such.
-import { describe, it, expect } from 'vitest';
-import path from 'node:path';
-import { findEngine, pathDirs } from '../main/engine-bin.mjs';
-import { findCodexBin } from '../main/codex-bin.mjs';
+//     $ env -i HOME=/tmp/fresh SHELL=/bin/bash PATH="/tmp/bin:/usr/bin:/bin" \
+//         bash -lic 'echo "login PATH: $PATH"; command -v mytool || echo NOT FOUND'
+//     login PATH: /usr/local/bin:/usr/bin:/bin:/usr/local/games:/usr/games
+//     NOT FOUND
+//
+// SO THE PATH THE APP WAS STARTED WITH IS NOW A SOURCE, between the shell and
+// the list: it is a fact rather than a guess, it costs no subprocess, and it
+// is the one place a terminal launch is certain to carry the truth.
 
-const HOME = '/tmp/agentbox-fresh-user/readme-2301';
+import { describe, it, expect, afterAll } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { findEngine } from '../main/engine-bin.mjs';
+
+const HOME = '/Users/stranger';
 const only = (...paths) => (p) => paths.includes(p);
 const never = () => false;
-const noShell = () => ({ path: null, answered: true });
-const silent = () => ({ path: null, answered: false });
+/** The shell is sure the tool is not on PATH, which is the case this is about. */
+const shellSaidNo = () => ({ path: null, answered: true });
 
-describe('the PATH the app was started with', () => {
-  // The reported machine, with its real numbers.
-  it('finds a Codex the login shell could not see', () => {
-    const out = findCodexBin({
+const made = [];
+afterAll(() => { for (const d of made) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } } });
+function tmp(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  made.push(dir);
+  return dir;
+}
+
+describe('the PATH the app was handed', () => {
+  // THE REPORTED CASE. Nothing in their home, nothing the list knows about,
+  // and the login shell sure of itself -- but the binary is on PATH.
+  it.each(['claude', 'codex'])('finds %s in a directory on PATH that no list holds', (key) => {
+    const theirs = `/opt/box/tools/bin/${key}`;
+    const found = findEngine(key, {
       home: HOME,
-      env: { PATH: '/home/box/.local/bin:/usr/local/bin:/usr/bin:/bin' },
-      exists: only('/home/box/.local/bin/codex'),
-      shellLookup: noShell,
+      env: { PATH: '/opt/box/tools/bin:/usr/bin:/bin' },
+      exists: only(theirs),
+      dangles: never,
+      shellLookup: shellSaidNo,
     });
-    expect(out).toMatchObject({ path: '/home/box/.local/bin/codex', found: true, certain: true, from: 'path' });
+    expect(found).toMatchObject({ path: theirs, found: true, certain: true, from: 'path' });
   });
 
-  it.each(['claude', 'codex'])('does it for %s, since one search serves both', (key) => {
-    const out = findEngine(key, {
+  // THE BOUNDARY ONE SIDE: the shell still wins when it answers, because it
+  // ran as them with their profile loaded and PATH is only what we inherited.
+  it('leaves the shell first', () => {
+    const theirs = `${HOME}/.volta/bin/codex`;
+    const onPath = '/usr/bin/codex';
+    const found = findEngine('codex', {
       home: HOME,
-      env: { PATH: `/opt/tools/bin:/usr/bin` },
-      exists: only(`/opt/tools/bin/${key}`),
-      shellLookup: noShell,
+      env: { PATH: '/usr/bin' },
+      exists: only(theirs, onPath),
+      shellLookup: () => ({ path: theirs, answered: true }),
     });
-    expect(out).toMatchObject({ path: `/opt/tools/bin/${key}`, found: true, from: 'path' });
+    expect(found).toMatchObject({ path: theirs, from: 'shell' });
   });
 
-  // The order either side of the new step, because it must take nothing away.
-  it('still lets the shell answer first', () => {
-    const out = findEngine('codex', {
+  // THE BOUNDARY THE OTHER SIDE: PATH beats the hand-written list, for the
+  // reason the shell does. A stale copy somebody stopped using sits on the
+  // list; what is on PATH is what their terminal actually runs.
+  it('beats a stale copy on the hand-written list', () => {
+    const stale = `${HOME}/.npm-global/bin/codex`;
+    const live = '/opt/box/tools/bin/codex';
+    const found = findEngine('codex', {
       home: HOME,
-      env: { PATH: '/home/box/.local/bin' },
-      exists: only('/home/box/.local/bin/codex', '/opt/homebrew/bin/codex'),
-      shellLookup: () => ({ path: '/opt/homebrew/bin/codex', answered: true }),
+      env: { PATH: `/opt/box/tools/bin:${HOME}/.npm-global/bin` },
+      exists: only(stale, live),
+      shellLookup: shellSaidNo,
     });
-    expect(out).toMatchObject({ path: '/opt/homebrew/bin/codex', from: 'shell' });
+    expect(found).toMatchObject({ path: live, from: 'path' });
   });
 
-  it('still lets the fixed list answer before the PATH', () => {
-    const out = findEngine('codex', {
+  // THE CASE THAT MUST NOT MATCH, and it decides what gets spawned: a "." or
+  // a "node_modules/.bin" on PATH would hand the choice to whatever folder the
+  // app happens to be sitting in.
+  it('never takes a relative entry on PATH', () => {
+    const found = findEngine('codex', {
       home: HOME,
-      env: { PATH: '/home/box/.local/bin' },
-      exists: only('/home/box/.local/bin/codex', '/usr/local/bin/codex'),
-      shellLookup: noShell,
+      env: { PATH: '.:node_modules/.bin:../bin' },
+      exists: () => true,   // every relative guess would hit, if one were made
+      dangles: never,
+      shellLookup: shellSaidNo,
     });
-    expect(out).toMatchObject({ path: '/usr/local/bin/codex', from: 'disk' });
+    expect(found.from).not.toBe('path');
   });
 
-  // What must NOT match. A PATH entry is a directory name from an environment
-  // we did not write: an empty one means the current directory to a shell, and
-  // a relative one would pick up whatever `codex` the folder we happen to be
-  // standing in holds.
-  it('ignores an empty or relative entry, so nothing is run out of the current folder', () => {
-    expect(pathDirs({ PATH: '/opt/bin::.:bin:/usr/bin' })).toEqual(['/opt/bin', '/usr/bin']);
-    expect(pathDirs({})).toEqual([]);
-    expect(pathDirs({ PATH: '' })).toEqual([]);
-    const out = findEngine('codex', {
-      home: HOME, env: { PATH: '.:node_modules/.bin' }, exists: () => true, shellLookup: noShell,
+  // An empty entry (a leading, trailing or doubled colon) means the current
+  // directory to a shell, and must not become /codex here either.
+  it('never turns an empty entry into a path at the root', () => {
+    const looked = [];
+    findEngine('codex', {
+      home: HOME,
+      env: { PATH: ':/opt/box/tools::' },
+      exists: (p) => { looked.push(p); return false; },
+      dangles: never,
+      shellLookup: shellSaidNo,
     });
-    expect(out.from).not.toBe('path');
+    expect(looked).not.toContain('/codex');
+    expect(looked).toContain('/opt/box/tools/codex');
   });
 
-  it('says nothing is there when the PATH holds no such file', () => {
-    const out = findEngine('codex', {
+  // AND AN EMPTY-HANDED SEARCH IS STILL ENTITLED TO SAY SO. This must not turn
+  // every absence into an unsure one: the screen that asks somebody to install
+  // Claude Code depends on `certain`.
+  it('is still certain when PATH holds nothing either', () => {
+    const found = findEngine('codex', {
       home: HOME,
-      env: { PATH: '/home/box/.local/bin:/usr/bin' },
+      env: { PATH: '/usr/bin:/bin' },
       exists: never,
-      shellLookup: noShell,
+      dangles: never,
+      shellLookup: shellSaidNo,
     });
-    expect(out).toMatchObject({ path: null, found: false, certain: true, from: null });
+    expect(found).toMatchObject({ path: null, found: false, certain: true, from: null });
   });
 
-  // A shell that said nothing is still not an absence, and a PATH that holds
-  // nothing does not turn it into one.
-  it('is still not certain when no shell answered and the PATH was empty', () => {
-    const out = findEngine('codex', { home: HOME, env: { PATH: '/usr/bin' }, exists: never, shellLookup: silent });
-    expect(out).toMatchObject({ found: false, certain: false });
-  });
-
-  // `searched` is the list this home is searched under, and stays that: it is
-  // the same list on every machine, while the PATH is whatever this run was
-  // handed, and two tests read it as "the places we guess at".
-  it('leaves the list of places it guesses at alone', () => {
-    const out = findEngine('codex', {
-      home: HOME, env: { PATH: '/home/box/.local/bin:/usr/bin' }, exists: never, shellLookup: noShell,
+  it('is unchanged when there is no PATH at all', () => {
+    const found = findEngine('claude', {
+      home: HOME, env: {}, exists: never, dangles: never, shellLookup: shellSaidNo,
     });
-    expect(out.searched).toContain(path.join(HOME, '.local/bin/codex'));
-    expect(out.searched).not.toContain('/home/box/.local/bin/codex');
+    expect(found).toMatchObject({ found: false, certain: true, from: null });
+  });
+});
+
+// The fake `exists` above tests the strategy; this walks the real fs.
+describe('against a real file on a real disk', () => {
+  it('finds a codex that is only on PATH, with nothing else to go on', () => {
+    const home = tmp('path-home-');
+    const bin = tmp('path-bin-');
+    const real = path.join(bin, 'codex');
+    fs.writeFileSync(real, '#!/bin/sh\n');
+    fs.chmodSync(real, 0o755);
+
+    const found = findEngine('codex', {
+      home,
+      env: { PATH: `${bin}${path.delimiter}${home}/nowhere` },
+      // Only the throwaway home and bin are on the disk, so the machine running
+      // the suite, which has both agents on it, cannot answer for this.
+      exists: (p) => (p.startsWith(home) || p.startsWith(bin)) && fs.existsSync(p),
+      shellLookup: shellSaidNo,
+    });
+    expect(found).toMatchObject({ path: real, found: true, certain: true, from: 'path' });
   });
 });

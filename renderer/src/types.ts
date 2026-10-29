@@ -1497,7 +1497,7 @@ declare global {
       // screenDetail is which set of theme pictures this screen wants, 'soft' or
       // 'sharp' (main/screen-detail.mjs). It rides here rather than being
       // pushed because the answer is needed on the first paint.
-      bootInfo?(): Promise<{ reloaded: boolean; builtAt: number; recovered?: string | null; screenDetail?: string }>;
+      bootInfo?(): Promise<{ reloaded: boolean; builtAt: number; recovered?: string | null; revived?: string | null; screenDetail?: string }>;
       onJoinRoom?(fn: () => void): () => void;
       takeJoin?(): Promise<string | null>;
       // Keeping Agentbox current (main/updater.mjs). Look again now, and restart
