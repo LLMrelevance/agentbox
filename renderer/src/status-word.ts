@@ -12,6 +12,7 @@ import { liveLine, shortWord, type LiveFacts } from './live-line';
 import { STATE_WORD, stateWordOf } from './threads/summary-rules';
 import { threadState } from '../../shared/thread-cards.mjs';
 import { closedUnshipped, notShippedLine, shippedAs } from '../../shared/not-shipped.mjs';
+import { asksWho, isAuto } from '../../shared/auto-route.mjs';
 import type { ThreadStateWord, WorkItem } from './types';
 import type { Fleet } from './fleet';
 import { whyWords, type WhyCard } from './where-why';
@@ -73,6 +74,14 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
     if (closedUnshipped(item)) return says('Not shipped', 'done', false, 'Closed without its work reaching main');
     return plain(stateWordOf(item, state), 'done');
   }
+  // Sent to Auto and not given to anyone yet (shared/auto-route.mjs). Ahead of
+  // Stopped: a thread that asks her is on the supervisor's stalled list, and no
+  // agent died on it.
+  if (isAuto(item)) {
+    return asksWho(item)
+      ? says('Asks you who', 'need', false, 'Auto could not tell which teammate should take this. Open it to pick.')
+      : says('Assigning', 'queued', true, 'Auto is picking who takes this.');
+  }
   // The bar over the conversation owns the whole story of a dead worker; the
   // row says the one word, because a row that says nothing reads as a row
   // nothing has happened on.
@@ -91,7 +100,7 @@ export function statusCell(item: WorkItem, facts: StatusFacts = {}): StatusCell 
     const cloud = facts.session?.where === 'cloud';
     const local = !cloud && away?.at === 'mac';
     return {
-      word: local ? 'Working locally' : shortWord('working'), mark: 'working', agent: true, live: true, cloud,
+      word: local ? (away?.why === 'moving' ? 'Moving to cloud' : 'Working locally') : shortWord('working'), mark: 'working', agent: true, live: true, cloud,
       title: local ? titled(live.line) : live.line, ...(local ? { why } : {}),
     };
   }

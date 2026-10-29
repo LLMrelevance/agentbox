@@ -42,8 +42,11 @@ it. Three are habits on every change:
 - `blast-radius` when a change touches `main/`, `shared/`, the store or how
   workers start.
 
-`correct` (turn a repeated mistake into a check that fails) and `interrogate`
-(Claude and Codex both review a diff) run when someone asks.
+`correct` (turn a repeated mistake into a check that fails), `interrogate`
+(Claude and Codex both review a diff) and `handoff` (the best Codex model tests
+your change and you fix only what is likely and bad) run when someone asks.
+
+Do not design for rare or future cases nobody asked about.
 
 ## NOTHING RETRIES FOR EVER, NOTHING WAITS FOR EVER, NOTHING FAILS IN SILENCE (2026-10-19)
 
@@ -94,6 +97,16 @@ nowhere else. That folder follows the public main on its own:
 
 Whether you ask before shipping is set by the person's own instructions, not
 by this file.
+
+## RELEASING IS ONE COMMAND: `npm run deploy` (2026-10-26)
+
+A release (the Mac app, npm, the agentbox.ac download and update feed, the
+cloud server) is `cd ~/Desktop/dev/agentbox-team && npm run deploy`, run by
+the person, because it signs with their Apple account. Hand them that line
+and nothing else. Do not write out the steps it runs: hand-written release
+steps went wrong in a dozen ways, which is why it exists. To see what it would
+do without changing anything, run `npm run deploy -- --check`. If it stops,
+fix what it names in `scripts/deploy.mjs` rather than giving a workaround.
 
 ## MAIN WAS REWRITTEN ON 2026-10-06
 
@@ -158,11 +171,13 @@ The team version (shared projects, teammates, the Team page) used to live in a
 separate private repository. It was merged in here with its history, so this
 is the one app and the one source of truth. The plan is `docs/team/PLAN.md`.
 
-- The team cloud's address and key, `cloud/team.config.json`, are never
-  committed (it is ignored, and `tests/the-team-cloud-key-stays-out-of-the-repository`
-  checks it). Machines that run the team version keep their own copy; without
-  it the app is the single-person app. `cloud/team.config.example.json` shows
-  the shape.
+- `cloud/team.config.json` is never committed (it is ignored, and
+  `tests/the-team-cloud-key-stays-out-of-the-repository` checks it). It is what
+  makes a copy the team version: machines that run it keep their own copy, and
+  without it the app is the single-person app. `cloud/team.config.example.json`
+  shows the shape. The same database's public address and anon key do ship, in
+  `shared/cloud-address.mjs`, so every copy can sign in to Agentbox Cloud
+  (2026-10-26); they were already inside every download.
 - A branch cut from the old private repository's history will not line up with
   this one: the merge rewrote those commits to take the key file out. Move it
   across with

@@ -4,7 +4,7 @@
 // Everything): read off the code on 2026-10-17, `_whereToRun` sent a thread to
 // this Mac whenever the cloud had no slot and this Mac had one: past the
 // cloud's cap of 10 live runs, and whenever every cloud account was at its
-// usage limit. She: "the whole premise is that it opens up more agent slots so
+// usage limit (that second case runs here again since 2026-10-26). She: "the whole premise is that it opens up more agent slots so
 // theoretically you could run 50 or 100 agents at once".
 //
 // Now, with Everything, a thread that may go to the cloud waits for a cloud
@@ -56,10 +56,13 @@ describe('with Everything on', () => {
     expect(sup._roomFor('claude', item)).toBe(false);
   });
 
-  it('a thread waits while every cloud account is at its limit, rather than running here', () => {
+  // Since 2026-10-26 a cloud account at its limit sends threads here instead
+  // (with-the-clouds-account-at-its-limit-threads-run-on-this-mac.test.mjs).
+  it('a thread runs here while the cloud\'s account is at its limit', () => {
     const { sup, product } = make({ runnable: false });
-    expect(sup._whereToRun({ item, product, cwd, engine: 'claude' })).toBe('cloud-wait');
-    expect(sup._roomFor('claude', item)).toBe(false);
+    sup._cloudInUseState = () => 'limited';
+    expect(sup._whereToRun({ item, product, cwd, engine: 'claude' })).toBe('local');
+    expect(sup._roomFor('claude', item)).toBe(true);
   });
 
   it('a reply to such a thread waits too', () => {
@@ -109,8 +112,8 @@ describe('with "when this Mac is full"', () => {
 describe('the cloud menu', () => {
   const at = Date.UTC(2026, 9, 17, 20, 0);
   const cloud = (mode) => ({ setUp: true, mode, running: 0, accounts: [{ engine: 'claude', key: 'a', ready: false, state: 'limited', limitedUntil: at + 2 * 3600_000, inUse: true }] });
-  it('says threads wait for the cloud with Everything, and run here with "when this Mac is full"', () => {
-    expect(cloudFootLine(cloud('all'), at)).toMatch(/Threads wait for the cloud until then\.$/);
+  it('says threads run here until the reset, with Everything as with "when this Mac is full"', () => {
+    expect(cloudFootLine(cloud('all'), at)).toMatch(/Threads run on this Mac until then\.$/);
     expect(cloudFootLine(cloud('full'), at)).toMatch(/Threads run on this Mac until then\.$/);
   });
 });

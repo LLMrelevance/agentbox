@@ -350,9 +350,9 @@ export function supabaseBackend(client) {
       const me = await myId();
       must(await client.from('push_devices').delete().eq('owner', owner ?? me).eq('token', token), 'forgetting a phone');
     },
-    async addPhoneCommand({ device, project = null, item = null, kind, payload = {} }) {
+    async addPhoneCommand({ id = null, device, project = null, item = null, kind, payload = {} }) {
       await myId();
-      const row = must(await client.from('phone_commands').insert({ device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');
+      const row = must(await client.from('phone_commands').insert({ ...(id ? { id } : {}), device, project, item, kind, payload }).select(COMMAND_COLUMNS).single(), 'sending that to your computer');
       return commandOut(row);
     },
     async phoneCommands() {

@@ -12,6 +12,7 @@ import { Name } from '../../../shared/product-name.mjs';
 import { AppMark } from '../components/AppMark';
 import { onCloudPhone } from '../phone-screen';
 import { agreedHere, rememberAgreed } from './cloud-agreed';
+import { whatIsMissing, type Missing } from './what-is-missing';
 import './sign-in.css';
 
 const GoogleMark = () => (
@@ -23,7 +24,7 @@ const GoogleMark = () => (
   </svg>
 );
 
-type Mode = 'sign-in' | 'sign-up' | 'check-email' | 'agree';
+type Mode = 'sign-in' | 'sign-up' | 'check-email' | 'agree' | 'reset' | 'reset-sent' | 'new-password';
 
 // WAITING ON THE BROWSER IS A PAGE OF ITS OWN (2026-10-04). The first teammate
 // to install this clicked Continue with Google and saw nothing happen: the
@@ -42,8 +43,19 @@ type Mode = 'sign-in' | 'sign-up' | 'check-email' | 'agree';
 // at reading size, under the button pressed, which is what courts ask of a
 // line like this. A Google sign-in on the Sign in tab can still be someone
 // new; the cloud server then says so and the card asks once, here.
+// AND A PASSWORD CAN BE SEEN AND RESET (2026-10-25). Show puts it on the
+// screen while it is typed, so the one that reaches the cloud is the one you
+// meant; Forgot password emails a link back to this app, and the new password
+// is typed here (tests/a-locked-out-cloud-account-can-reset-its-password).
 const TERMS_URL = 'https://agentbox.ac/terms';
 const PRIVACY_URL = 'https://agentbox.ac/privacy';
+// WHAT THE CONFIRMATION LINK IS FOR (F-99, w-aaedc8f711). It used to say the
+// link signed you in, right after you had chosen a password, which reads like
+// a passwordless link. It confirms the address; the cloud's link comes back to
+// this computer's own listener, so the app carries on with nothing to press.
+export const checkEmailLede = (email: string, cloud: boolean) => (cloud
+  ? `We sent a link to ${email}. Follow it on this computer to confirm your address, and ${Name} carries on from there.`
+  : `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`);
 const TermsLinks = () => <>the <a href={TERMS_URL} onClick={(e) => { e.preventDefault(); window.open(TERMS_URL, '_blank'); }}>Terms</a> and the <a href={PRIVACY_URL} onClick={(e) => { e.preventDefault(); window.open(PRIVACY_URL, '_blank'); }}>Privacy policy</a></>;
 
 export function SignInPage({ onSkip, signedOut = false, error: startError = null, waitingUrl = null, purpose = 'team', startOn = 'sign-in', onClose, onSignedIn }: {
@@ -56,12 +68,35 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false); // a password is hidden until you ask, so none is read over a shoulder
   const [busy, setBusy] = useState<null | 'google' | 'email'>(null);
   const [error, setError] = useState<string | null>(null);
-  const first = useRef<HTMLInputElement | null>(null);
-  useEffect(() => { first.current?.focus(); }, [mode]);
+  // THE FORM TAKES THE PRESS AND NAMES WHAT IS MISSING (w-aaedc8f711). A
+  // dimmed Create account with an empty Name said nothing at all, and Name
+  // reads optional beside Email and Password, so a sign-up looked broken.
+  const [missing, setMissing] = useState<Missing | null>(null);
+  const nameField = useRef<HTMLInputElement | null>(null);
+  const emailField = useRef<HTMLInputElement | null>(null);
+  const pwField = useRef<HTMLInputElement | null>(null);
+  const fieldOf = { name: nameField, email: emailField, password: pwField };
+  useEffect(() => {
+    setMissing(null);
+    (mode === 'sign-up' ? nameField : mode === 'new-password' ? pwField : emailField).current?.focus();
+  }, [mode]);
+  // Which reset this card is waiting on: a cancelled one must not steer the
+  // card the person has already moved on from.
+  const resetTry = useRef(0);
 
   const [copied, setCopied] = useState(false);
+  const [sent, setSent] = useState(false);
+  // The database sends at most one of these a minute (cloud/supabase/config.toml).
+  const resend = async () => {
+    setBusy('email'); setError(null); setSent(false);
+    const out = await api.cloudAccountSignIn({ method: 'resend' });
+    setBusy(null);
+    if (out.ok) { setSent(true); return; }
+    setError(out.error ?? 'That did not send. Try again in a minute.');
+  };
   const google = async () => {
     setBusy('google'); setError(null); setCopied(false);
     const out = cloud ? await api.cloudAccountSignIn({ method: 'google', acceptTerms: mode === 'sign-up' }) : await api.teamSignIn();
@@ -94,7 +129,7 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
     return (
       <div className="si-page" role="dialog" aria-modal="true" aria-label="Finish signing in in your browser">
         <div className="si-card">
-          <span className="si-mark"><AppMark size={40} /></span>
+          <span className="si-mark"><AppMark size={28} /></span>
           <h1>Finish in your browser</h1>
           <p className="si-lede">
             {waitingUrl
@@ -117,52 +152,125 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (busy) return;
+    const gap = whatIsMissing({ mode: mode === 'sign-up' ? 'sign-up' : 'sign-in', name, email, password });
+    if (gap) { setMissing(gap); setError(null); fieldOf[gap.field].current?.focus(); return; }
     setBusy('email'); setError(null);
     const out = cloud
       ? await api.cloudAccountSignIn(mode === 'sign-up' ? { method: 'sign-up', name, email, password } : { method: 'email', email, password, acceptTerms: agreedHere(email) })
       : mode === 'sign-up'
         ? await api.teamSignUp(name, email, password)
         : await api.teamSignInEmail(email, password);
+    if (cloud && 'needsTerms' in out && out.needsTerms) { setBusy(null); setMode('agree'); return; }
+    if (!out.ok) { setBusy(null); setError(out.error ?? 'That did not work. Try again.'); return; }
+    if (out.confirm) { setBusy(null); if (cloud) rememberAgreed(email); setMode('check-email'); return; }
+    // Signed in, and the screen behind this one is reading the account before
+    // it can draw. The button goes on saying so until this card is taken down,
+    // so nothing flashes back to an untouched form (F-96).
+    onSignedIn?.();
+  };
+
+  const askForReset = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy('email'); setError(null);
+    const sent = await api.cloudAccountSignIn({ method: 'reset', email });
     setBusy(null);
-    if (cloud && 'needsTerms' in out && out.needsTerms) { setMode('agree'); return; }
+    if (!sent.ok) { setError(sent.error ?? 'That did not work. Try again.'); return; }
+    const mine = ++resetTry.current;
+    setPassword(''); setMode('reset-sent');
+    const link = await api.cloudAccountSignIn({ method: 'reset-wait' });
+    if (resetTry.current !== mine) return;
+    if (!link.ok) { if (!link.cancelled) setError(link.error ?? 'That reset did not finish. Ask for the email again.'); setMode('reset'); return; }
+    setMode('new-password');
+  };
+
+  const useNewPassword = async (e: FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    setBusy('email'); setError(null);
+    const out = await api.cloudAccountSignIn({ method: 'new-password', password, acceptTerms: agreedHere(email) });
+    setBusy(null);
+    if ('needsTerms' in out && out.needsTerms) { setMode('agree'); return; }
     if (!out.ok) { setError(out.error ?? 'That did not work. Try again.'); return; }
-    if (out.confirm) { if (cloud) rememberAgreed(email); setMode('check-email'); return; }
     if (closable) onSignedIn?.();
   };
+
+  const passwordField = (autoComplete: string, label: string) => (
+    <label className={missing?.field === 'password' ? 'si-missing' : undefined}><span>{label}</span>
+      <span className="si-pw">
+        <input ref={pwField} type={showPassword ? 'text' : 'password'} value={password} autoComplete={autoComplete} aria-invalid={missing?.field === 'password' || undefined} onChange={(e) => { setPassword(e.target.value); setMissing(null); setError(null); }} />
+        <button type="button" className="si-pw-show" aria-pressed={showPassword} onClick={() => setShowPassword((on) => !on)}>{showPassword ? 'Hide' : 'Show'}</button>
+      </span>
+    </label>
+  );
 
   const heading = mode === 'sign-up' ? 'Create your account'
     : mode === 'check-email' ? 'Check your email'
       : mode === 'agree' ? 'Agree to the terms'
+      : mode === 'reset' ? 'Reset your password'
+      : mode === 'reset-sent' ? 'Check your email'
+      : mode === 'new-password' ? 'Choose a new password'
       : signedOut ? 'You are signed out' : `Sign in to ${Name}`;
-  const lede = mode === 'check-email' ? `We sent a link to ${email}. Follow it to confirm your address, then sign in here.`
-    : cloud ? 'Then your agents run in the cloud.'
+  const lede = mode === 'reset' ? 'We will email you a link to open on this computer.'
+    : mode === 'reset-sent' ? `We sent a link to ${email}. Open it on this computer.`
+    : mode === 'new-password' ? 'You will be signed in with it.'
+    : mode === 'check-email' ? checkEmailLede(email, cloud)
+    // NO LINE UNDER THE HEADING ON THE CLOUD'S CARD (2026-10-26): "it just
+    // feels a little cluttered with text". The heading says what the card is
+    // for, and the two tabs keep the same height without it.
+    : cloud ? null
       : purpose === 'phone' ? 'Then your phone can read and reply to your threads, even with this computer closed.'
       : mode === 'sign-up' ? 'Your teammates will see this name beside your threads and messages.'
       : signedOut ? 'Sign in again to get back to your inbox and your team.'
         // On the phone with the Mac shut: what signing in here gets her.
         : onCloudPhone() ? 'Use the account your computer is signed in with. Your threads are here even when it is closed.'
         : 'Your threads, your agents and your team, in one inbox.';
-  // A name is what tells creating an account from signing in, at a glance.
-  const canSubmit = !!email.trim() && !!password && (mode !== 'sign-up' || !!name.trim());
 
   return (
     <div className="si-page" role="dialog" aria-modal="true" aria-label={heading}>
       {/* No key on purpose: a stray Escape would skip it without anyone meaning to. */}
       {onSkip && <button type="button" className="si-skip-corner" onClick={onSkip}>Skip for now</button>}
       <div className="si-card">
-        <span className="si-mark"><AppMark size={40} /></span>
+        <span className="si-mark"><AppMark size={28} /></span>
         <h1>{heading}</h1>
-        <p className="si-lede">{mode === 'agree' ? <>You&rsquo;re new to {Name} Cloud. Read <TermsLinks />, then agree to finish.</> : lede}</p>
+        {mode === 'agree'
+          ? <p className="si-lede">You&rsquo;re new to {Name} Cloud. Read <TermsLinks />, then agree to finish.</p>
+          : lede && <p className="si-lede">{lede}</p>}
 
         {(mode === 'sign-in' || mode === 'sign-up') && (
           <div className="si-tabs" role="tablist">
-            <button type="button" role="tab" aria-selected={mode === 'sign-in'} className={mode === 'sign-in' ? 'on' : ''} onClick={() => { setMode('sign-in'); setError(null); }}>Sign in</button>
-            <button type="button" role="tab" aria-selected={mode === 'sign-up'} className={mode === 'sign-up' ? 'on' : ''} onClick={() => { setMode('sign-up'); setError(null); }}>Create account</button>
+            {/* The password does not cross the tabs: an account made with one
+                typed to sign in is one nobody meant to make. */}
+            <button type="button" role="tab" aria-selected={mode === 'sign-in'} className={mode === 'sign-in' ? 'on' : ''} onClick={() => { setMode('sign-in'); setPassword(''); setError(null); }}>Sign in</button>
+            <button type="button" role="tab" aria-selected={mode === 'sign-up'} className={mode === 'sign-up' ? 'on' : ''} onClick={() => { setMode('sign-up'); setPassword(''); setError(null); }}>Create account</button>
           </div>
         )}
 
         {mode === 'check-email' ? (
-          <button type="button" className="si-primary" onClick={() => { setMode('sign-in'); setPassword(''); }}>Back to sign in</button>
+          <>
+            <button type="button" className="si-primary" onClick={() => { setMode('sign-in'); setPassword(''); setSent(false); }}>Back to sign in</button>
+            {cloud && <div className="si-wait-row">
+              <button type="button" disabled={!!busy} onClick={() => void resend()}>{sent ? 'Sent again' : 'Send it again'}</button>
+              <button type="button" disabled={!!busy} onClick={() => { setMode('sign-up'); setPassword(''); setSent(false); setError(null); }}>Use a different address</button>
+            </div>}
+          </>
+        ) : mode === 'reset' ? (
+          <>
+            <form className="si-form" onSubmit={askForReset}>
+              <label><span>Email</span>
+                <input ref={emailField} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
+              </label>
+              <button type="submit" className="si-primary" disabled={!email.trim() || !!busy}>{busy ? 'Sending…' : 'Email me a link'}</button>
+            </form>
+            <p className="si-switch si-center"><button type="button" onClick={() => { setMode('sign-in'); setError(null); }}>Back to sign in</button></p>
+          </>
+        ) : mode === 'reset-sent' ? (
+          <p className="si-switch si-center"><button type="button" onClick={() => { resetTry.current++; void api.cloudAccountCancel(); setMode('sign-in'); setError(null); }}>Cancel</button></p>
+        ) : mode === 'new-password' ? (
+          <form className="si-form" onSubmit={useNewPassword}>
+            {passwordField('new-password', 'New password')}
+            <button type="submit" className="si-primary" disabled={!password || !!busy}>{busy ? 'Saving…' : 'Save and sign in'}</button>
+          </form>
         ) : mode === 'agree' ? (
           <>
             <button type="button" className="si-primary" disabled={!!busy} onClick={() => void agree()}>{busy ? 'Finishing…' : 'Agree and continue'}</button>
@@ -176,27 +284,31 @@ export function SignInPage({ onSkip, signedOut = false, error: startError = null
             <div className="si-or"><span>or</span></div>
             <form className="si-form" onSubmit={submit}>
               {mode === 'sign-up' && (
-                <label><span>Name</span>
-                  <input ref={first} value={name} autoComplete="name" onChange={(e) => setName(e.target.value)} />
+                <label className={missing?.field === 'name' ? 'si-missing' : undefined}><span>Name</span>
+                  <input ref={nameField} value={name} autoComplete="name" aria-invalid={missing?.field === 'name' || undefined} onChange={(e) => { setName(e.target.value); setMissing(null); setError(null); }} />
                 </label>
               )}
-              <label><span>Email</span>
-                <input ref={mode === 'sign-in' ? first : undefined} type="email" value={email} autoComplete="email" onChange={(e) => setEmail(e.target.value)} />
+              {/* Editing either field takes the error down: a fixed password
+                  under a stale "Invalid login credentials" reads as a second
+                  failure (F-116). */}
+              <label className={missing?.field === 'email' ? 'si-missing' : undefined}><span>Email</span>
+                <input ref={emailField} type="email" value={email} autoComplete="email" aria-invalid={missing?.field === 'email' || undefined} onChange={(e) => { setEmail(e.target.value); setMissing(null); setError(null); }} />
               </label>
-              <label><span>Password</span>
-                <input type="password" value={password} autoComplete={mode === 'sign-up' ? 'new-password' : 'current-password'} onChange={(e) => setPassword(e.target.value)} />
-              </label>
-              <button type="submit" className="si-primary" disabled={!canSubmit || !!busy}>
+              {passwordField(mode === 'sign-up' ? 'new-password' : 'current-password', 'Password')}
+              <button type="submit" className="si-primary" disabled={!!busy}>
                 {busy === 'email' ? (mode === 'sign-up' ? 'Creating…' : 'Signing in…') : mode === 'sign-up' ? 'Create account' : 'Sign in'}
               </button>
             </form>
+            {cloud && mode === 'sign-in' && (
+              <p className="si-switch si-center si-forgot"><button type="button" onClick={() => { setMode('reset'); setError(null); }}>Forgot password?</button></p>
+            )}
             {cloud && mode === 'sign-up' && (
               <p className="si-terms">By creating an account or continuing with Google, you agree to <TermsLinks />.</p>
             )}
           </>
         )}
 
-        {(error || (startError && mode === 'sign-in' && !signedOut)) && <p className="si-error" role="alert">{error || startError}</p>}
+        {(error || missing || (startError && mode === 'sign-in' && !signedOut)) && <p className="si-error" role="alert">{error || missing?.say || startError}</p>}
       </div>
       {closable && onClose && (
         <button type="button" className="back-esc fr-back si-back" aria-label="Back" title="Back" onClick={onClose}>

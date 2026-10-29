@@ -85,7 +85,7 @@ describe('the line over the inbox', () => {
     expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: away, cloud: cloudCarriesOn(r.projects) }, NOW)).toBe('Your computer is off. Replies carry on in Agentbox Cloud.');
   });
   it('with the computer off and no cloud, says what you send waits for it, as before', () => {
-    expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: away, cloud: false }, NOW)).toBe('Your Mac was last online 3 hours ago. What you send waits for it.');
+    expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: away, cloud: false }, NOW)).toBe('Your computer was last online 3 hours ago. What you send waits for it.');
   });
   it('with the computer on, says nothing, cloud or not', () => {
     expect(phoneStatusLine({ error: null, fetchedAt: NOW, macSeen: NOW - 60_000, cloud: true }, NOW)).toBeNull();

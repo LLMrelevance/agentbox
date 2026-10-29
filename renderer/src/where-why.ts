@@ -26,6 +26,7 @@ function local(why: string, detail: WhyNotCloud['detail']): string {
     case 'cloud-failing': return 'The cloud’s last runs failed before they started, so new threads run here for now.';
     case 'cloud-no-room': return noRoom(detail);
     case 'version': return `The cloud has a different version of ${engineName(detail)} from this computer.`;
+    case 'cloud-account-limited': return 'The cloud’s account is at its usage limit, so this runs on the account this computer uses.';
     case 'started-before': return 'It started before the cloud was set to Everything.';
     default: return 'The cloud couldn’t take it when it started.';
   }
@@ -53,5 +54,7 @@ function forCloud(why: string, detail: WhyNotCloud['detail']): string {
 export function whyWords(w: WhyNotCloud): WhyCard {
   if (w.at === 'wait-cloud') return { head: 'Queued for the cloud', body: forCloud(w.why, w.detail) };
   if (w.at === 'wait-mac') return { head: 'Queued to run locally', body: `${local(w.why, w.detail)} It starts when this computer has room.` };
+  // Supervisor#_moveRunsToTheCloud.
+  if (w.why === 'moving') return { head: 'Moving to the cloud', body: 'It keeps working here and moves as soon as the cloud has room, picking up where it left off.' };
   return { head: 'Running locally', body: local(w.why, w.detail) };
 }

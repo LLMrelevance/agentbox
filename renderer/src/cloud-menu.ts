@@ -70,6 +70,8 @@ export interface CloudStatus {
   running: number;
   month: CloudMonth;
   accounts?: CloudAccount[];
+  /** Engines whose account on this Mac has no working sign-in in the cloud, so their threads run here. */
+  notInCloud?: Array<'claude' | 'codex'>;
   signIns?: CloudSignIn[];
   /** 'resting' after runs failed in a row before their agent started, until `restingUntil`. */
   health?: 'ok' | 'failing' | 'resting';
@@ -81,6 +83,10 @@ export interface CloudStatus {
   versionGap?: { engine: 'claude' | 'codex'; cloud: string; mac: string; blocks: boolean } | null;
   /** The slugs of the projects whose threads the cloud may run (supervisor `_cloudTakesProject`). */
   projects?: string[];
+  /** The Agentbox Cloud plan the server last said; 'none' is no plan. */
+  plan?: string | null;
+  /** Runs on this Mac the cloud could take now (supervisor `_movableToCloud`). */
+  movable?: string[];
 }
 
 const agentName = (engine: 'claude' | 'codex') => (engine === 'codex' ? 'Codex' : 'Claude Code');
@@ -165,6 +171,9 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   }
   const gap = cloud.versionGap;
   if (gap?.blocks) return `${rebuildLine(gap)}. ${gap.engine === 'codex' ? 'Codex' : 'Claude'} threads run on this Mac until then.`;
+  if (cloudIsOn(cloud) && cloud.notInCloud?.includes('claude')) {
+    return 'The Claude account this Mac uses is not signed in to the cloud, so threads run on this Mac. Sign it in to run them there.';
+  }
   // ONE ACCOUNT RUNS IN THE CLOUD (w-dac993a554). This used to wait until
   // EVERY account was at its limit, which was right while runs rotated over
   // all of them and is silence now: the cloud starts nothing the moment the
@@ -172,10 +181,22 @@ export function cloudFootLine(cloud: CloudStatus, now = Date.now()): string {
   const inUse = cloudAccountInUse(cloud.accounts || [], 'claude');
   const until = inUse?.limitedUntil && inUse.limitedUntil > now ? inUse.limitedUntil : null;
   if (cloudIsOn(cloud) && until) {
-    return `Your cloud account is at its usage limit until ${clock(until)}. ${cloud.mode === 'all' ? 'Threads wait for the cloud' : 'Threads run on this Mac'} until then.`;
+    return `The Claude account the cloud runs on is at its usage limit until ${clock(until)}. Threads run on this Mac until then.`;
   }
   if (gap) return rebuildLine(gap);
   return cloud.running ? `${cloud.running} running in the cloud now` : 'Nothing running in the cloud now';
+}
+
+/**
+ * THE MENU'S LINE ABOUT RUNS ON THIS MAC THE CLOUD COULD TAKE. With Everything
+ * they move by themselves and the line says so; when this Mac is full, it
+ * offers to move them. Null with none, or with the cloud off.
+ */
+export function cloudMoveLine({ mode, movable }: { mode: CloudMode; movable: number }): { say: string; go: string | null } | null {
+  if (!movable || mode === 'mac') return null;
+  const threads = `${movable} thread${movable === 1 ? '' : 's'}`;
+  if (mode === 'all') return { say: `Moving ${threads} to the cloud`, go: null };
+  return { say: `${threads} could run in the cloud`, go: movable === 1 ? 'Move it' : 'Move them' };
 }
 
 /** Where C takes it: off from either kind of on, back on to what "on" means. */
@@ -225,6 +246,12 @@ export function cloudMonthLine(month: CloudMonth): string {
   return `${hours(month.agentHours)} agent-hours`;
 }
 
+/** Set up for the cloud, and not on Agentbox Cloud without a plan. */
+export function onCloudPlan(cloud: CloudStatus | null | undefined): cloud is CloudStatus {
+  if (!cloud?.setUp) return false;
+  return !(cloud.managed && (cloud.plan === 'none' || cloud.noRoom?.error === 'plan'));
+}
+
 /**
  * WHERE ONE THREAD RUNS, for its menu's row (threads/ThreadMenu.tsx): in the
  * cloud now, kept on this Mac, or here and free to go to the cloud. Null where
@@ -232,14 +259,18 @@ export function cloudMonthLine(month: CloudMonth): string {
  * not kept, or a project the cloud does not take.
  */
 export function threadPlace(
-  item: { id: string; product: string; onMac?: boolean; labels?: string[] },
-  session: { where?: string } | null,
+  item: { id: string; product: string; onMac?: boolean; needsMac?: string; labels?: string[] },
+  session: { where?: string; movable?: boolean } | null,
   cloud: CloudStatus | null,
-): 'cloud' | 'here' | 'kept' | null {
-  if (!cloud?.setUp) return null;
+): 'cloud' | 'here' | 'kept' | 'move' | 'needs' | null {
   if (teammateIdOf(item)) return null;
+  // The phone has no cloud status, only the computer's word on each run.
+  if (session?.movable && session.where !== 'cloud') return 'move';
+  if (!onCloudPlan(cloud)) return null;
+  if (item.needsMac) return 'needs';
   if (item.onMac) return 'kept';
   if (session?.where === 'cloud') return 'cloud';
   if (!cloudIsOn(cloud)) return null;
+  if (cloud.movable?.includes(item.id)) return 'move';
   return cloud.projects?.includes(item.product) ? 'here' : null;
 }

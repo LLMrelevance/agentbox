@@ -7,7 +7,7 @@
 // one module both read is the follow-up that retires this file.
 
 import {
-  belongsInInbox, belongsInProgress, hiddenUntil, isProposal, notStarted, rowTitle, stillAsksYou, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd,
+  belongsInInbox, belongsInProgress, hiddenUntil, inProgressTab, isProposal, notStarted, rowTitle, stillAsksYou, threadsOwedAnAnswer, waitsInLater, waitsThatCanEnd,
 } from '../../../renderer/src/list-rules';
 import { boardColumns, DEFAULT_DISPLAY, keeps, sentAt, sorted, updatedWords, type Display } from '../../../renderer/src/threads/page-rules';
 import { searchThreads } from '../../../renderer/src/threads/search';
@@ -26,7 +26,7 @@ export const TABS: { id: TabId; label: string }[] = [
   { id: 'done', label: 'Done' },
 ];
 
-type View = Pick<ReturnType<typeof phoneView>, 'items' | 'running' | 'products'>;
+type View = Pick<ReturnType<typeof phoneView>, 'items' | 'running' | 'products'> & Partial<Pick<ReturnType<typeof phoneView>, 'queued'>>;
 export interface Row {
   key: string;
   id: string;
@@ -41,6 +41,8 @@ export interface Row {
   held: boolean;
   /** "2 tasks to approve" after the title, or nothing. */
   toApprove: string;
+  /** Sent from a phone and not yet taken by the computer: "Queued" (renderer/src/status-word.ts). */
+  queued: boolean;
   item: any;
 }
 
@@ -52,6 +54,7 @@ const DELIVERED_THROUGH = 0;
 export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const items: any[] = view.items;
   const live = new Set(view.running.map((r: { itemId: string }) => r.itemId));
+  const queued = new Set(view.queued ?? []);
   const inCloud = new Set(view.running.filter((r: { where?: string }) => r.where === 'cloud').map((r: { itemId: string }) => r.itemId));
   const byId = new Map(items.map((i) => [i.id, i]));
   const waitingOn = (i: any) => waitsThatCanEnd(i, byId);
@@ -64,10 +67,10 @@ export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
     return belongsInInbox(i, { deliveredThrough: DELIVERED_THROUGH, hiddenUntil: hiddenAt(i), now, waitingOn: waitingOn(i) });
   });
   const needsYou = new Set(inbox.map((i) => i.id));
-  const progress = items.filter((i) => {
+  const progress = inProgressTab(items.filter((i) => {
     if (hiddenAt(i) > now && !live.has(i.id)) return false;
     return belongsInProgress(i, { deferredUntil: i.runAt ?? 0, now, live: live.has(i.id) });
-  });
+  }), inbox);
   const snoozed = items.filter((i) => (notStarted(i) || isProposal(i) || hiddenAt(i) > now || (waitsInLater(i, waitingOn(i)) && !live.has(i.id)))
     && (i.status !== 'done' || i.wrote?.status?.source !== 'founder'));
   const done = items.filter((i) => !needsYou.has(i.id) && !live.has(i.id) && i.status === 'done');
@@ -82,7 +85,7 @@ export function phoneTabs(view: View, now = Date.now()): Record<TabId, Row[]> {
   const row = (i: any): Row => ({
     key: `${i.product}/${i.id}`, id: i.id, product: i.product, title: rowTitle(i), projectName: names.get(i.product) ?? '',
     when: updatedWords(i.status === 'done' ? i.wrote?.status?.ts ?? i.updatedAt : sentAt(i), now), running: live.has(i.id), cloud: inCloud.has(i.id),
-    held: notStarted(i), toApprove: toApproveWords(toApprove.get(`${i.product}/${i.id}`)), item: i,
+    held: notStarted(i), toApprove: toApproveWords(toApprove.get(`${i.product}/${i.id}`)), queued: queued.has(i.id) && !live.has(i.id), item: i,
   });
   const drawn = (list: any[], tab: TabId) => sorted(list, DEFAULT_DISPLAY.inbox, tab, order).map(row);
   return { inbox: drawn(inbox, 'inbox'), progress: drawn(progress, 'progress'), snoozed: drawn(snoozed, 'snoozed'), done: drawn(done, 'done') };

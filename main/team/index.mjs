@@ -185,9 +185,12 @@ export function createTeamService({
     if (!phoneInbox || phone.ready?.() === false) return;
     try {
       await phoneInbox.syncOnce();
-      if (state.phoneError) set({ phoneError: null });
+      // Told to the window only when it changes, not on every five-second pass.
+      if (state.phoneError || !state.phoneSentAt) set({ phoneError: null, phoneSentAt: now() });
+      else state.phoneSentAt = now();
     } catch (err) {
-      set({ phoneError: String(err?.message ?? err) });
+      const said = String(err?.message ?? err);
+      if (state.phoneError !== said) set({ phoneError: said });
     }
   }
 
@@ -212,9 +215,12 @@ export function createTeamService({
       listItems: (slug) => { const p = productOf(slug); try { return p ? disk.readWorkItems(p.dir) : []; } catch { return []; } },
       historyOf: (slug, id, { all = false } = {}) => { try { return store.readHistory(slug, id, { max: all ? Number.MAX_SAFE_INTEGER : SNAPSHOT_LIMITS.lines * 4 }); } catch { return []; } },
       apply: phone.apply,
+      waitsOf: () => phone.waits?.() ?? null,
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
       approvalsOf: () => phone.approvals?.() ?? [],
       readSettings: phone.readSettings ?? null,
+      pinsOf: () => phone.pins?.() ?? {},
+      repeatsOf: phone.repeats ?? null,
       version: phone.version ?? '',
       idleMs: phone.idleMs ?? null,
       // The lid shut: projects whose threads carry on in the cloud, and runs it started (shared/cloud-kit.mjs).
@@ -225,6 +231,11 @@ export function createTeamService({
       runHome: phone.runHome ?? null,
       newThreadKits: phone.newThreadKits ?? null,
       adoptNew: phone.adoptNew ?? null,
+      asleep: phone.asleep ?? (() => false),
+      toCarry: phone.toCarry ?? null,
+      handedOver: phone.handedOver ?? (() => {}),
+      takenBack: phone.takenBack ?? (() => {}),
+      carriedFinished: phone.carriedFinished ?? (() => {}),
       // One file per person: what this Mac sent up for one account is not
       // what the next one to sign in here has.
       stateFile: phone.stateFile.replace(/(\.json)?$/, `.${owner}.json`),

@@ -284,6 +284,21 @@ export function shortPath(abs, roots = []) {
 }
 
 /**
+ * The one answer about the folders a run worked in: anything committed and
+ * unshipped in any of them, anything still loose in any of them, and null
+ * where not one of them could be read (main/git-change.mjs says what each
+ * means).
+ */
+export function standsAcross(repoChanges = []) {
+  const all = repoChanges.map((r) => r?.stands).filter(Boolean);
+  const across = (key) => {
+    const known = all.map((s) => s?.[key]).filter((v) => typeof v === 'boolean');
+    return known.length ? known.some(Boolean) : null;
+  };
+  return { committed: across('committed'), uncommitted: across('uncommitted') };
+}
+
+/**
  * The two readings of one run, put together.
  *
  * WHERE THEY DISAGREE, THE DISK WINS. The conversation only knows what the
@@ -315,6 +330,7 @@ export function mergeChange(fromTranscript, repoChanges = [], { roots = [] } = {
   const spawnedAt = repoChanges.map((r) => r?.at).filter(Boolean).sort()[0];
   return {
     ...fromTranscript,
+    ...standsAcross(repoChanges),
     // A run whose conversation held no edits still has a clock: the moment its
     // checkout was photographed, and the moment it was read back.
     startedAt: fromTranscript.startedAt ?? spawnedAt,
@@ -363,16 +379,43 @@ export function writeChangeForRun({ transcript, docsDir, itemId, roots = [], sin
     said = changeFromTranscript(text, { roots: allRoots, since });
   }
   const change = mergeChange(said, repos, { roots: allRoots });
-  if (!change.files.length) return null;
   // THROUGH THE HOME, NOT INTO HER FOLDER. This line used to be
   // `path.join(docsDir, ...)`, which is the one writer the move in
   // main/store/home.mjs did not catch. So `runs/` was carried out of her folder
   // once and then re-created in it by the next run that changed any code, which
   // is why files kept reappearing there after the move was supposedly done.
   const out = machineryPath(docsDir, changePath(itemId));
+  if (!change.files.length) return restand(out, change);
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, JSON.stringify({ item: itemId, ...change }, null, 1));
   return out;
+}
+
+/**
+ * A RUN THAT CHANGED NOTHING STILL MOVES THE GROUND UNDER THE LAST ONE.
+ *
+ * The change saved for a thread is the newest run that touched code, and the
+ * app's ship offer reads where its folder stands. A later round that commits
+ * that work, or throws it away, writes no change of its own, so without this
+ * the offer goes on answering the question the earlier round left: "Ship it
+ * (recommended)" over a thread whose change had just been discarded (F-83).
+ *
+ * Only the two facts are rewritten. The hunks stay as they were, because what
+ * a run did is still worth reading after the work it did has gone.
+ *
+ * Returns null either way: nothing was saved for THIS run, which is what the
+ * caller reports.
+ */
+function restand(file, change) {
+  if (change.committed === null && change.uncommitted === null) return null;
+  let saved;
+  try { saved = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+  if (!saved || !Array.isArray(saved.files)) return null;
+  if (saved.committed === change.committed && saved.uncommitted === change.uncommitted) return null;
+  try {
+    fs.writeFileSync(file, JSON.stringify({ ...saved, committed: change.committed, uncommitted: change.uncommitted }, null, 1));
+  } catch { /* the offer stays where it was; nothing else depends on this */ }
+  return null;
 }
 
 /** Read a change back off disk for the pane. */

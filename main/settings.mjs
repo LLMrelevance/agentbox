@@ -644,6 +644,7 @@ export function readSettings({ config, supervisor, store }, { search = true } = 
     workspace: {
       // THE PHONE AS A WHOLE: on unless she turned it off (shared/phone-snapshot.mjs).
       phoneAll: phoneChoiceOf(config.phoneProducts, process.env.AGENTBOX_PERSON_ID, phoneEligible(products)).all,
+      cloudPlan: typeof supervisor.cloudPlan === 'string' ? supervisor.cloudPlan : null,
       agentsRunning: !supervisor.paused,
       // The number picked on the menu, for the whole computer, or what is
       // running as the limit now when nothing was picked.

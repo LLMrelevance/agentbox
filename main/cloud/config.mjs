@@ -8,6 +8,7 @@ import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Name } from '../../shared/product-name.mjs';
+import { CLOUD_ADDRESS } from '../../shared/cloud-address.mjs';
 
 // `home` is the supervisor's own idea of the home folder (config.home), so a
 // supervisor built for a test, with a home that is not the developer's, never
@@ -29,9 +30,9 @@ export function readCloudConfig(env = process.env, home = os.homedir()) {
 
 /**
  * Where Agentbox Cloud is: the server's address and the database's public
- * address and key. A checkout keeps it in cloud/, a Mac may keep its own
- * copy, and a release build carries it baked into its package.json
- * (scripts/release.mjs). All of them are out of git.
+ * address and key. A checkout's cloud/, this Mac's own copy, or a release's
+ * baked package.json (scripts/release.mjs) can name another cloud; without
+ * one it is the cloud every copy ships with (shared/cloud-address.mjs).
  */
 export function cloudAccountConfig(appDir, { home = os.homedir() } = {}) {
   const whole = (c) => typeof c?.gateway === 'string' && typeof c.supabaseUrl === 'string' && typeof c.anonKey === 'string';
@@ -45,7 +46,7 @@ export function cloudAccountConfig(appDir, { home = os.homedir() } = {}) {
     const baked = JSON.parse(fs.readFileSync(path.join(appDir, 'package.json'), 'utf8')).bakedCloud;
     if (whole(baked)) return baked;
   } catch { /* none */ }
-  return null;
+  return { ...CLOUD_ADDRESS };
 }
 
 export const cloudKeyPath =(env = process.env, home = os.homedir()) => path.join(path.dirname(cloudConfigPath(env, home)), 'cloud-key');
@@ -57,10 +58,22 @@ const capsPath = (env, home) => path.join(path.dirname(cloudConfigPath(env, home
 const cloudId = (config) => String(config?.runtimeArn || config?.gateway || '');
 
 export function imageCaps(config, env = process.env, home = os.homedir()) {
+  return heardCaps(config, env, home) ?? [];
+}
+
+// Null when this cloud has never answered a start from this Mac.
+function heardCaps(config, env, home) {
   try {
     const caps = JSON.parse(fs.readFileSync(capsPath(env, home), 'utf8'))[cloudId(config)]?.caps;
-    return Array.isArray(caps) ? caps.filter((c) => typeof c === 'string') : [];
-  } catch { return []; }
+    return Array.isArray(caps) ? caps.filter((c) => typeof c === 'string') : null;
+  } catch { return null; }
+}
+
+// What a run goes by. A cloud never heard from is tried with no repository:
+// a project without one would otherwise never start the run that asks. An
+// image that cannot take one refuses the start, and that answer is kept.
+export function imageCapsToTry(config, env = process.env, home = os.homedir()) {
+  return heardCaps(config, env, home) ?? ['plain'];
 }
 
 export function noteImageCaps(config, caps, env = process.env, home = os.homedir()) {

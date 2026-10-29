@@ -40,12 +40,12 @@ export function advanceAfter(p: { fromTask: boolean; index: number; id: string }
  * opened it decides. Working through Needs you, it moves on to the next thread
  * waiting, and from the last one to the empty inbox, where one thing at a time
  * ends (w-65bcefb857). Opened from In progress or any other list, or from
- * search or an alert, she stays: "I quite often will just stick with one chat"
+ * search, she stays: "I quite often will just stick with one chat"
  * (tests/a-reply-keeps-you-on-the-thread-unless-you-are-clearing-your-inbox).
  */
-export function replyMovesOn(p: { view: string; onBoard: boolean; index: number; searching?: boolean }): boolean {
+export function replyMovesOn(p: { view: string; onBoard: boolean; index: number; searching?: boolean; phone?: boolean }): boolean {
   // With search open, the tab under it is not where the work is happening.
-  return !p.searching && advanceLandsHere(p) && p.index >= 0;
+  return !p.phone && !p.searching && advanceLandsHere(p) && p.index >= 0;
 }
 
 /**
@@ -56,6 +56,23 @@ export function replyMovesOn(p: { view: string; onBoard: boolean; index: number;
  *  inbox, so the hidden tab says nothing about where she is working. */
 export function advanceLandsHere(p: { view: string; onBoard: boolean }): boolean {
   return p.onBoard || p.view === 'inbox';
+}
+
+/**
+ * DOES OPENING THIS THREAD PUT YOU IN NEEDS YOU? A thread waiting there opens on
+ *  the Needs you page however it was opened, so the tab under it has to be
+ *  Needs you as well, or the two rules above read the tab you came from and an
+ *  answer drops you back on it (w-d7e203a6c9). Only a thread you arrive at
+ *  while it waits: one you opened from In progress that comes into Needs you
+ *  while you read it stays where you opened it. Search, the board, a chat with
+ *  a person, an urgent thread that took the screen and the first-run walk each
+ *  keep their own way back. */
+export function opensIntoNeedsYou(p: {
+  view: string; onBoard: boolean; index: number; searching: boolean;
+  conversation: boolean; interrupted: boolean; walking: boolean;
+}): boolean {
+  if (p.view === 'inbox' || p.onBoard || p.index < 0) return false;
+  return !p.searching && !p.conversation && !p.interrupted && !p.walking;
 }
 
 /**

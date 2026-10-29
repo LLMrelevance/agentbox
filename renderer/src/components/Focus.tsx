@@ -26,7 +26,7 @@ import { providerCommand } from '../../../shared/provider-commands.mjs';
 // One typographic system throughout (markdown, no cards, no stripes). Reply is
 // a docked composer, never a modal over the text.
 
-import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent as BoxKeyEvent, type ReactNode } from 'react';
 import { TeamContext, firstName } from '../team/people';
 import {
   allModels, joinNames, moreCount, recentModels, type Harness, type ModelPick,
@@ -63,8 +63,9 @@ import { ReplyModel } from './ReplyModel';
 import type { ModelChoice } from '../models';
 import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/repeats.mjs';
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
-import { pictureUrl } from '../picture';
-import { playerShelf } from '../player-shelf';
+import { onPictureLinks, pictureLinksVersion, pictureUrl, sentPictureLink } from '../picture';
+import { Listening, MicButton, useWebDictation } from './WebDictation';
+import { firstFrameSrc, playerShelf } from '../player-shelf';
 import { handleCopyOut, blockCopyText } from '../copy-out';
 import { diagramSource } from '../diagram-fence';
 import { DiagramBlock } from './DiagramBlock';
@@ -94,13 +95,14 @@ import { foldedReply } from '../folded-reply';
 import { applyDockHeight } from '../dock-height';
 import { resumeTo } from '../thread-bottom';
 import { optionIsClipped, optionPeek } from '../option-peek';
-import { SHIP_ASK, SHIP_OFFER, shipOfferLive } from '../ship-offer';
+import { shipOfferFor, shipOfferLive, standingFrom, UNREAD, type Standing } from '../ship-offer';
 import { MOVED_PX, THE_OPTIONS_MOVED, clickLandsOnTheRowYouSaw } from '../pick-settles';
 import { askHeading, askFull, askIsClipped } from '../ask-line';
 import { replyIsSwallowed, replyReaches } from '../../../shared/agents.mjs';
 import { recapFor } from '../recap';
 import type { LedgerLine } from '../thread-history';
 import type { LiveFacts } from '../live-line';
+import { whyWords } from '../where-why';
 import { offersRunNow } from '../run-now';
 import { AttachRow } from './AttachRow';
 import { BackToWhatSheWasReading } from './UrgentBar';
@@ -120,7 +122,7 @@ import {
 } from './Priority';
 import { SummaryPanel, SummaryRail, ThreadCrumb, ThreadStateMark, useSummaryOpen, useSummaryShortcut, type RepeatHandle } from '../threads/Summary';
 import { summaryFits, summaryPlace } from '../room';
-import { ThreadMenu, type ThreadPlace } from '../threads/ThreadMenu';
+import { ThreadMenu, type PlaceAct, type ThreadPlace } from '../threads/ThreadMenu';
 import { ThreadsMade, type MadeRow } from './ThreadsMade';
 import { ChatAgentsContext, useChatMentions } from '../team/ChatAgents';
 import { useThreadMentions } from './ThreadMentions';
@@ -213,6 +215,7 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
   // message names it.
   const [broken, setBroken] = useState(false);
   const [tries, setTries] = useState(0);
+  useSyncExternalStore(onPictureLinks, pictureLinksVersion, pictureLinksVersion);
   useEffect(() => {
     if (!broken) return;
     const wait = lookAgainAfter(tries);
@@ -263,6 +266,11 @@ export function ArtifactImg({ src, alt, roots, onOpen, find }: {
       >{picture}</button>
     )
     : picture);
+  // A picture sent from the web app holds its place until its link comes,
+  // rather than trying addresses that cannot answer and saying it is missing.
+  const sent = sentPictureLink(src);
+  if (sent === null) return <span className="inline-image arriving" aria-hidden="true" />;
+  if (sent) return door(src, <img src={sent} alt={alt ?? ''} className="inline-image" />);
   if (/^https?:/.test(src)) return door(src, <img src={src} alt={alt ?? ''} className="inline-image" />);
   // A worker that wrote the whole path, either bare or as a file:// url, said
   // exactly which picture it meant, so there is nothing to guess: it goes
@@ -314,7 +322,9 @@ const players = playerShelf<HTMLMediaElement>({
     const player = document.createElement(film ? 'video' : 'audio');
     player.controls = true;
     player.preload = 'metadata';
-    player.src = url;
+    // Kept in the page on an iPhone, which otherwise opens it full screen.
+    if (film) (player as HTMLVideoElement).playsInline = true;
+    player.src = film ? firstFrameSrc(url) : url;
     return player;
   },
   drop: (player) => { player.pause(); player.removeAttribute('src'); player.load(); player.remove(); },
@@ -574,7 +584,7 @@ export function ArtifactEmbed({ product, path, fallback, open, onOpen }: {
 /** Which threads' choices are folded, kept on this machine. */
 const CHOICES_FOLDED = 'one.choicesFoldedOn';
 
-export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null, onePage = false }: {
+export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlot, inlineArtifacts, headerTarget, cornerHeaderTarget, crumbFrom, item, parent, blockedBy, filed = [], runningMode, engineChoice, runningEngine, codexModels, codexModelDefault, engines, items, session, live, stoppable: stoppableIn, productDir, repoDir, selectedOption, interruptedFrom, onBackToInterrupted, returnedFromSnooze, scheduledUntil, scheduledByAgent, replyOpen, sending, stalled, openDoc, resumeAt, onScrolled, onOpenDoc, onRedeliver, onUnschedule, onClose, onResolve, onPick, onReply, onReplySend, onReplyClose, onStop, onRunNow, onPin, place: runsIn = null, onPlace, onReopen, onSnooze, onReveal, onOpenItem, onApproveFiled, onHereFiled, onDismissFiled, onStartAllFiled, onDismissAllFiled, closeAsk, onNotice, onHandToAgent, onAddPeople, repeat = null, pageAsk = null, onAsked, onShown, aboveDock, queue = null, onePage = false, inChats = false }: {
   /** One thing at a time (w-65bcefb857): this thread's place in Needs you and the arrows that walk it. */
   queue?: { spot: Spot; onStep: (dir: 1 | -1) => void } | null;
   /** Drawn on the one-at-a-time page outside Needs you too: every thread with an agent. */
@@ -588,7 +598,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   pageAsk?: { what: 'summary' | 'people' | 'rename'; at: number } | null;
   onAsked?: () => void;
   /** What this page draws that ⌘K offers rows for. */
-  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null; ship: boolean }) => void;
+  onShown?: (shown: { key: string; change: boolean; summary: 'open' | 'closed' | null; ship: ParsedOption[] | null }) => void;
   /** Drawn right above the reply box: where a reply that moved her here went (./SentLine). */
   aboveDock?: ReactNode;
   /**
@@ -615,6 +625,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    *  "Done"), for the thin bar the thread wears while its summary is open
    *  (w-922f66bb06). Absent, the bar is always the full one. */
   crumbFrom?: string;
+  /** Drawn inside Chats beside its list: the bar says its name, as a group's does, with no way back to a list. */
+  inChats?: boolean;
   item: WorkItem;
   // WHAT AGENTS ARE ALLOWED TO DO RIGHT NOW, so the reply footer can print it
   // whether or not this message has changed it. Claude Code prints its own
@@ -675,7 +687,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
    * thread's own options stand, and the number keys answer it (App.tsx).
    * `raised` counts each close that raised it, so each one scrolls to it.
    */
-  closeAsk?: { ask: string; options: ParsedOption[]; raised: number; onPick: (n: number) => void; keep: { label: string; onKeep: () => void } } | null;
+  closeAsk?: { ask: string; options: ParsedOption[]; raised: number; onPick: (n: number) => void; keep?: { label: string; onKeep: () => void } } | null;
   // Said out loud when a file a worker named is not in this product. Nothing
   // else on the card can tell her a chip failed.
   onNotice: (text: string) => void;
@@ -727,7 +739,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   onPin?: (pin: boolean) => void;
   // Where it runs, and the menu's row that moves it (ThreadMenu PLACE_ROW).
   place?: ThreadPlace | null;
-  onPlace?: (keep: boolean) => void;
+  onPlace?: (keep: PlaceAct) => void;
   // Only ever called on an agent row a reply cannot reach: brings the app that
   // session is running inside to the front.
   onReveal?: () => void;
@@ -963,8 +975,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     const kept = voiceDraftsFor(`direct:${item.product}:${item.id}`)
       .filter((v) => !drafted.some((a) => a.draftId === v.id))
       .map((v) => ({ name: voiceNoteName(v.ms ?? 1000), image: false }));
-    return foldedReply(readDraft(item), [...drafted, ...kept], agent?.name);
-  }, [replyOpen, item.product, item.id, agent?.name]);
+    const said = foldedReply(readDraft(item), [...drafted, ...kept], agent?.name);
+    return inChats && !said.draft && talkNames?.length ? { ...said, text: `Message ${joinNames(talkNames)}` } : said;
+  }, [replyOpen, item.product, item.id, agent?.name, inChats, talkNames?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A TASK OPENS AT ITS END, NOT AT ITS BEGINNING.
   //
@@ -1108,16 +1121,24 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // back before the code she watched being written became pressable. A finished
   // row does not change under her, so it is read once.
   const [figures, setFigures] = useState<ChangeFigures | null>(null);
+  // And where its folder stands, off the same file, because the figures alone
+  // cannot say whether any of this reached a commit (../ship-offer.ts).
+  const [standing, setStanding] = useState<Standing>(UNREAD);
   useEffect(() => {
     let live = true;
     setFigures(null);
+    setStanding(UNREAD);
     // One of her own Claude Code sessions is not one of our runs: nothing wrote
     // a change for it, so there is nothing to ask for.
     if (agent) return () => { live = false; };
     const read = () => {
       api.codeChange({ product: item.product, src: changePathFor(item.id) })
-        .then((r) => { if (live) setFigures(r?.ok ? figuresFrom(r.change) : null); })
-        .catch(() => { if (live) setFigures(null); });
+        .then((r) => {
+          if (!live) return;
+          setFigures(r?.ok ? figuresFrom(r.change) : null);
+          setStanding(r?.ok ? standingFrom(r.change) : UNREAD);
+        })
+        .catch(() => { if (live) { setFigures(null); setStanding(UNREAD); } });
     };
     read();
     if (!session) return () => { live = false; };
@@ -1331,18 +1352,23 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // AND THE APP'S OWN OFFER IS THE OTHER HALF OF IT (../ship-offer.ts): a run
   // that ended, left a change and asked nothing is asked about here instead.
   // It widens the strip and nothing else, which is what this seam is for.
-  const shipOffer = shipOfferLive(item, { change: !!figures, running: !!session || !!agent });
+  //
+  // AND WHICH WORDS IT ASKS IN COME OFF THE FOLDER, not off a fixed pair:
+  // work with a commit on it is shipped, work nobody committed is committed
+  // first, and work that has been thrown away is not asked about at all.
+  const shipAsk = shipOfferLive(item, { change: !!figures, running: !!session || !!agent }) ? shipOfferFor(standing) : null;
+  const shipOffer = !!shipAsk;
   const stripShown = showOptions || shipOffer;
   // Whatever the pane is leading with, not the ask alone: on a row the user
   // wrote, the ask is the one field a worker cannot answer in (format.ts says
   // why). The agent's own offer wins wherever there is one.
-  const options = showOptions ? itemOptions(item) : shipOffer ? SHIP_OFFER : [];
+  const options = showOptions ? itemOptions(item) : shipAsk ? shipAsk.options : [];
   const peekOption = peek === null ? null : options.find((o) => o.n === peek) ?? null;
   // WHAT THIS PAGE IS DRAWING, for the keys and the ⌘K rows that act on it.
   // The app's own offer goes up with it because only this page knows it is
   // there, and a number has to answer what is on the screen.
   useEffect(() => {
-    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow, ship: shipOffer });
+    onShown?.({ key: `${item.product}/${item.id}`, change: !!figures, summary: summaryNow, ship: shipAsk?.options ?? null });
   }, [item.product, item.id, !!figures, summaryNow, shipOffer]);
   // AND WHERE IT IS DRAWN (w-560647d4db). Almost always in the pane, at the foot
   // of the turn that made the offer, which is the whole of this round: pinned to
@@ -1371,8 +1397,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const askAllLines = useMemo(() => askFull(item), [item.result, item.note, item.body, item.title]);
   // The app's own question is its own sentence. Read off the result it would be
   // whatever the run happened to end on, which answers nothing.
-  const ask = shipOffer ? SHIP_ASK : askLine;
-  const askAll = shipOffer ? SHIP_ASK : askAllLines;
+  const ask = shipAsk ? shipAsk.ask : askLine;
+  const askAll = shipAsk ? shipAsk.ask : askAllLines;
 
   // A ROW THAT JUMPED UNDER THE POINTER DOES NOT TAKE THE NEXT CLICK
   // (../pick-settles.ts says why). Where the strip actually is, read after
@@ -1498,15 +1524,24 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
       key={`${item.product}:${item.id}`}
       change={changeFigures}
       onViewChange={() => onOpenDoc?.(changePathFor(item.id))}
-      terminal={direct ? null : terminalOpen ? 'open' : 'closed'}
+      /* A PHONE HAS NO TERMINAL AND NO ⌘J (QA batch 005, F-118), and it is the
+         only way it has of putting a thread off (F-117). */
+      terminal={direct || onPhone() ? null : terminalOpen ? 'open' : 'closed'}
       onToggleTerminal={() => window.dispatchEvent(new Event('task-terminal-toggle'))}
       onFinish={canFinish ? onResolve : null}
       onRunNow={waiting && onRunNow ? onRunNow : null}
+      onLater={onPhone() && canFinish ? onSnooze ?? null : null}
       // A finished thread has nothing to be pinned for.
       pinned={canFinish && onPin ? !!item.pinned : null}
       onPin={onPin}
       // A finished thread runs nowhere.
       place={canFinish ? runsIn : null}
+      placeFacts={{
+        running: !!session && session.where !== 'cloud',
+        moving: live.whyNotCloud?.why === 'moving',
+        why: live.whyNotCloud ? whyWords(live.whyNotCloud).body : null,
+        needs: item.needsMac ?? null,
+      }}
       onPlace={onPlace}
     />
   );
@@ -1576,7 +1611,9 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   const rename = named ? undefined
     : (label: string) => api.threadEdit(item.product, item.id, { label }).then((r) => r.ok);
   // Every thread opened from a list wears it, summary or not, document open or not.
-  const barContent = crumbFrom
+  const barContent = inChats
+    ? <><h1 className="workspace-title gc-head-group cx-person"><span className="rm-one">{threadName}</span></h1>{direct && <ConversationAside item={item} onAddPeople={onAddPeople} />}</>
+    : crumbFrom
     ? <><ThreadCrumb from={crumbFrom} name={threadName} onBack={onClose} onRename={rename} threadKey={`${item.product}/${item.id}`} renameAsk={pageAsk?.what === 'rename' ? pageAsk.at : 0} onAsked={onAsked} />
       {direct && <ConversationAside item={item} onAddPeople={onAddPeople} />}</>
     : <>{backButton}{bandLine}</>;
@@ -1589,7 +1626,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
   // turned that guard off silently.
   return (
     <TicketNavigation.Provider value={{open: openTicket, name: ticketName}}>
-    <div className="focus-pane" ref={paneRef} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
+    <div className="focus-pane" ref={paneRef} data-file-previews={page && !inChats ? 'page' : undefined} data-summary={summaryPlace({ offered: summaryOffered, shown: summaryShown, fits: summaryFits(paneWidth) })}>
     {/* THERE IS NO WAY-OUT CONTROL ON AN OPENED TASK ANY MORE.
 
         Both faults were real and both are measured on this row. With a
@@ -1921,7 +1958,8 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
             the byline this pane already draws, and nowhere else on this screen
             (w-6246b0c91f). Handing them to `Live` as
             well is what made one screen say "Codex" twice. */}
-        {!heldByPerson && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }} />}
+        {/* A chat says nothing about agents until one you called in is working. */}
+        {!heldByPerson && !(inChats && !session) && <Live item={item} facts={{ ...live, session, stalled, scheduledUntil }} />}
 
         {/* NO LINE UNDER A CONVERSATION OFFERING TO HAND IT TO AN AGENT
             (w-2e8aa16f0f): it read as one more message, and it made the whole
@@ -2082,6 +2120,11 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
     <div className="focus-dock">
       <div className="focus-dock-inner">
         {/* Under a full screen page they come up with the box instead, below. */}
+        {/* Bare here because an agent's question is already the page's own
+            headline. The heading comes back for the one offer that says
+            something the page does not: there was nothing over "Ship it
+            (recommended)" saying the change had never been committed (F-79,
+            ../ship-offer.ts). */}
         {page && stripShown && !fullScreenDoc && !closeAsk && (
           <div className={`one-choices${choicesFolded ? ' one-choices-folded' : ''}`}>
             <OptionsOffer
@@ -2091,7 +2134,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
               onPick={pickByClick} onOptionEnter={onOptionEnter} onAskEnter={onAskEnter}
               setPeek={setPeek} setAskPeek={setAskPeek}
               stripRef={stripRef} onOver={(over) => { overStrip.current = over; }}
-              bare
+              bare={!shipAsk?.headed}
             />
             <ChoicesFold onFold={foldChoices} />
           </div>
@@ -2159,7 +2202,7 @@ export function Focus({ artifactView, previewSample, onOpenArtifact, artifactSlo
                than beside the box: that row is where this card already keeps
                the things you press. It is handed in whole so there is one stop
                button in the app and this card cannot grow a second. */
-            <DockComposer item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={onReplySend} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} stop={stopButton} />
+            <DockComposer item={item} runningMode={runningMode} runningEngine={runningEngine} codexModels={codexModels} codexModelDefault={codexModelDefault} engines={engines} items={items} onSend={onReplySend} onClose={onReplyClose} onNotice={onNotice} openModel={openModel} talkTo={direct ? talkNames : null} talkWord={inChats ? 'Message' : undefined} stop={stopButton} />
           ) : (
             /*
              * THE FOLDED BOX SHOWS WHAT IS IN IT. A pill saying "Reply…" over
@@ -2344,8 +2387,10 @@ function ModePicker({ value, options, label, onChange }: {
   );
 }
 
-function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null }: {
+function DockComposer({ item, runningMode, runningEngine, codexModels = [], codexModelDefault = null, engines, items = [], onSend, onClose, onNotice, stop, openModel = false, talkTo = null, talkWord = 'Reply to' }: {
   item: WorkItem;
+  /** "Message" on the Chats page, as a group's box says it. */
+  talkWord?: string;
   /** The coding agents this Mac offers, off the snapshot. One is no choice. */
   engines?: { id: string; label: string }[];
   /** Every thread she has, for the models she has used lately (`recentModels`). */
@@ -2394,7 +2439,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // reply box is pinned to stays the agent's.
   useEffect(() => {
     const box = document.querySelector<HTMLTextAreaElement>('.dock-input');
-    if (box) box.placeholder = talkTo?.length ? `Reply to ${joinNames(talkTo)}` : 'What should the agent do next?';
+    if (box) box.placeholder = talkTo?.length ? `${talkWord} ${joinNames(talkTo)}` : 'What should the agent do next?';
   });
   // The draft outlives the dock. Tab away, click elsewhere, even restart the
   // app: coming back to this item finds your words where you left them. A
@@ -2899,6 +2944,9 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     if (mode !== null && exactClear(q)) { pickMode(null); return; }
     setText(next);
   };
+  const talk = useWebDictation({ text, setText, field: ref }, () => void send());
+  // A box that is listening is in use before its first word arrives.
+  const held = hasDraft || talk.on;
   // Clicking away folds the composer, on EXACTLY the rule Escape already
   // follows: a draft holds it open. The modals already did this; the dock is
   // the one composer that is not a modal, so it never had a way out except a
@@ -2910,14 +2958,14 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
   // not happening. The draft survives either way (saveDraft runs on every
   // keystroke), but a box that vanishes mid-sentence still reads as loss.
   useEffect(() => {
-    if (hasDraft) return;
+    if (held) return;
     const away = (e: MouseEvent) => {
       const card = (e.target as HTMLElement)?.closest?.('.dock-card');
       if (!card) onClose();
     };
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
-  }, [hasDraft, onClose]);
+  }, [held, onClose]);
   /*
    * THE CLICK-AWAY THAT SHUT THE MODE MENU IS GONE WITH THE CHIP THAT OPENED
      IT (2026-08-26). The menu is now only ever open because a slash is the
@@ -2991,7 +3039,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') send();
     if (e.key === 'Escape') {
       e.stopPropagation();
-      if (hasDraft) ref.current?.blur();
+      if (held) ref.current?.blur();
       else onClose();
     }
   };
@@ -3030,7 +3078,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           value={text}
           onChange={changeText}
           onPlain={setPlain}
-          placeholder={`Reply to ${joinNames(talkTo ?? [])}`}
+          placeholder={`${talkWord} ${joinNames(talkTo ?? [])}`}
           mentions={[
             ...chat.mentions.map((m) => ({ start: m.start, end: m.end, loose: !m.project })),
             ...named.mentions.map((m) => ({ start: m.start, end: m.end, loose: false })),
@@ -3055,7 +3103,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
         className={`dock-input${chat.live ? ' with-mentions' : ''} ${named.over}`}
         ref={ref}
         value={text}
-        onChange={(e) => { changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
+        onChange={(e) => { talk.typed(); changeText(e.target.value); chat.track(e.target); named.track(e.target); }}
         onSelect={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onScroll={(e) => { chat.track(e.currentTarget); named.track(e.currentTarget); }}
         onClick={(e) => { chat.click(e.currentTarget); named.track(e.currentTarget); }}
@@ -3129,10 +3177,12 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           every note here is one: a sentence that grows a clause when something
           changes is a sentence that moves under her. */}
       {freshNote && <div className="compose-note">{freshNote}</div>}
+      {!talk.on && talk.problem && <div className="compose-note">{talk.problem}</div>}
       {/* ONE text run, ONE size, ONE baseline, and the app's own send button:
           the new-task card's footer, on the reply box, because they are the same
           act. See the note at the top of this file for the measurements. */}
       <div className="compose-sentence">
+        {talk.on ? <Listening talk={talk} /> : <>
         {/* NO PRIORITY AND NO REPEAT ON A MESSAGE TO AN AGENT. Both are
             work-item fields with nowhere to be written, and "Urgent priority.
             Runs once." under a message going into somebody's terminal is a
@@ -3154,6 +3204,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m21 11.5-8.6 8.6a5.5 5.5 0 0 1-7.8-7.8l8.6-8.6a3.7 3.7 0 0 1 5.2 5.2l-8.6 8.6a1.8 1.8 0 0 1-2.6-2.6l8-8" /></svg>
           </button>
         ) : null}
+        {!talkTo?.length && talk.allowed && <MicButton talk={talk} />}
         <span className="compose-clauses">
           {/* NOTHING ABOUT WHERE IT GOES (w-140ac855b1, 2026-10-13). This
               slot read "Goes to Maya's inbox.", put there so the corner was
@@ -3328,6 +3379,7 @@ function DockComposer({ item, runningMode, runningEngine, codexModels = [], code
           title={chat.block ?? `Send · ${SEND}`}
         >{saving ? 'Sending…' : <>Send <kbd>{SEND}</kbd></>}</button>
         )}
+        </>}
       </div>
     </>
   );

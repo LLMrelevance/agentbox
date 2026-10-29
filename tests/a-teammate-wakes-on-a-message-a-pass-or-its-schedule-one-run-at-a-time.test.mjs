@@ -52,11 +52,13 @@ describe('what wakes a teammate', () => {
     // A name at the very end leaves nothing of its own, so the first line stands.
     expect(title({ id: 'm-e', kind: 'msg', from: 'you', to: [felix.id], text: 'Ship the fix today, thanks @Felix', ts: NOW })).toBe('Ship the fix today, thanks @Felix');
     // Felix's "@Ada it's ready for your phone pass" became Ada's run title, and
-    // her sidebar line read as if she had said it (second power test).
-    expect(planWakes({ teammates: [{ ...ada, served: '2026-10-26' }, felix], chat: chat([{ id: 'm-f', kind: 'msg', from: felix.id, to: [ada.id], text: "@Ada it's ready for your phone pass", ts: NOW }]), items: [], now: NOW })
-      .find((a) => a.type === 'run').title).toBe("From Felix: It's ready for your phone pass");
-    // A teammate cannot dress its own message up as your opening.
-    expect(title({ id: 'm-t', kind: 'msg', from: ada.id, to: [felix.id], text: words, start: true, ts: NOW }, felix)).toBe(words);
+    // her sidebar line read as if she had said it (second power test). A
+    // teammate naming another now wakes nobody, so it is no run's title at all
+    // (talk-between-teammates-stays-in-the-thread-it-is-about).
+    const named = (m) => planWakes({ teammates: [{ ...ada, served: '2026-10-26' }, felix], chat: chat([m]), items: [], now: NOW }).filter((a) => a.type === 'run');
+    expect(named({ id: 'm-f', kind: 'msg', from: felix.id, to: [ada.id], text: "@Ada it's ready for your phone pass", ts: NOW })).toEqual([]);
+    // Nor can a teammate dress its own message up as your opening.
+    expect(named({ id: 'm-t', kind: 'msg', from: ada.id, to: [felix.id], text: words, start: true, ts: NOW })).toEqual([]);
   });
 
   it('your message goes into the run already waiting on you rather than starting a second', () => {
@@ -134,7 +136,7 @@ describe('what wakes a teammate', () => {
 
 describe('two teammates cannot keep each other running', () => {
   it('a teammate-to-teammate chain wakes up to the hop limit and stops there, saying so', () => {
-    const at = (hop) => ({ id: `m-h${hop}`, kind: 'msg', from: ada.id, to: [felix.id], text: '@Felix again', hop, ts: NOW });
+    const at = (hop) => ({ id: `m-h${hop}`, kind: 'pass', from: ada.id, to: felix.id, title: 'again', hop, ts: NOW });
     const ok = planWakes({ teammates: [ada, felix], chat: chat([at(MAX_HOPS - 1)]), items: [], now: NOW });
     expect(ok.find((a) => a.type === 'run').trigger.hop).toBe(MAX_HOPS);
     const stop = planWakes({ teammates: [ada, felix], chat: chat([at(MAX_HOPS)]), items: [], now: NOW });

@@ -52,7 +52,8 @@ describe('the Search button wears no word', () => {
 describe('it sits at the right end of the tabs row', () => {
   it('the tabs draw it after the last tab', () => {
     const tabs = fn('StateTabs');
-    expect(tabs).toMatch(/<\/div>\s*\{onSearch && <SearchButton/);
+    // With a team on, the team's faces sit between the tabs and Search (w-b5f23cff71).
+    expect(tabs).toMatch(/<\/div>\s*(\{team\?\.corner\}\s*)?\{onSearch && <SearchButton/);
   });
   it('the inbox hands the tabs its search', () => {
     expect(element('StateTabs')).toMatch(/onSearch=\{openSearch\}/);

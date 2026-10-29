@@ -28,14 +28,19 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { AgentMode, CodexModeId, PermissionMode, ProjectSettings, Settings as SettingsModel, UpdateState } from '../types';
-import { onPhone } from '../phone-screen';
+import { onCloudPhone, onPhone, phoneSized } from '../phone-screen';
+import { computerSays, type PhoneRows } from '../phone-rows';
+import { changesOn, readingOf, type Reading, type SettingsRow } from '../phone-settings-view';
+import { lastAccountAsk, webProjectRow, webSettingsGroups, webSettingsPages } from '../web-settings';
+import { whatTakesEscape } from '../settings-escape';
+import { WebAlertsGroup } from './WebAlerts';
 import { api, RESTART_NOTE } from '../api';
 import { updateLook } from '../update-row';
 import { InstructionSettings, sizeLabel } from './InstructionSettings';
 import { EVERY } from '../instruction-scope';
 import type {AccountUsageReading, Usage, UsageLimit, WorkspaceSettings} from '../types';
 import { accountLabel, cloudAccountInUse, cloudToggleTarget, countedAccounts, type CloudStatus } from '../cloud-menu';
-import { type PaidPlan } from '../cloud-upgrade';
+import { cloudBilling, planSummary, type PaidPlan } from '../cloud-upgrade';
 import { CloudPlanCards } from './CloudPlanCards';
 import type { CloudPlan } from '../types';
 import { cloudAccountState, meterPair } from '../account-words';
@@ -63,6 +68,8 @@ import './settings.css';
  with the single-person build, keeps no team code. No pane handed in, no row.
 */
 type Pane = SettingsPageId | { project: string };
+// The web app's pages: every other one is the computer's to read and change.
+const WEB_PAGES = new Set<SettingsPageId>(['appearance', 'shortcuts', 'phone']);
 
 // A path a person can read in a narrow column: the home directory as ~, and the
 // account uuid cut to the part that distinguishes it. The whole path is still
@@ -699,7 +706,21 @@ function PhoneFeedbackGroup({ onFeedback }: { onFeedback: () => void }) {
 // of their projects connected"). One row and one dropdown, the way every
 // other choice on this page is made ("it's more of a dropdown kind of
 // thing"): Every project, None, or a tick beside each project.
-type MacShut = { site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onChoose: (all: boolean, except: string[]) => void };
+type MacShut = {
+  site: string | null; siteQr: string | null; all: boolean; projects: ProjectSettings[]; onChoose: (all: boolean, except: string[]) => void;
+  // Who this computer sends as, and whether its threads are reaching the web app (main/team/index.mjs phoneOnce).
+  email?: string | null; sentAt?: number | null; error?: string | null;
+};
+function PhoneConnection({ macShut }: { macShut: MacShut }) {
+  const as = macShut.email ?? 'your account';
+  if (macShut.error) {
+    const why = macShut.error.replace(/\.?$/, '.');
+    return <Row label="Not reaching the web app" desc={`${why[0].toUpperCase()}${why.slice(1)} Signed in as ${as}. It tries again every few seconds.`} />;
+  }
+  // Nothing until the first pass answers, and nothing from a main process older than this page.
+  if (!macShut.sentAt) return null;
+  return <Row label={`Connected as ${as}`} desc="Your phone and the web app have this computer's threads." />;
+}
 function PhoneProjectsPicker({ macShut }: { macShut: MacShut }) {
   const [open, setOpen] = useState(false);
   const wrap = useRef<HTMLSpanElement | null>(null);
@@ -761,6 +782,7 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
   return (
     <>
       <Group id="phone-mac-shut" label="On your phone">
+        <PhoneConnection macShut={macShut} />
         <Row label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed.">
           <PhoneProjectsPicker macShut={macShut} />
         </Row>
@@ -770,7 +792,7 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
           <div className="set-row set-phone-qr">
             <img alt={`QR code that opens ${site} on a phone`} src={`data:image/svg+xml;utf8,${encodeURIComponent(macShut.siteQr)}`} />
             <div className="set-row-desc">
-              Scan with your phone's camera, or go to <code>{site}</code>. Sign in with this account, then add the page to your home screen and it opens like an app. Replies wait there until this computer wakes.
+              Scan with your phone's camera, or go to <code>{site}</code>. Sign in with this account, then add the page to your home screen and it opens like an app.
             </div>
           </div>
         ) : (
@@ -781,8 +803,34 @@ function MacShutGroup({ macShut }: { macShut: MacShut }) {
   );
 }
 
-function PhonePage({ onFeedback, macShut, onSignIn }: { onFeedback?: () => void; macShut?: MacShut; onSignIn?: () => void }) {
+type PhoneWeb = { email: string | null; seenAt: number; cloud: boolean; build?: { sha: string; at: number } | null; onSignOut: () => void };
+function WebAccountPage({ web, feedback, onPhoneProjects }: { web: PhoneWeb; feedback: ReactNode; onPhoneProjects?: ReactNode }) {
+  const computer = computerSays(web);
+  return (
+    <Page title="Account">
+      <Group id="account">
+        <Row label={web.email ? `Signed in as ${web.email}` : 'Signed in'}>
+          <button type="button" className="set-ghost" onClick={web.onSignOut}>Sign out</button>
+        </Row>
+      </Group>
+      <Group id="computer" label="Your computer">
+        <Row label={computer.label} desc={computer.desc} />
+      </Group>
+      <WebAlertsGroup />
+      {onPhoneProjects && <Group id="phone-mac-shut" label="On your phone">{onPhoneProjects}</Group>}
+      {feedback}
+      {web.build && (
+        <Group id="updates" label="Updates">
+          <Row label="Web app version" desc={`${web.build.sha}, built ${new Date(web.build.at).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`} />
+        </Group>
+      )}
+    </Page>
+  );
+}
+
+function PhonePage({ onFeedback, macShut, onSignIn, web, onPhoneProjects }: { onFeedback?: () => void; macShut?: MacShut; onSignIn?: () => void; web?: PhoneWeb; onPhoneProjects?: ReactNode }) {
   const feedback = onFeedback && onPhone() ? <PhoneFeedbackGroup onFeedback={onFeedback} /> : null;
+  if (web) return <WebAccountPage web={web} feedback={feedback} onPhoneProjects={onPhoneProjects} />;
   if (!macShut) {
     return (
       <Page title="Phone">
@@ -803,12 +851,12 @@ function PhonePage({ onFeedback, macShut, onSignIn }: { onFeedback?: () => void;
   );
 }
 
-/* ------------------------------- Agentbox Cloud ------------------------------- */
-// THE PLANS, AS CARDS (the founder's design of 2026-10-13, w-1dc7ee2408,
-// cloud-slots/20): sold as agent slots, the plan you are on outlined with how
-// much of it is in use, how the cloud counts under them, and billing on
-// Stripe's own page. Choosing opens Stripe in the browser; the page reads the
-// plan again until it changes (../cloud-upgrade.ts).
+/* ---------------------------- Plan and Billing ---------------------------- */
+// With no plan, the plans as cards (w-1dc7ee2408, cloud-slots/20) and how the
+// cloud counts. With one, the plan and Stripe's billing page, this month as
+// two meters, then the cards to change to (w-893c5fe268). Choosing opens
+// Stripe in the browser; the page reads the plan again until it changes
+// (../cloud-upgrade.ts).
 function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: () => void }) {
   const [plan, setPlan] = useState<CloudPlan | null>(null);
   const [said, setSaid] = useState<string | null>(null);
@@ -843,19 +891,59 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
     setOpening(null);
     if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
     setChosen(id);
+    setSwitching(out.where === 'billing');
     setWaitingFor(plan?.plan ?? 'none');
   };
+  const [switching, setSwitching] = useState(false);
+  const [billSaid, setBillSaid] = useState<string | null>(null);
   const billing = async () => {
+    setBillSaid(null);
     const out = await api.cloudAccountBilling();
-    if (!out.ok) { setSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
+    if (!out.ok) { setBillSaid(out.message || 'Stripe could not be opened. Try again.'); return; }
     void read();
   };
-  const paying = !!plan?.plan && plan.plan !== 'none';
-  return (
-    <Page title="Cloud" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
-      <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />
+  const bill = cloudBilling(plan);
+  const cards = <CloudPlanCards plan={plan} opening={opening} waiting={waitingFor ? chosen : null} onChoose={(id) => void choose(id)} />;
+  const lines = (
+    <>
       {said && <p className="cloud-plans-say">{said}</p>}
-      {waitingFor && <p className="cloud-plans-say">Finish paying in your browser. Your plan shows here once you’ve paid.</p>}
+      {waitingFor && <p className="cloud-plans-say">{switching ? 'Confirm the change on Stripe’s page in your browser. Your plan shows here once it’s done.' : 'Finish paying in your browser. Your plan shows here once you’ve paid.'}</p>}
+      {bill.says && !waitingFor && <p className="cloud-plans-say">{bill.says}</p>}
+    </>
+  );
+  // THE PLAN YOU PAY FOR, FOUND UNDER BILLING (the founder's pick of five, 2026-10-25).
+  const sum = planSummary(plan);
+  if (sum) {
+    const meter = (label: string, m: { line: string; percent: number }) => (
+      <div className="bill-meter">
+        <div className="bill-meter-label">{label}</div>
+        <div className="bill-meter-value">{m.line}</div>
+        <span className="bill-meter-bar"><i style={{ width: `${m.percent}%` }} /></span>
+      </div>
+    );
+    return (
+      <Page title="Plan and Billing">
+        <Group id="cloud-billing" label="Your plan" bare>
+          <div className="bill-summary">
+            <div>
+              <div className="bill-plan">{sum.name}</div>
+              <div className="bill-price">{sum.price} · {billSaid ?? sum.who}</div>
+            </div>
+            {sum.manage && <button type="button" className="set-ghost" onClick={() => void billing()}>Manage billing</button>}
+          </div>
+        </Group>
+        <Group id="cloud-use" label="This month" bare>
+          <div className="bill-meters">{meter('Agents in the cloud', sum.agents)}{meter('Hours used', sum.hours)}</div>
+        </Group>
+        <Group id="cloud-plans" label="Change plan" bare><div className="bill-cards">{cards}</div></Group>
+        {lines}
+      </Page>
+    );
+  }
+  return (
+    <Page title="Plan and Billing" lede="Every thread needs a slot to run in. Your computer has a few. The cloud adds more.">
+      {cards}
+      {lines}
       <Group id="cloud-counts" label="How the cloud counts" bare>
         <ul className="cloud-counts">
           <li>Each slot runs one agent in the cloud, on top of the ones your computer runs.</li>
@@ -863,13 +951,6 @@ function CloudPlansPage({ signedIn, onSignIn }: { signedIn: boolean; onSignIn: (
           <li>Past a plan's hours, threads wait for your computer until the month turns.</li>
         </ul>
       </Group>
-      {paying && (
-        <Group id="cloud-billing" label="Billing">
-          <Row label="Payment and invoices" desc="Handled by Stripe. Cancel any time.">
-            <button type="button" className="set-ghost" onClick={() => void billing()}>Open</button>
-          </Row>
-        </Group>
-      )}
     </Page>
   );
 }
@@ -1467,7 +1548,7 @@ function NavIcon({ id }: { id: SettingsPageId }) {
     claude: <><rect x="3.5" y="5" width="17" height="14" rx="2" /><path d="m7.5 10 2.5 2-2.5 2M12.5 14.5h4" /></>,
     codex: <><path d="m9 8-4 4 4 4M15 8l4 4-4 4" /></>,
     running: <><circle cx="12" cy="12" r="8" /><path d="M10.5 9.2v5.6l4.5-2.8z" /></>,
-    cloud: <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />,
+    cloud: <path d="M4 18V9M9.5 18V5M15 18v-6M20.5 18v-9" />,
     instructions: <path d="M6.5 3.5h7.5l4 4V20.5h-11.5zM14 3.5V8h4M9.5 12h5M9.5 16h5" />,
     projects: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
     team: <><circle cx="9" cy="9" r="3" /><path d="M3.5 19c.8-3 3-4.5 5.5-4.5s4.7 1.5 5.5 4.5" /><circle cx="16.5" cy="9.5" r="2.5" /><path d="M16 14.6c2.3-.2 4 1.2 4.5 4" /></>,
@@ -1498,7 +1579,7 @@ function paneFrom(want: string, has: { team: boolean }): Pane {
 
 /* --------------------------------- screen --------------------------------- */
 
-export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
+export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHints, onSetKeyHints, startPane, usageReadings = [], now = Date.now(), embedded = false, onSectionChange, onPaneChange, onNewProject, ranked = [], onSetOrder, teamPane, projectShare, projectWho, account, phoneCloud, phoneWeb, onPhoneSignIn, update = null, onClose, onFeedback, cloud = null, onCloudSignIn, cloudPlans = null, roomsPane }: {
   /** Opens the feedback card. A phone has no Feedback button in its corner,
    *  so its own Settings page offers it (2026-10-12). */
   onFeedback?: () => void;
@@ -1530,6 +1611,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   usageReadings?: Usage[];
   now?: number;
   onSectionChange?: (section: string | null) => void;
+  /** The page up, by the name `startPane` takes back (`project:kestrel` for a
+   *  project), so a reload can reopen it. */
+  onPaneChange?: (pane: string) => void;
   // The new project card, from the Projects page.
   onNewProject?: () => void;
   // The running order, for the Projects page: every project already in order
@@ -1549,7 +1633,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   account?: { email: string; team?: string | null; onSignOut: () => void };
   /** HER PHONE WITH THE MAC SHUT (docs/cloud/PHONE-PLAN.md): present while
    *  she is signed in, with the phone site's address once there is one. */
-  phoneCloud?: { site: string | null; siteQr: string | null };
+  phoneCloud?: { site: string | null; siteQr: string | null; email?: string | null; sentAt?: number | null; error?: string | null };
+  /** On the web app: the account it is signed in as, and its computer (cloud-bridge.ts). */
+  phoneWeb?: PhoneWeb;
   /** Opens the sign-in the phone needs, when this build has a cloud to sign in to. */
   onPhoneSignIn?: () => void;
   /**
@@ -1576,6 +1662,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   // WHICH PAGE IS UP, for the window around this screen.
   useEffect(() => {
     onSectionChange?.(typeof pane === 'object' ? 'projects' : pane === 'general' ? null : pane);
+    onPaneChange?.(typeof pane === 'object' ? `project:${pane.project}` : pane);
   }, [pane]);
 
   const [error, setError] = useState<string | null>(null);
@@ -1587,6 +1674,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  // On the web app the computer's copy, and what it did with a change, arrive while the page is open.
+  useEffect(() => {
+    if (!onCloudPhone()) return undefined;
+    const t = setInterval(() => { void load(); }, 5000);
+    return () => clearInterval(t);
+  }, [load]);
 
   // Every login's own usage, read when the Claude Code page opens and on
   // Refresh. A reading can take back a stale mark, so the page reloads after.
@@ -1635,8 +1728,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     // A search with words in it is emptied by its own Escape (`searchKeys`).
     const clearing = (e: KeyboardEvent) => !!queryRef.current && e.target === searchBox.current;
     const onKey = (e: KeyboardEvent) => {
-      // A screen over this one, such as the cloud's sign-in, takes its own keys.
-      if (document.querySelector('.ps-over')) return;
+      // A screen over this one, such as the cloud's sign-in, takes its own
+      // keys; so does an open menu inside it (../settings-escape.ts).
+      const takes = whatTakesEscape(document);
+      if (takes === 'over') return;
+      if (e.key === 'Escape' && takes === 'menu') return;
       if (e.key === 'Escape' && !clearing(e)) { e.preventDefault(); e.stopPropagation(); onClose(); return; }
       // ⌘F, or / from anywhere that is not a box being typed in, goes to the search.
       const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, [contenteditable="true"]');
@@ -1683,7 +1779,9 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   // A project that disappears while its page is open (archived, renamed) lands
   // on the list of projects rather than leaving a blank pane.
+  // On the web app a project page is the computer's copy, which WebComputerPane checks itself.
   useEffect(() => {
+    if (onCloudPhone()) return;
     if (typeof pane !== 'string' && model && !current) setPane('projects');
   }, [pane, model, current]);
 
@@ -1700,7 +1798,12 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
 
   /** The pages this Mac has. Codex on every Mac (w-d5d632e503); Team only on
    *  a build with a team cloud. */
-  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane));
+  const webComputer: { computer: SettingsRow; commands: PhoneRows['commands'] } | null = onCloudPhone() && (model as { computer?: SettingsRow | null } | null)?.computer
+    ? { computer: (model as unknown as { computer: SettingsRow }).computer, commands: (model as unknown as { settingCommands?: PhoneRows['commands'] }).settingCommands ?? [] }
+    : null;
+  const computerPages = webSettingsPages(webComputer?.computer ?? null);
+  const pages = SETTINGS_PAGES.filter((p) => (p.id !== 'team' || !!teamPane) && (p.id !== 'cloud' || !!cloudPlans) && (p.id !== 'rooms' || !!roomsPane) && (!onCloudPhone() || WEB_PAGES.has(p.id) || computerPages.has(p.id)) && !(p.id === 'shortcuts' && phoneSized()))
+    .map((p) => (onCloudPhone() && p.id === 'phone' ? { ...p, label: 'Account' } : p));
   const hits = useMemo(
     () => searchSettings(query, { pages: pages.map((p) => p.id), projects }),
     [query, pages.length, projects],
@@ -1758,7 +1861,21 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
     const tiles = accounts.map((a) => {
       const tile = accountTile(a, {
         many: agent.accounts.length > 1, now,
-        onUse: (profile) => write(api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } })),
+        onUse: (profile) => {
+          void (async () => {
+            const saved = await api.setWorkspaceSetting({ key: 'activeAccount', value: { engine, profile } });
+            await write(Promise.resolve(saved));
+            if (!saved.ok) return;
+            try {
+              await api.agentUpdate(engine, 'refresh');
+              await write(api.settings());
+            } catch (error) {
+              setError(error instanceof Error ? error.message : String(error));
+            } finally {
+              window.dispatchEvent(new Event('agent-models-changed'));
+            }
+          })().catch(error => setError(error instanceof Error ? error.message : String(error)));
+        },
         // Signing in to the cloud from a tile is Claude's alone.
         cloud: !!cloud?.setUp, onCloudSignIn: engine === 'claude' ? onCloudSignIn : undefined,
       });
@@ -1951,7 +2068,7 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
                 <span className="set-hit-page">{h.pageLabel}</span>
               </button>
             )) : <div className="set-nav-empty">Nothing matches “{query.trim()}”.</div>
-          ) : (['Personal', 'Agents', 'Workspace'] as const).map((group) => (
+          ) : (['Personal', 'Agents', 'Workspace', 'Billing'] as const).map((group) => pages.some((p) => p.group === group) && (
             <Fragment key={group}>
               <div className="set-nav-group">{group}</div>
               {pages.filter((p) => p.group === group).map((p) => (
@@ -2006,7 +2123,11 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
           </Page>
         )}
 
-        {model && pane === 'projects' && (
+        {webComputer && (typeof pane === 'object' || computerPages.has(pane)) && pane !== 'appearance' && pane !== 'phone' && (
+          <WebComputerPane pane={pane} web={webComputer} onWorkspace={setWorkspace} onProject={setProject} onOpenProject={(slug) => setPane({ project: slug })} />
+        )}
+
+        {model && pane === 'projects' && !onCloudPhone() && (
           <div className="set-inner">
             <ProjectsPage
               ranked={ranked}
@@ -2349,7 +2470,8 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
             is what a person actually presses, grouped by the moment they would
             want it; ../shortcuts.ts holds the list. Every key on it works today
             (`tests/the-shortcuts-page-lists-keys-that-work.test.mjs`). */}
-        {pane === 'phone' && <PhonePage onFeedback={onFeedback} onSignIn={onPhoneSignIn} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
+        {pane === 'phone' && <PhonePage onFeedback={onFeedback} onSignIn={onPhoneSignIn} web={phoneWeb}
+          onPhoneProjects={webComputer ? <WebPhoneProjects web={webComputer} onWorkspace={setWorkspace} /> : undefined} macShut={phoneCloud ? { ...phoneCloud, all: model?.workspace?.phoneAll !== false, projects: projects.filter((p) => p.slug !== 'practice'), onChoose: (all, except) => setWorkspace('phoneProjects', { all, except }) } : undefined} />}
         {pane === 'shortcuts' && (
           <div className="set-inner set-keys-page">
             <h1 className="set-title">Shortcuts</h1>
@@ -2481,4 +2603,228 @@ export function Settings({ look, onSetLook, tune, onSetTune, onResetTune, keyHin
       </div>
     </div>
   );
+}
+
+/* ------------------------- the computer, on the web app ------------------------ */
+// Its settings as the copy it uploads has them (web-settings.ts), in the words
+// of the pages above. A change is left for the computer and reads as waiting
+// until it takes it. Below the screen, so tests that find a page by its first
+// mention find the desktop's.
+type WebComputer = { computer: SettingsRow; commands: PhoneRows['commands'] };
+const WEB_MODES = MODE_ORDER.filter((m) => m !== 'custom').map((m) => ({ value: m as string, label: MODE_WORDS[m] }));
+const WEB_CODEX_MODES = CODEX_MODE_ORDER.map((m) => ({ value: m as string, label: CODEX_MODES[m].label }));
+
+/** A row with the line a change left for the computer is waiting or was refused on. */
+function ReadRow({ label, desc, reading, children }: { label: string; desc?: ReactNode; reading?: Reading; children?: ReactNode }) {
+  const line = reading?.waiting ? 'Waiting for your computer' : reading?.refused ? `Not changed (${reading.refused})` : null;
+  return (
+    <Row label={label} desc={line ? <>{desc}<span className={`set-wait${reading?.waiting ? ' on' : ''}`}>{line}</span></> : desc}>
+      {children}
+    </Row>
+  );
+}
+
+function WebPhoneProjects({ web, onWorkspace }: { web: WebComputer; onWorkspace: (key: string, value: unknown) => void }) {
+  const r = readingOf(changesOn(web.computer, web.commands), 'workspace', 'phoneProjects', null);
+  const pending = r.value as { all: boolean; except: string[] } | null;
+  const projects = (web.computer.settings.projects ?? []).map((p: { slug: string; name: string; onPhone: boolean }) => ({
+    ...p, onPhone: pending ? pending.all && !pending.except.includes(p.slug) : !!p.onPhone,
+  }));
+  const macShut = { site: null, siteQr: null, all: true, projects: projects as ProjectSettings[], onChoose: (all: boolean, except: string[]) => onWorkspace('phoneProjects', { all, except }) };
+  return (
+    <ReadRow label="Projects on your phone" desc="A copy of their threads is kept in your account, so your phone can read and reply with this computer closed." reading={r}>
+      <PhoneProjectsPicker macShut={macShut} />
+    </ReadRow>
+  );
+}
+
+type WebAccount = { id: string; email: string | null; name?: string | null; plan: string | null; chosen: boolean; note?: string | null; signedIn?: boolean };
+type AccountAsk = { engine: string; account: string | null };
+function WebAccounts({ engine, list, reading, refusedAsk, onUse }: { engine: 'claude' | 'codex'; list: WebAccount[]; reading: Reading; refusedAsk: AccountAsk | null; onUse: (id: string) => void }) {
+  const asked = reading.value as AccountAsk | null;
+  const mine = asked?.engine === engine ? asked : null;
+  const chosen = (a: WebAccount) => (mine ? mine.account === a.id : a.chosen);
+  const picked = list.some(chosen);
+  const refusedHere = (a: WebAccount) => !!reading.refused && refusedAsk?.engine === engine && refusedAsk.account === a.id;
+  if (!list.length) return <Row label="Not signed in" />;
+  return (
+    <>
+      {list.map((a) => {
+        const live = picked && chosen(a);
+        return (
+          <ReadRow key={a.id} label={a.email ?? a.name ?? 'Not signed in'} desc={a.note ?? (a.signedIn === false ? 'Finish signing in to use it' : a.plan ?? 'Signed in')} reading={(mine && live) || refusedHere(a) ? reading : undefined}>
+            {live ? <span className="set-in-use">In use</span>
+              : list.length > 1 && <button type="button" className="set-ghost" onClick={() => onUse(a.id)}>{picked ? 'Use this one' : 'Use only this one'}</button>}
+          </ReadRow>
+        );
+      })}
+    </>
+  );
+}
+
+function WebComputerPane({ pane, web, onWorkspace, onProject, onOpenProject }: {
+  pane: Pane; web: WebComputer;
+  onWorkspace: (key: string, value: unknown) => void;
+  onProject: (product: string, key: string, value: unknown) => void;
+  onOpenProject: (slug: string) => void;
+}) {
+  const s = web.computer.settings;
+  const w = s.workspace;
+  const changes = changesOn(web.computer, web.commands);
+  const read = (key: string, copy: unknown) => readingOf(changes, 'workspace', key, copy);
+  const toggle = (label: string, key: string, copy: boolean, desc?: string) => {
+    const r = read(key, copy);
+    return <ReadRow label={label} desc={desc} reading={r}><Switch label={label} on={!!r.value} onChange={(v) => onWorkspace(key, v)} /></ReadRow>;
+  };
+  const two = (w.engines ?? []).length > 1;
+
+  if (pane === 'general') {
+    return (
+      <Page title="General">
+        <Group id="privacy" label={`What ${NAME} sends`}>
+          {toggle('Counts and crash reports', 'diagnostics', w.diagnostics, `That ${NAME} was opened, that a task was opened, that a reply was sent, and a report when something breaks. Never your code, your prompts, your keys or your paths, and never a title.`)}
+        </Group>
+        <Group id="adhd">{toggle('ADHD mode', 'adhdMode', w.adhdMode)}</Group>
+        <Group id="updates" label="Updates"><Row label={`${NAME} ${s.version}`} /></Group>
+      </Page>
+    );
+  }
+  if (pane === 'alpha') {
+    return (
+      <Page title="Alpha features" lede="Early features you can try before they are finished. They may change or go away.">
+        <Group id="alpha">{toggle('Rooms', 'alphaRooms', !!w.alpha?.rooms, 'See the people you work with and their agents, with a chat beside them. Needs a team sign-in.')}</Group>
+      </Page>
+    );
+  }
+  if (pane === 'claude' || pane === 'codex') {
+    const claude = pane === 'claude';
+    const mode = read(claude ? 'permission' : 'codexMode', claude ? w.permission : (w.codexMode ?? 'auto'));
+    const account = read('activeAccount', null);
+    // Nothing installed is one answer, not one answer and two more under it
+    // (QA batch 005, F-119).
+    const groups = webSettingsGroups(w, claude ? 'claude' : 'codex');
+    if (!groups.includes('accounts')) {
+      return (
+        <Page title={claude ? 'Claude Code' : 'Codex'}>
+          <Group id="status" label="Status"><Row label={`${claude ? 'Claude Code' : 'Codex'} is not on this computer`} /></Group>
+        </Page>
+      );
+    }
+    return (
+      <Page title={claude ? 'Claude Code' : 'Codex'}>
+        <Group id="accounts" label="Signed in">
+          <WebAccounts engine={claude ? 'claude' : 'codex'} list={(claude ? w.accounts : w.codexAccounts) ?? []} reading={account} refusedAsk={lastAccountAsk(web.commands, web.computer.device)}
+            onUse={(id) => onWorkspace('activeAccount', { engine: claude ? 'claude' : 'codex', account: id })} />
+        </Group>
+        <Group id="permissions" label="Permissions">
+          {claude && w.permission === 'custom'
+            ? <Row label="Permission mode" desc={MODE_SENTENCE.custom} />
+            : (
+              <ReadRow label="Permission mode" reading={mode}
+                desc={claude ? MODE_SENTENCE[mode.value as keyof typeof MODE_SENTENCE] : CODEX_MODES[mode.value as keyof typeof CODEX_MODES]?.what}>
+                <Picker bare label="Permission mode" value={mode.value as string} options={claude ? WEB_MODES : WEB_CODEX_MODES}
+                  onChange={(v) => onWorkspace(claude ? 'permission' : 'codexMode', v)} />
+              </ReadRow>
+            )}
+        </Group>
+      </Page>
+    );
+  }
+  if (pane === 'running') {
+    const auto = read('agentsAuto', w.agentsAuto);
+    const count = read('sessionsAtOnce', w.sessionsAtOnce);
+    const isAuto = auto.waiting ? !!auto.value : count.waiting ? false : !!auto.value;
+    const gate = read('memoryGate', w.memoryGate?.on);
+    const slots = read('memoryGateSlots', w.memoryGate?.slots ?? null);
+    const slow = read('agentsFeltSlow', null);
+    const outside = read('outsideAgents', w.outsideAgents);
+    const say = (n: number) => `${n} ${n === 1 ? 'agent' : 'agents'}`;
+    const options = [{ value: 'auto', label: `Automatic (${say(w.agentsTotal)})` }, ...Array.from({ length: w.slotsMax ?? 12 }, (_, i) => ({ value: String(i + 1), label: say(i + 1) }))];
+    return (
+      <Page title="Running">
+        <Group id="agents" label="Agents">
+          <ReadRow label="How many run at once" reading={auto.waiting || auto.refused ? auto : count}
+            desc={isAuto ? 'From this computer’s memory, kept there as you add accounts or turn the memory check on.' : `You set this. Automatic would run ${w.agentsAutoTotal ?? w.sessionsAtOnce} on this computer.`}>
+            <Picker bare label="How many run at once" value={isAuto ? 'auto' : String(count.value)} options={options}
+              onChange={(v) => (v === 'auto' ? onWorkspace('agentsAuto', true) : onWorkspace('sessionsAtOnce', Number(v)))} />
+          </ReadRow>
+          <ReadRow label="Hold heavy work when memory is short" reading={gate}
+            desc={`Tests and builds take turns, urgent first, and new agents wait to start until memory frees up.${two ? ' Claude Code and Codex both.' : ''}`}>
+            <Switch label="Hold heavy work when memory is short" on={!!gate.value} onChange={(v) => onWorkspace('memoryGate', v)} />
+          </ReadRow>
+          {gate.value && !isAuto && (
+            <ReadRow label="Heavy commands at once" reading={slots}
+              desc={slots.value === null ? `Auto: ${w.memoryGate.slotsAuto} on this computer, one for every 8 GB of memory.` : `You picked ${slots.value}. Auto is ${w.memoryGate.slotsAuto} on this computer.`}>
+              <Stepper label="Heavy commands at once" value={(slots.value as number | null) ?? w.memoryGate.slotsAuto} min={1} max={w.memoryGate.slotsMax ?? 8}
+                onChange={(v) => onWorkspace('memoryGateSlots', v === w.memoryGate.slotsAuto ? null : v)} />
+            </ReadRow>
+          )}
+          {toggle('Stop programs agents leave behind', 'cleanupLeftovers', !!w.leftovers?.on, `Dev servers, previews and test runs an agent started keep running until you close its task, or until memory runs short. Apps installed on this computer are never stopped.${two ? ' Codex agents’ programs are not found yet.' : ''}`)}
+          <ReadRow label="Something felt slow" reading={slow}
+            desc={w.agentsNudge ? `${NAME} is running ${w.agentsNudge} fewer than this computer suggests.` : `${NAME} runs one fewer from now on, and remembers that it did.`}>
+            {!!w.agentsNudge && <button type="button" className="set-ghost" onClick={() => onWorkspace('agentsFeltSlow', 'reset')}>Undo</button>}
+            <button type="button" className="set-ghost" onClick={() => onWorkspace('agentsFeltSlow', 'more')}>Tell it</button>
+          </ReadRow>
+        </Group>
+        {/* Bring in new chats is not in the copy, so it is not drawn here. */}
+        <Group id="outside" label="Agents you started yourself">
+          <ReadRow label="Show while they run" reading={outside} desc={`Claude Code started in a terminal, not from here. ${AGENT_SENTENCE[outside.value as AgentMode] ?? ''}`}>
+            <Picker bare label="Agents you started yourself" value={outside.value as string} options={AGENT_OPTIONS} onChange={(v) => onWorkspace('outsideAgents', v)} />
+          </ReadRow>
+        </Group>
+      </Page>
+    );
+  }
+  const projects: Array<{ slug: string; name: string; running?: number; onPhone?: boolean; autonomous: boolean; permission: string; codexMode: string; account: string }> = s.projects ?? [];
+  const p = typeof pane === 'object' ? projects.find((x) => x.slug === pane.project) : undefined;
+  if (p) {
+    const own = (key: string, copy: unknown) => readingOf(changes, 'project', key, copy, p.slug);
+    const auto = own('autonomous', p.autonomous);
+    const account = own('account', p.account);
+    const permission = own('permission', p.permission);
+    const codex = own('codexMode', p.codexMode);
+    const accounts: WebAccount[] = w.accounts ?? [];
+    return (
+      <Page title={p.name}>
+        <Group id="how-it-runs" label="How it runs">
+          <ReadRow label="Let agents start the tasks they file here" reading={auto}
+            desc="A task an agent writes on this project gets a session straight away. Without this it waits in your inbox for your yes. Questions and reviews always wait for you either way.">
+            <Switch label="Let agents start the tasks they file here" on={!!auto.value} onChange={(v) => onProject(p.slug, 'autonomous', v)} />
+          </ReadRow>
+          {(accounts.length > 1 || account.value !== 'any') && (
+            <ReadRow label="Claude account" reading={account} desc="Every Claude Code agent on this project runs on this account and on no other. If the account cannot run, the work waits.">
+              <Picker bare label="Claude account" value={account.value as string} options={[{ value: 'any', label: 'Any account' }, ...accounts.map((a) => ({ value: a.id, label: a.email ?? a.id }))]}
+                onChange={(v) => onProject(p.slug, 'account', v)} />
+            </ReadRow>
+          )}
+          {permission.value !== 'workspace' && (
+            <ReadRow label={two ? 'This project has its own Claude Code permissions' : 'This project has its own permissions'} reading={permission}
+              desc={permission.value === 'custom' ? MODE_SENTENCE.custom : `${MODE_SENTENCE[permission.value as keyof typeof MODE_SENTENCE] ?? ''} ${RULES_ALWAYS_APPLY}`}>
+              <button type="button" className="set-ghost" onClick={() => onProject(p.slug, 'permission', 'workspace')}>Use the workspace setting</button>
+            </ReadRow>
+          )}
+          {two && codex.value !== 'workspace' && (
+            <ReadRow label="This project has its own Codex permissions" reading={codex} desc={CODEX_MODES[codex.value as keyof typeof CODEX_MODES]?.what ?? ''}>
+              <button type="button" className="set-ghost" onClick={() => onProject(p.slug, 'codexMode', 'workspace')}>Use the workspace setting</button>
+            </ReadRow>
+          )}
+        </Group>
+      </Page>
+    );
+  }
+  // A project the copy no longer has lands on the list.
+  if (pane === 'projects' || typeof pane === 'object') {
+    return (
+      <Page title="Projects">
+        <Group id="projects">
+          {projects.length ? projects.map((x) => (
+            <Row key={x.slug} label={x.name} desc={webProjectRow(x).desc}>
+              <button type="button" className="set-ghost" onClick={() => onOpenProject(x.slug)}>Open</button>
+            </Row>
+          )) : <Row label="No projects yet." />}
+        </Group>
+      </Page>
+    );
+  }
+  return null;
 }

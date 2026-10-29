@@ -27,13 +27,14 @@ import { stopKey } from './walk-rules';
 import { PinMark } from './ThreadMenu';
 import { cardClickIntent, cardsUnder, clickMarks, marqueeBox, marqueeMarks, type Box } from './board-select';
 import { shownToPeople } from '../../../shared/thread-cards.mjs';
+import { Name } from '../../../shared/product-name.mjs';
 import { FleetContext } from '../fleet';
 import { TeammateLead } from '../teammates/row-lead';
 import { factsFor, saysOnCard, statusCell, type StatusCell } from '../status-word';
 import { shownPriority } from '../../../shared/rank.mjs';
 import { api } from '../api';
-import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
-import { menuSetupLine, SETUP } from '../cloud-setup';
+import { CLOUD_KEY, CLOUD_WHEN_ON, cloudButtonCount, cloudFootLine, cloudIsOn, cloudMonthLine, cloudMoveLine, countedAccounts, type CloudMode, type CloudStatus } from '../cloud-menu';
+import { brokenAccounts, buttonAsksSignIn, menuSetupLine, readBrokenSeen, seenAfter, SETUP, writeBrokenSeen } from '../cloud-setup';
 import type { Offer, OfferGo } from '../cloud-upgrade';
 import './pages.css';
 
@@ -92,6 +93,8 @@ export function inStep(el: Element | null) {
 export const LiveContext = createContext<Set<string>>(new Set());
 /** The ones of those running in the cloud rather than on this Mac. */
 export const CloudContext = createContext<Set<string>>(new Set());
+/** Runs on this Mac the cloud could take now, and the press that moves one (CloudStatus `movable`). */
+export const MoveToCloudContext = createContext<{ ids: Set<string>; move: (id: string, product: string) => void } | null>(null);
 
 /**
  * The mark in the Status cell: the running one where an agent is on it, the
@@ -191,7 +194,7 @@ export function SearchButton({ onSearch }: { onSearch: () => void }) {
 }
 
 /** New thread, the cloud and the Display icon (and Search on the board), at the right of the Inbox header. */
-export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, filters = true, view = null }: {
+export function HeaderActions({ page, display, onDisplay, products, items, onSearch, onCompose, shown, total, tab, people, cloud, onCloudMode, onCloudWhenOn, onCloudSetUp, onCloudMove, filters = true, view = null }: {
   /** False over a room, where there is no list to view or filter. */
   filters?: boolean;
   /** What stands in the filters button's place when `filters` is false: a room's own View button. */
@@ -202,6 +205,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   people?: PeoplePick;
   /** Where threads run; no button at all on a Mac not set up for the cloud. */
   cloud?: CloudStatus | null; onCloudMode?: (mode: CloudMode) => void; onCloudWhenOn?: (mode: Exclude<CloudMode, 'mac'>) => void; onCloudSetUp?: () => void;
+  onCloudMove?: (ids: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
@@ -217,7 +221,7 @@ export function HeaderActions({ page, display, onDisplay, products, items, onSea
   return <div className="th-right">
     {onSearch && <SearchButton onSearch={onSearch} />}
     <button type="button" className="th-new" data-hint="new-task" onClick={onCompose} title="New thread (N)"><PenIcon />New thread</button>
-    {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} />}
+    {(cloud?.setUp || cloud?.offered) && <CloudButton cloud={cloud} onMode={onCloudMode} onWhenOn={onCloudWhenOn} onSetUp={onCloudSetUp} onMove={onCloudMove} />}
     {filters && <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
       <button type="button" className={`th-disp${worn ? ' faces' : ''}${open ? ' open' : ''}`}
         aria-label={whose ? `View and filters, showing ${whose}` : 'View and filters'} title={whose ? `${whose} · View and filters` : 'View and filters'}
@@ -244,7 +248,7 @@ const toggle = <T,>(list: T[], value: T) => (list.includes(value) ? list.filter(
 // (renderer/src/cloud-menu.ts, tests/the-cloud-button-chooses-where-threads-run).
 const CloudIcon = () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" /></svg>;
 
-function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void; onWhenOn?: (mode: Exclude<CloudMode, 'mac'>) => void; onSetUp?: () => void }) {
+function CloudButton({ cloud, onMode, onWhenOn, onSetUp, onMove }: { cloud: CloudStatus; onMode?: (mode: CloudMode) => void; onWhenOn?: (mode: Exclude<CloudMode, 'mac'>) => void; onSetUp?: () => void; onMove?: (ids: string[]) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useOutside(open, () => setOpen(false));
   const count = cloudButtonCount(cloud);
@@ -253,6 +257,7 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
   const on = cloudIsOn(cloud);
   const whenOn = cloud.whenOn ?? (cloud.mode === 'all' ? 'all' : 'full');
   const meaning = CLOUD_WHEN_ON.find((c) => c.id === whenOn) ?? CLOUD_WHEN_ON[0];
+  const move = cloudMoveLine({ mode: cloud.mode, movable: cloud.movable?.length ?? 0 });
   // NOT SET UP IS THE WHOLE MENU, NOT A ROW IN IT (2026-10-14: the "Setup"
   // row was "very strange and I don't even notice it"). Until one account can
   // run in the cloud, the choices of where threads run mean nothing, so the
@@ -264,6 +269,18 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
   // The invitation is for a cloud with no account at all, and none on its way.
   const nobodyReady = !accounts.length && !(cloud.signIns || []).length;
   const setup = menuSetupLine(cloud);
+  // A STOPPED ACCOUNT IS SAID IN WORDS until the menu has been opened on it
+  // (../cloud-setup.ts). It counts as seen when the menu closes, so the button
+  // does not shrink under a menu that is open.
+  const [seen, setSeen] = useState(readBrokenSeen);
+  const looked = useRef<string[]>([]);
+  useEffect(() => {
+    if (open) { looked.current = [...new Set([...looked.current, ...brokenAccounts(cloud)])]; return; }
+    const next = seenAfter(cloud, seen, looked.current);
+    looked.current = [];
+    if (next.join() !== seen.join()) { setSeen(next); writeBrokenSeen(next); }
+  }, [open, cloud, seen]);
+  const asks = !nobodyReady && buttonAsksSignIn(cloud, seen);
   const goSetUp = () => { setOpen(false); onSetUp?.(); };
   // TRY AGAIN ON ONE THAT WAS NOT ADDED starts it again and opens the setup on
   // its sign-in, rather than on a list with a second Try again on it.
@@ -277,17 +294,19 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
     goSetUp();
   };
   return <span ref={(el) => { ref.current = el; }} style={{ position: 'relative', display: 'inline-flex' }}>
-    <button type="button" className={`th-disp th-cloud${count ? ' count' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
-      aria-label={count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={`Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
+    <button type="button" className={`th-disp th-cloud${count && !asks ? ' count' : ''}${asks || (!count && nobodyReady) ? ' named' : ''}${open ? ' open' : ''}${on && !nobodyReady ? ' lit' : ''}`}
+      aria-label={asks ? SETUP.menuBroken : count ? `Cloud on, ${count} running there` : nobodyReady ? 'Cloud, not set up yet' : on ? 'Cloud on' : 'Cloud off'} title={asks ? SETUP.menuBroken : nobodyReady ? SETUP.inviteGo : `Cloud ${on ? 'on' : 'off'} (${chord(CLOUD_KEY)})`}
       data-hint="cloud" data-hint-align="center" onClick={() => setOpen((o) => !o)}>
-      <CloudIcon />{count && <b>{count}</b>}{!count && (nobodyReady || setup) && <i />}
+      {/* The word until it is set up: a new user found no other way in, and nothing saying what the icon was (F-97). */}
+      <CloudIcon />{asks
+        ? <span className="th-cloud-word ask">{SETUP.again}</span>
+        : count ? <b>{count}</b> : nobodyReady && <span className="th-cloud-word">Cloud</span>}{(asks || (!count && (nobodyReady || setup))) && <i />}
     </button>
     {open && nobodyReady && <div className="th-pop th-cloud-pop th-cloud-invite" role="dialog" aria-label={SETUP.inviteHead}>
       <span className="th-cloud-invite-ic"><CloudIcon /></span>
       <div className="th-cloud-invite-head">{SETUP.inviteHead}</div>
       <p className="th-cloud-invite-line">{SETUP.inviteLine}</p>
       <button type="button" className="th-cloud-invite-go" onClick={goSetUp}>{SETUP.inviteGo}</button>
-      <span className="th-cloud-invite-note">{SETUP.inviteNote}</span>
     </div>}
     {open && !nobodyReady && <div className="th-pop th-cloud-pop" role="dialog" aria-label="Where threads run">
       {setup && <div className="th-cloud-banner">
@@ -305,6 +324,10 @@ function CloudButton({ cloud, onMode, onWhenOn, onSetUp }: { cloud: CloudStatus;
         {CLOUD_WHEN_ON.map((c) => <button type="button" key={c.id} className={c.id === whenOn ? 'on picked' : ''} aria-pressed={c.id === whenOn} onClick={() => onWhenOn?.(c.id)}>{c.label}</button>)}
       </span></div>
       <div className="line th-cloud-note"><span className="lab" /><span>{on ? meaning.note : 'Off: every thread runs on this Mac.'}</span></div>
+      {move && <div className="line th-cloud-setup"><span className="lab">This Mac</span><span className="th-cloud-setup-row">
+        <span className="th-cloud-setup-say">{move.say}</span>
+        {move.go && <button type="button" className="th-cloud-manage" onClick={() => { setOpen(false); onMove?.(cloud.movable ?? []); }}>{move.go}</button>}
+      </span></div>}
       <div className="rule" />
       <div className="line th-cloud-setup"><span className="lab">Accounts</span><span className="th-cloud-setup-row">
         <span className="th-cloud-setup-say">{SETUP.menuAccounts(countedAccounts(accounts).length)}</span>
@@ -408,8 +431,12 @@ export const INBOX_TABS: { view: TabView; label: string }[] = [
  */
 const COUNTED: TabView[] = ['inbox', 'progress', 'snoozed'];
 
+/** With a team on the page (w-b5f23cff71): two tabs, Needs you and Everything else, and the team's faces at the end. */
+export type TeamTabs = { on: boolean; onNeeds: () => void; onEverything: () => void; corner?: ReactNode };
+export const EVERYTHING_ELSE = 'Everything else';
+
 /** `needs` renames the first tab (Waiting, once a teammate is on the page). */
-export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, into = null }: {
+export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, into = null, team = null }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
   /** Draws Search at the row's right end (w-3c51d02de5). */
   onSearch?: () => void;
@@ -419,20 +446,25 @@ export function StateTabs({ view, counts, onView, needs, onSearch, lit = false, 
   after?: ReactNode; dim?: boolean;
   /** Drawn here instead of in place: the top bar, where the page's title was. */
   into?: HTMLElement | null;
+  team?: TeamTabs | null;
 }) {
-  const row = <StateTabsRow view={view} counts={counts} onView={onView} needs={needs} onSearch={onSearch} lit={lit} after={after} dim={dim} />;
+  const row = <StateTabsRow view={view} counts={counts} onView={onView} needs={needs} onSearch={onSearch} lit={lit} after={after} dim={dim} team={team} />;
   return into ? createPortal(row, into) : row;
 }
 
-function StateTabsRow({ view, counts, onView, needs, onSearch, lit = false, after, dim = false }: {
+function StateTabsRow({ view, counts, onView, needs, onSearch, lit = false, after, dim = false, team = null }: {
   view: TabView; counts: Partial<Record<TabView, number>>; onView: (v: TabView) => void; needs?: string;
-  onSearch?: () => void; lit?: boolean; after?: ReactNode; dim?: boolean;
+  onSearch?: () => void; lit?: boolean; after?: ReactNode; dim?: boolean; team?: TeamTabs | null;
 }) {
+  // In progress, Later and Done are your own card's tabs on Everything else.
+  const tabs = team ? INBOX_TABS.filter((t) => t.view === 'inbox') : INBOX_TABS;
+  const on = (t: TabView) => (team ? t === 'inbox' && !team.on : view === t && !dim);
   return <div className="th-bar"><div className="tm-tabs">
     {/* Every tab wears the Tab plate (hint-plate.ts, 'state-tab'). */}
-    {INBOX_TABS.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${view === t.view && !dim ? ' on' : ''}${t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}`} onClick={() => onView(t.view)}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {tabs.map((t) => <button type="button" key={t.view} data-hint="state-tab" className={`tm-tab${on(t.view) ? ' on' : ''}${!team && t.view === 'inbox' && lit && view !== 'inbox' ? ' fresh' : ''}${team?.on && t.view === 'inbox' && lit ? ' fresh' : ''}`} onClick={() => (team ? team.onNeeds() : onView(t.view))}>{t.view === 'inbox' && needs ? needs : t.label}{COUNTED.includes(t.view) && !!counts[t.view] && <b>{counts[t.view]}</b>}</button>)}
+    {team && <button type="button" data-hint="state-tab" className={`tm-tab${team.on ? ' on' : ''}`} onClick={team.onEverything}>{EVERYTHING_ELSE}</button>}
     {after}
-  </div>{onSearch && <SearchButton onSearch={onSearch} />}</div>;
+  </div>{team?.corner}{onSearch && <SearchButton onSearch={onSearch} />}</div>;
 }
 
 /* ------------------------------------------------------------ whose threads */
@@ -463,6 +495,23 @@ function PeopleLine({ everyone, picked, me, onPick }: PeoplePick) {
 }
 
 /* ------------------------------------------------------------ an empty tab */
+export function ConnectComputer({ email, onSignOut }: { email: string | null; onSignOut: () => void }) {
+  const as = email ? <> as <b>{email}</b></> : null;
+  return <div className="th-clear th-start th-connect">
+    <div className="th-connect-group">
+      <h2>Connect your computer</h2>
+      <ol>
+        <li><span>Open {Name} on your computer.</span></li>
+        <li><span>In Settings › Phone, sign in{as}.</span></li>
+        <li><span>Your threads show up here within a minute.</span></li>
+      </ol>
+      <div className="th-clear-acts">
+        <button type="button" className="th-connect-out" onClick={onSignOut}>Use another account</button>
+      </div>
+    </div>
+  </div>;
+}
+
 /** THE EMPTY INBOX IS WHERE THE NEXT THREAD STARTS (w-4e9f957f97). The
  *  heading, and under it the New thread box drawn open on the page: App.tsx
  *  puts the one composer into `slot`. What is in progress has its own tab and
@@ -507,21 +556,32 @@ export function FilteredEmpty({ view, hidden, onClear }: { view: TabView; hidden
 const ClearMark = () => <svg className="th-clear-mark" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5" /></svg>;
 
 /** The other tabs, empty: one quiet line where the rows would be. */
-export function EmptyTab({ view }: { view: TabView }) {
+export function EmptyTab({ view, starting = false }: { view: TabView; starting?: boolean }) {
   const words: Partial<Record<TabView, string>> = {
-    progress: 'Nothing is running.',
+    // `starting`: a task was just sent and its row has not arrived yet.
+    progress: starting ? 'Starting your task…' : 'Nothing is running.',
     snoozed: 'Nothing is waiting for later. "Add it to Later" on a new thread writes one down without starting it.',
     // A finished thread waits in Needs you until its owner closes it, which a
     // persona read as the app losing it.
     done: 'Nothing closed yet. A finished thread waits in Needs you until you close it.',
   };
-  return <div className="th-empty">{words[view] ?? 'Nothing here.'}</div>;
+  return <div className="th-empty"><span>{words[view] ?? 'Nothing here.'}</span></div>;
 }
 
 /* ------------------------------------------------------------ one thread's cells */
 export function TableHead({ person = false, tab }: { person?: boolean; tab?: string }) {
   return <div className="row th-head"><span className="mark" aria-hidden="true" /><div className={`row-main th-grid${person ? ' with-person' : ''}`}>
     <div>Thread</div><div>Status</div><div className="th-col-proj">Project</div>{person && <div>Person</div>}<div className="th-col-prio">Priority</div><div className="num">{timeHeading(tab)}</div>
+  </div></div>;
+}
+
+/** A section of Your threads (./stack-rules): its name and count where Thread is, a click folds it, and its own time column. */
+export function SectionHead({ label, count, tab, folded, onFold }: { label: string; count: number; tab: string; folded: boolean; onFold: () => void }) {
+  return <div className={`row th-head th-section${folded ? ' folded' : ''}`}><span className="mark" aria-hidden="true" /><div className="row-main th-grid">
+    <div><button type="button" className="th-fold" aria-expanded={!folded} onClick={onFold}>
+      <svg className="th-fold-mark" width="9" height="9" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>
+      {label}<b>{count}</b>
+    </button></div><div /><div className="th-col-proj" /><div className="th-col-prio" /><div className="num">{timeHeading(tab)}</div>
   </div></div>;
 }
 
@@ -638,7 +698,13 @@ export function ThreadCells({ item, product, now, person, tab }: {
     const out = await api.threadEdit(item.product, item.id, patch);
     if (!out.ok) setFlipped(null);
   };
-  const action = seen ? (
+  // A run on this Mac the cloud could take: moving it is the press that matters now.
+  const mover = useContext(MoveToCloudContext);
+  const action = mover?.ids.has(item.id) ? (
+    <button type="button" className="th-row-act" onClick={(e) => { e.stopPropagation(); mover.move(item.id, item.product); }} title="Carry on in the cloud">
+      <CloudIcon />Move to cloud
+    </button>
+  ) : seen ? (
     <button type="button" className="th-row-act" onClick={(e) => { e.stopPropagation(); void flip(); }}
       title={seen === 'private' ? 'Show this thread to the team' : 'Stop showing this thread'}>
       <SharedMark className="th-row-act-mark" />{seen === 'private' ? 'Share' : 'Unshare'}

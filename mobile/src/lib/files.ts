@@ -9,8 +9,20 @@ import { fileOnPhone, phonePage, type Links } from '../../../renderer/src/phone-
 import { embeddedDocuments, isBookkeeping } from '../../../renderer/src/message-artifacts';
 import { referencedFiles } from '../../../renderer/src/referenced-files';
 import { threadWords, typedParts } from '../../../renderer/src/typed-message';
+import { sentFileName } from '../../../renderer/src/phone-sends-files';
 
 type Places = Map<string, Place>;
+
+/**
+ * What a film in the phone's player shows: a centred spinner until it can
+ * play, one centred play button then, and the system's controls only once
+ * tapped, so its own loading glyphs never stand in for the film.
+ */
+export function filmFace({ status, tapped }: { status: string; tapped: boolean }): 'loading' | 'play' | 'controls' | 'error' {
+  if (status === 'error') return 'error';
+  if (tapped) return 'controls';
+  return status === 'readyToPlay' ? 'play' : 'loading';
+}
 
 export type Opening =
   | { kind: 'web'; url: string }
@@ -64,6 +76,26 @@ export function pictureShapeOf(places: Places, product: string, src: string): { 
 
 /** Can the phone play this film or sound. */
 export const playable = (places: Places, links: Links, product: string, src: string) => fileOnPhone(places, links, product, src).ok;
+
+const PICTURE_TYPES: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic' };
+
+/**
+ * Pictures you just sent, drawn from their own bytes until the next read signs
+ * their links (the web app's `saveAttachments`); `until: 0` is what asks for
+ * that link. Says whether it added any.
+ */
+export function drawFromBytes(links: Links, sent: { rel: string }[], files: { dataBase64?: string }[]): boolean {
+  let added = false;
+  sent.forEach((s, i) => {
+    const name = sentFileName(s.rel);
+    const type = PICTURE_TYPES[(/\.([a-z0-9]+)$/i.exec(name ?? '')?.[1] ?? '').toLowerCase()];
+    const data = files[i]?.dataBase64;
+    if (!name || !type || !data || links.has(name)) return;
+    links.set(name, { url: `data:${type};base64,${data}`, until: 0 });
+    added = true;
+  });
+  return added;
+}
 
 /** A message you sent, as you typed it, without the lines the app wrote for its files. */
 export const typedWords = (text: string) => typedParts(text).flatMap((p) => ('text' in p ? [threadWords(p.text)] : [])).join('\n\n');

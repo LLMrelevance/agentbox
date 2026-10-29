@@ -166,7 +166,9 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
   if (shown) {
     body = <SignIn s={shown} existing={accounts.some((a) => a.key === shown.key)} as={shown.engine === 'claude' ? signInAs : null} />;
   } else if (step === 'loading') {
-    body = <div className="fr-stack fr-stack-folders" />;
+    body = <div className="fr-stack fr-stack-folders cs-loading">
+      <p className="fr-lede"><Busy />{SETUP.loadingLede}</p>
+    </div>;
   } else if (step === 'pay') {
     body = <div className="fr-stack fr-stack-folders">
       <h1 className="fr-page">{SETUP.payHead}</h1>
@@ -244,7 +246,7 @@ export function CloudSetup({ cloud, onMode, onClose, signInAs = null, plan = nul
     <button type="button" className="back-esc fr-back" aria-label={SETUP.back} title={SETUP.back} onClick={back}>
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5" /></svg>
     </button>
-    <div className="fr-brand"><AppMark size={22} />{NAME}</div>
+    <div className="fr-brand"><AppMark size={13} />{NAME}</div>
     {body}
   </div>;
 }

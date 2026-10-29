@@ -8,6 +8,7 @@ import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
 import { SafeAreaInsetsContext, SafeAreaProvider } from 'react-native-safe-area-context';
 import { CloudProvider } from '../state/cloud';
+import { GroupsProvider } from '../state/groups';
 import { Approvals } from '../ui/Approvals';
 import { color } from '../ui/theme';
 import { Toast } from '../ui/Toast';
@@ -31,10 +32,12 @@ export default function Root() {
   if (!loaded && !failed && Platform.OS !== 'web') return <View style={{ flex: 1, backgroundColor: color.bg }} />;
   const app = (
     <CloudProvider>
-      <StatusBar style="light" />
-      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg }, animation: 'slide_from_right' }} />
-      <Approvals />
-      <Toast />
+      <GroupsProvider>
+        <StatusBar style="light" />
+        <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: color.bg }, animation: 'slide_from_right' }} />
+        <Approvals />
+        <Toast />
+      </GroupsProvider>
     </CloudProvider>
   );
   return (

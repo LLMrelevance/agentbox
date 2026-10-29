@@ -35,13 +35,17 @@ export function liveReplyBrief(answer, files = '') {
   ].join('\n');
 }
 
+// `from` names the teammate whose words these are: they reach a running
+// session framed as that teammate's, never as the person's or as a command.
 export function submitReply(supervisor, payload, commit) {
-  const { product, id, answer, status, permissionMode, now = false } = payload;
+  const { product, id, status, permissionMode, now = false, from = null } = payload;
+  const answer = from ? framedTeammate(from, payload.answer) : payload.answer;
   const key = JSON.stringify([product, id]);
   const sends = supervisor._replySends ??= new Map();
   const previous = sends.get(key) ?? Promise.resolve();
   const session = supervisor.sessions?.get(id);
   const live = session?.product === product && typeof session.child?.steer === 'function'
+    && !(from && session.remoteIdle)
     && status !== 'done' && typeof answer === 'string' && answer.trim() && answer !== '(withdrawn)';
   // Observe rejections immediately, including when an earlier reply is still
   // waiting. The ordered commit below rethrows them to their own caller.
@@ -101,21 +105,39 @@ export function submitReply(supervisor, payload, commit) {
 // The ledger preserves every reply even while capacity is full. A resumed
 // provider otherwise receives only its latest-answer field. Read backward to
 // the preceding response/delivery, preserving repeated words and write order.
+// `answeredThrough` is the newest reply a finished run settled, which may have
+// spoken by a rewrite rather than a result.
 export function queuedReplyText(item, history, delivered) {
  const pending=[];
  const latestTs=item.wrote?.answer?.ts;
+ const settled=item.answeredThrough??0;
  for(let i=history.length-1;i>=0;i--){
   const line=history[i];
   if(line.heartbeat||line.release)continue;
   if(line.patch?.result)break;
+  if(line.ts<=settled)break;
   const answer=line.patch?.answer;
   if(typeof answer!=='string'||!answer.trim())continue;
   if(answer==='(withdrawn)')break;
-  if(line.source!=='founder')continue;
+  const from=line.source==='system'?line.patch?.from?.name:null;
+  if(line.source!=='founder'&&!from)continue;
   const candidate={...item,answer,wrote:{...item.wrote,answer:{ts:line.ts}}};
   // The queue marks the newest reply at spawn. It is still part of this input.
   if(line.ts!==latestTs&&delivered(candidate))break;
-  pending.unshift(answer);
+  pending.unshift({answer,from});
  }
- return pending.length>1 ? pending.join('\n\n') : item.answer;
+ // A teammate's words are always framed as theirs, even alone, so they are
+ // never read as the person's or run as a command.
+ if(!pending.length)return framedTeammate(toldNameOf(item),item.answer);
+ if(pending.length===1&&!pending[0].from)return item.answer;
+ return pending.map((p)=>(p.from?framedTeammate(p.from,p.answer):`The person wrote:\n\n${p.answer}`)).join('\n\n');
+}
+
+const toldNameOf=(item)=>(item.wrote?.answer?.source==='system'?item.wrote.answer.from:null);
+
+// A teammate's words, as a turn reads them. A hand-off from a teammate is work
+// to do, not the person's yes to anything.
+export function framedTeammate(name,text){
+ if(!name)return text;
+ return `${name}, a teammate (not the person), wrote this to you:\n\n${String(text).split('\n').map((l)=>`> ${l}`).join('\n')}`;
 }

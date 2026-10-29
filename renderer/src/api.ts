@@ -14,9 +14,11 @@ import { fixtureEngineWorld, fixtureEngineSettings, fixtureSecondEngine } from '
 import { fixtureFolders } from './fixtures';
 import { NAME, Name } from '../../shared/product-name.mjs';
 import { checkProjectFolder } from '../../shared/project-folder-check.mjs';
+import { whileSystemWindowIsOpen } from './system-window';
 import { USAGE_UNREADABLE } from '../../shared/usage.mjs';
 import { accountSentence } from '../../shared/spawn-trouble.mjs';
 import { MOVE_SAY } from '../../shared/where-it-runs-from.mjs';
+import { cardsInFront } from '../../shared/which-card-is-in-front.mjs';
 // THE SECOND FRONT DOOR, AND IT HAS TO BE BUILT BEFORE THE LINE BELOW RUNS.
 // `useFixtures` reads `window.zero` once, at module load, and on the desktop
 // preload.cjs has already put it there. In a browser tab nothing has, so this
@@ -59,6 +61,8 @@ const workingFixtures = Math.max(0, Math.min(99, Number(params.get('working') ??
 // chips WRAP, and ranking-by-dragging was written against a single row, so it
 // silently did nothing across rows. This is the case that catches that.
 const crowdedFixtures = params.get('fixtures') === 'crowded';
+// The thread on screen, in fixtures only: see `lookingAt` below.
+let fixtureLooking: { product: string | null; id: string } | null = null;
 // ?fixtures=mock is the reference design, with its own copy, so the built
 // app can be put beside the picture and measured rather than remembered.
 const mockFixtures = params.get('fixtures') === 'mock';
@@ -410,6 +414,7 @@ export const api = {
       // is a real state worth being able to look at, and it is not the state
       // every other fixtures screenshot wants a card floating over.
       if (!params.has('approvals')) base.approvals = [];
+      else base.approvals = cardsInFront(base.approvals, fixtureLooking);
       // &cloud=mac|full|all draws the cloud button set up, two accounts in,
       // three threads running there, so its menu can be looked at.
       const cloud = params.get('cloud');
@@ -472,7 +477,7 @@ export const api = {
         base.cloud = { setUp: false, offered: true, mode: 'full', whenOn: 'full', running: 0, month: { runs: 0, agentHours: 0, estimatedCost: 0, costPerAgentHour: 0 }, accounts: [], signIns: [] } as typeof base.cloud;
       } else if (cloud === 'mac' || cloud === 'full' || cloud === 'all') {
         base.cloud = {
-          setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3,
+          setUp: true, mode: cloud, whenOn: cloud === 'all' ? 'all' : 'full', running: 3, projects: base.products.map((p) => p.slug),
           month: { runs: 6, agentHours: 2.4, estimatedCost: 0.31, costPerAgentHour: 0.13 },
           accounts: [
             { engine: 'claude', key: 'a1', name: 'me@example.com', ready: true, state: 'ready' },
@@ -499,6 +504,17 @@ export const api = {
           const kept = base.items.find((i) => i.id === first.itemId);
           if (kept) kept.onMac = true;
         }
+        // &needs draws the top thread in Needs you handed back for a key only this Mac has.
+        if (params.has('needs')) {
+          const first = base.items.find((i) => /^The first row a new project/.test(i.title));
+          if (first) Object.assign(first, { onMac: true, needsMac: 'your Stripe key' });
+        }
+        // &moving draws the other running threads on this Mac, all of which the cloud could take now.
+        if (params.has('moving') && base.cloud) {
+          const here = base.supervisor.running.filter((r) => (r as { where?: string }).where !== 'cloud').map((r) => r.itemId);
+          base.cloud.movable = here;
+          if (cloud === 'all') base.supervisor.whyNotCloud = Object.fromEntries(here.map((id) => [id, { at: 'mac' as const, why: 'moving' }]));
+        }
       }
       // &cloud=managed draws Agentbox Cloud signed in through its server, and
       // &noroom=hours|agents the server saying it had no room a moment ago.
@@ -516,6 +532,17 @@ export const api = {
       return fixtureSecondEngine(base, engineFixtures);
     }
     return window.zero!.snapshot();
+  },
+
+  // WHERE YOU ARE, FOR THE ONE THING THAT DEPENDS ON IT: the approval card in
+  // front is the open thread's own, and the chord that answers it is caught in
+  // the main process. A build with no such channel keeps the oldest card in
+  // front, which is what it did before.
+  async lookingAt(at: { product: string | null; id: string } | null): Promise<void> {
+    // Fixtures have no main process to order the cards, and ?approvals is how
+    // this card is reviewed, so the same shared rule is applied here.
+    if (useFixtures) { fixtureLooking = at; return; }
+    try { await window.zero?.looking?.({ product: at?.product ?? null, id: at?.id ?? null }); } catch { /* the card simply stays where it was */ }
   },
 
   async refreshUsage(engine: 'claude' | 'codex' = 'claude'): Promise<{ ok: boolean; reading?: Usage; error?: string }> {
@@ -852,6 +879,17 @@ export const api = {
     await window.zero.setThreadOnMac({ onMac });
   },
 
+  /**
+   * Move runs on this Mac to the cloud as it has room; how many will go. One
+   * thread names its project too, which the phone's command needs.
+   */
+  async moveToCloud(ids: string[], product?: string): Promise<number> {
+    if (useFixtures || !window.zero?.moveToCloud) return 0;
+    const out = await window.zero.moveToCloud({ ids, ...(product && ids.length === 1 ? { product, id: ids[0] } : {}) });
+    // The phone leaves a command for the computer, which says nothing back yet.
+    return out?.moving ?? (out?.ok ? ids.length : 0);
+  },
+
   async compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem | null> {
     // FIXTURES ANSWER WITH THE TASK, the way the real store does. Returning
     // null here meant the send had nothing to point at, and the caller reads
@@ -882,6 +920,12 @@ export const api = {
       };
     }
     return window.zero!.compose(p);
+  },
+
+  /** Who takes a thread sent to Auto: 'agent' or a teammate as 'mate:<id>' (shared/auto-route.mjs). */
+  async routeThread(p: { product: string; id: string; to: string }): Promise<void> {
+    if (useFixtures || !window.zero?.routeThread) return;
+    await window.zero.routeThread(p);
   },
 
   /* ------------------------------ the first run ---------------------------- */
@@ -1192,7 +1236,7 @@ export const api = {
     const zero = window.zero as any;
     if (!zero?.engineBin) return { ...emptySettings, ok: false, error: RESTART_NOTE };
     try {
-      return await zero.engineBin({ engine, ...(action ? { action } : {}) });
+      return await whileSystemWindowIsOpen(() => zero.engineBin({ engine, ...(action ? { action } : {}) }));
     } catch (err) {
       return { ...emptySettings, ok: false, error: String((err as Error)?.message ?? err) };
     }
@@ -1274,7 +1318,7 @@ export const api = {
     if (useFixtures) return { ...emptySettings, ok: true, canceled: true };
     const zero = window.zero as any;
     if (!zero?.projectIcon) return { ...emptySettings, ok: false, error: RESTART_NOTE };
-    return zero.projectIcon(p);
+    return whileSystemWindowIsOpen(() => zero.projectIcon(p));
   },
 
   async clearProjectIcon(p: { product: string }): Promise<Settings> {
@@ -1360,8 +1404,8 @@ export const api = {
     return zero.cloudSignIn(p);
   },
 
-  /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, or a new account. */
-  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up' | 'agree'; email?: string; password?: string; name?: string; acceptTerms?: boolean }): Promise<{ ok: boolean; confirm?: boolean; needsTerms?: boolean; error?: string; cancelled?: boolean }> {
+  /** Signing in to Agentbox Cloud itself, on the app's sign-in page: Google, email, a new account and its link again, or a password reset. */
+  async cloudAccountSignIn(p: { method: 'google' | 'email' | 'sign-up' | 'resend' | 'agree' | 'reset' | 'reset-wait' | 'new-password'; email?: string; password?: string; name?: string; acceptTerms?: boolean }): Promise<{ ok: boolean; confirm?: boolean; needsTerms?: boolean; sent?: boolean; opened?: boolean; error?: string; cancelled?: boolean }> {
     const zero = window.zero as any;
     if (!zero?.cloudAccountSignIn) return { ok: false, error: RESTART_NOTE };
     return zero.cloudAccountSignIn(p);
@@ -1446,11 +1490,17 @@ export const api = {
         const turnedDown = checkProjectFolder('~');
         return { path: null, refused: turnedDown.ok ? undefined : turnedDown.say };
       }
+      // A browser tab's answer, so the picker the app draws can be shot too.
+      if (params.has('drawnPicker')) return { path: null, browse: true };
       return { path: '/Users/you/Desktop/dev/house' };
     }
     const zero = window.zero as any;
     if (!zero?.chooseFolder) return { path: null };
-    const r = await zero.chooseFolder({ startIn });
+    // Nothing typed at the chooser is typed into the screen behind it. See
+    // renderer/src/system-window.ts: on Linux the keys came through.
+    const r = await whileSystemWindowIsOpen<{ path?: string | null; refused?: string; browse?: boolean }>(
+      () => zero.chooseFolder({ startIn }),
+    );
     // `browse` is a tab with no Mac dialog behind it. It is not a refusal and
     // it is not a cancel: the screen opens <FolderPicker> instead, which walks
     // this machine's disk through listFolders below and comes back with a real

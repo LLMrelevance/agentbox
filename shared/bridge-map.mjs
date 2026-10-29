@@ -15,6 +15,9 @@ export const REQUEST_CHANNELS = {
   terminal: 'zero:terminal',
   agentUpdate: 'zero:agent-update',
   snapshot: 'zero:snapshot',
+  // Which thread is on screen. The one thing that reads it is which approval
+  // card is in front (shared/which-card-is-in-front.mjs).
+  looking: 'zero:looking',
   refreshUsage: 'zero:refresh-usage',
   accountUsage: 'zero:account-usage',
   // Whether a screen reader is running, which is the terminal pane's question
@@ -31,6 +34,7 @@ export const REQUEST_CHANNELS = {
   answer: 'zero:answer',
   sendNow: 'zero:send-now',
   compose: 'zero:compose',
+  routeThread: 'zero:route-thread',
   schedule: 'zero:schedule',
   snooze: 'zero:snooze',
   // Feedback to the Agentbox team, from the sidebar's Feedback card.
@@ -165,6 +169,7 @@ export const REQUEST_CHANNELS = {
   setThreadPlaces: 'zero:set-thread-places',
   setThreadPins: 'zero:set-thread-pins',
   setThreadOnMac: 'zero:set-thread-on-mac',
+  moveToCloud: 'zero:move-to-cloud',
   setProductHidden: 'zero:set-product-hidden',
   approve: 'zero:approve',
   // The phone door's Settings page (main/phone-link.mjs): its state, on, off,

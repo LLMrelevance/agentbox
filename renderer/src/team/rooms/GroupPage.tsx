@@ -25,7 +25,7 @@ export function peopleShown(room: Pick<Room, 'members' | 'wall'>): { cards: Room
 // Where their thread is kept from you, the line they wrote about themselves.
 const onWords = (c: RoomCard) => c.away ? 'Not on Groups yet' : c.agents ? c.workingOn ?? c.bio ?? 'Private thread' : c.status ?? 'Not running';
 
-export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: string) => void }) {
+export function PeoplePanel({ room, onPerson }: { room: Pick<Room, 'members' | 'wall'>; onPerson: (id: string) => void }) {
   const { cards, working, more } = peopleShown(room);
   return <aside className="gr-side">
     <div className="gr-ph"><span className="gr-pt">People</span><span className="gr-pn">{working} of {room.members} working</span></div>
@@ -42,6 +42,6 @@ export function PeoplePanel({ room, onPerson }: { room: Room; onPerson: (id: str
 }
 
 /** Every group down the left, the open one's chat, and who is in it. */
-export function GroupPage({ notice = null, chat, people, list = null }: { notice?: ReactNode; chat: ReactNode; people: ReactNode; list?: ReactNode }) {
-  return <div className="gr-page"><div className="gr-body">{list}<div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
+export function GroupPage({ notice = null, chat, people, list = null, inline = false }: { notice?: ReactNode; chat: ReactNode; people: ReactNode; list?: ReactNode; inline?: boolean }) {
+  return <div className="gr-page"><div className="gr-body">{inline ? null : list}<div className="gr-chat">{notice}{chat}</div>{people}</div></div>;
 }

@@ -33,6 +33,7 @@ import { answerWhatOnlyTheWindowAnswered } from './serve.mjs';
 import { carryHerBriefsAcross, joinMessageRules, setAsideShippedMessageRules, unifyAgentInstructions } from './instruction-settings.mjs';
 import * as approvals from './approvals.mjs';
 import { recoveryToast } from '../shared/recovery.mjs';
+import { phoneWaitsOf } from '../shared/phone-snapshot.mjs';
 import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
 import { newUserWindow } from './new-user-window.mjs';
@@ -329,6 +330,12 @@ async function createWindow() {
   // What a reply may do is kept in her own folder, not that home, which every
   // worker is granted (main/answer-modes.mjs).
   keepAnswerModesIn({ userDir, storeRoot: config.storeRoot });
+  // THE CARDS THE LAST RUN LEFT ARE NOT CARDS. Quitting takes every worker with
+  // it, so an approval still in the spool at this moment has nothing waiting on
+  // it and no way to be answered: the key that makes an answer the user's is
+  // made fresh at every start. Before the supervisor, so nothing of this run's
+  // can be caught by it.
+  approvals.dropCardsFromTheLastRun(config.storeRoot);
 
   // Menu needs the config (approval hotkeys answer the oldest pending card),
   // so it installs here rather than at whenReady. The spool watcher in ipc
@@ -355,10 +362,15 @@ async function createWindow() {
     console.warn(`zero: an approval (${id}) was answered ${allow ? 'yes' : 'no'} before the app had finished starting; nothing was decided`);
     return false;
   };
+  // THE CARD IN FRONT, which is the open thread's own and not simply the oldest
+  // (shared/which-card-is-in-front.mjs). Late-bound beside the door above,
+  // because only the IPC surface knows which thread is on screen, and before it
+  // exists the spool's own order is the whole of what is known.
+  let cardInFront = () => approvals.listPending(config.storeRoot)[0] ?? null;
   installMenu({
     onApproval: (allow) => {
-      const oldest = approvals.listPending(config.storeRoot)[0];
-      if (oldest) answerApproval(oldest.id, allow);
+      const front = cardInFront();
+      if (front) answerApproval(front.id, allow);
     },
     onReload: reloadRenderer,
     // A click in the View menu names the window it was chosen from, so it zooms
@@ -410,6 +422,8 @@ async function createWindow() {
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   // THAT agents start and stop work (main/analytics.mjs checks the switch).
   supervisor.count = (name, props) => analytics.track(name, props);
+  // Whether anyone has touched the Mac since a wake (Supervisor#asleep).
+  supervisor.idleMs = () => powerMonitor.getSystemIdleTime() * 1000;
   const stalls = stallWatch();
   supervisor.stalls = stalls;
   // AND WHICH OF OUR FUNCTIONS HELD THE THREAD, each time it froze.
@@ -460,8 +474,12 @@ async function createWindow() {
       apply: (cmd) => phoneApply(cmd),
       // The Settings pages' model, read through the window's own handler.
       readSettings: () => phoneSettings?.() ?? null,
+      pins: () => supervisor.threadPins,
+      repeats: () => store.listRepeats(),
       version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
+      // Why each thread nothing runs on is waiting, so the phone does not read it as "Nothing running".
+      waits: () => phoneWaitsOf(supervisor.status()),
       // The cards waiting on her, each with the fingerprint her answer must carry back.
       approvals: () => approvals.listPending(config.storeRoot).map((r) => ({ ...r, card: approvals.cardShown(config.storeRoot, r.id) })),
       stateFile: path.join(config.storeRoot, '.phone-inbox.json'),
@@ -474,12 +492,18 @@ async function createWindow() {
       // A reply she sends with the lid shut carries on in the cloud (shared/cloud-kit.mjs).
       carrying: (c) => supervisor.phoneCarrying(c),
       kitsFor: (slug) => supervisor.leavesKitsFor(slug),
-      adopt: ({ project, item, runId, replies }) => supervisor.adoptCloudRun({ product: project, itemId: item, runId, replies }),
+      adopt: ({ project, item, ...rest }) => supervisor.adoptCloudRun({ product: project, itemId: item, ...rest }),
       cloudReplies: ({ project, item, replies }) => supervisor.cloudRunReplies({ product: project, itemId: item, replies }),
       runHome: ({ project, item, runId }) => supervisor.cloudRunHome({ product: project, itemId: item, runId }),
       // And a new thread she starts with the lid shut.
       newThreadKits: (c) => supervisor.leaveNewThreadKits(c),
       adoptNew: ({ project, item, ...rest }) => supervisor.adoptCloudNewThread({ product: project, itemId: item, ...rest }),
+      // And this Mac's own waiting rows, handed over in its dark wakes (shared/cloud-carry.mjs).
+      asleep: () => supervisor.asleep(),
+      toCarry: () => supervisor.carryWhileAsleep(),
+      handedOver: (c) => supervisor.handedOver(c),
+      takenBack: (c) => supervisor.takenBack(c),
+      carriedFinished: (commands) => supervisor.carriedFinished(commands),
     },
     // ROOMS, while switched on in Alpha features (docs/team/ROOMS-PLAN.md).
     rooms: roomsSetup({ config, store, supervisor, userDir }),
@@ -829,6 +853,7 @@ async function createWindow() {
   // See the `installMenu` call above for what writing the file instead did to a
   // Codex card.
   answerApproval = ipc.answerApproval;
+  cardInFront = () => ipc.pendingApprovals()[0] ?? null;
   // What the window answers itself (badge, boot info) gets the plain stand-ins
   // a browser tab gets.
   answerWhatOnlyTheWindowAnswered({ handle: (channel, fn) => { if (!phoneChannels.has(channel)) phoneChannels.set(channel, fn); } });
@@ -955,12 +980,12 @@ async function createWindow() {
       return;
     }
     if (key !== 'y' && key !== 'n') return;
-    const oldest = approvals.listPending(config.storeRoot)[0];
-    if (!oldest) return;
+    const front = cardInFront();
+    if (!front) return;
     // Through the ipc layer's own door, so the renderer is told what was
     // decided and can acknowledge it. Answering the file directly from here is
     // what made the chord feel like nothing had happened (2026-08-06).
-    ipc.answerApproval(oldest.id, key === 'y');
+    ipc.answerApproval(front.id, key === 'y');
     event.preventDefault(); // the page never sees the chord; no double-answer
   });
 
@@ -997,7 +1022,9 @@ async function createWindow() {
       }
     };
     supervisor.start();
+    powerMonitor.on('suspend', () => supervisor.noteSleep());
     powerMonitor.on('resume', () => {
+      supervisor.noteWake();
       setTimeout(() => {
         try { supervisor.recoverInterrupted('wake'); } catch (e) { console.warn('zero: wake recovery:', e.message); }
       }, WAKE_SETTLE_MS);

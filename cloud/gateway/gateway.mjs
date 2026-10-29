@@ -17,6 +17,7 @@ import { Name } from '../../shared/product-name.mjs';
 import { JOIN_SCHEME } from '../../shared/room-links.mjs';
 import { PAYING, planOfLookupKey } from './stripe.mjs';
 import { createPhoneCarry } from './phone.mjs';
+import { createPhoneRunStatus } from './phone-status.mjs';
 
 const PERSON = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SESSION = /^[A-Za-z0-9_-]{1,180}$/;
@@ -219,6 +220,8 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const plan = planOf(rec);
     return {
       plan: plans[rec.plan] ? rec.plan : 'none', unlimited: !!plan.unlimited, agents: plan.unlimited ? null : plan.agents, hoursPerMonth: plan.hoursPerMonth, running: live(rec, 'run').length, usedSeconds: rec.used[month(t)] || 0, month: month(t),
+      // A plan set by hand has no subscription behind it, so nothing to change or cancel on Stripe.
+      billing: PAYING.has(rec.stripe?.status) ? 'stripe' : plan.agents ? 'given' : null,
       terms: { accepted: rec.terms?.version ?? null, current: termsVersion },
     };
   }
@@ -322,6 +325,10 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     };
     let answer;
     try {
+      if (kind === 'run') {
+        const run = (await recOf(person)).live[sessionId];
+        if (run?.nonce === nonce) await phoneStatus?.watch(person, sessionId, sent.runId, sent.phone, run.at);
+      }
       answer = await agentcore.invoke(`u-${person}-${sessionId}`, sent);
     } catch (err) {
       if (freshPlace) await endIf('not-started');
@@ -443,8 +450,16 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     const base = hostOf(headers);
     const toBilling = async (customer) => ({ url: await stripe.billing({ customer, returnUrl: `${base}/v1/paid?billing=1` }), where: 'billing' });
     const rec = await recOf(person);
-    // A change of plan is made on the billing page.
-    if (PAYING.has(rec.stripe?.status)) return toBilling(rec.stripe.customer);
+    // A change of plan is confirmed on the billing page, opened at that change.
+    if (PAYING.has(rec.stripe?.status)) {
+      if (rec.plan === plan || !rec.stripe.subscription) return toBilling(rec.stripe.customer);
+      try {
+        return { url: await stripe.billing({ customer: rec.stripe.customer, returnUrl: `${base}/v1/paid?plan=${plan}`, switchTo: { subscription: rec.stripe.subscription, plan } }), where: 'billing' };
+      } catch (err) {
+        log(`switching ${person} to ${plan} on Stripe's page failed, so the billing page opens instead: ${err.message}`);
+        return toBilling(rec.stripe.customer);
+      }
+    }
     // Open, paid or gone: what a checkout this server opened is now.
     const settle = async (open, keep) => {
       if (!open?.id) return null;
@@ -581,7 +596,25 @@ export function createGateway({ agentcore, links, removeObject, objects, whoIs, 
     input: (person, sessionId, payload) => invoke(person, { sessionId, payload }),
     stop: (person, sessionId) => stop(person, { sessionId }),
   }) : null;
-  const phoneSweep = async () => (carry ? carry.sweep() : { ok: false, error: 'the phone is not set up on this server' });
+  const phoneStatus = phone ? createPhoneRunStatus({
+    db: phone.db, objects, now, log,
+    events: async (person, sessionId, runId, since) => {
+      const page = await invoke(person, { sessionId, payload: { action: 'events', runId, since, peek: true, maxBytes: 64 * 1024 } });
+      return page?.relayed ? readJson(scopedKey(person, page.relayed.key)) : page;
+    },
+    active: async (person, sessionId, runId) => {
+      const r = await recOf(person);
+      const s = r.live[sessionId];
+      return !r.disabled && s?.runId === runId && now() - s.at < ceilingOf(s) && !overHours(r, now());
+    },
+  }) : null;
+  const phoneSweep = async () => {
+    if (!carry) return { ok: false, error: 'the phone is not set up on this server' };
+    try { await phoneStatus.sweep(); } catch (err) {
+      log(`phone: could not refresh cloud running status: ${err?.message || err}`);
+    }
+    return carry.sweep();
+  };
 
   // On a clock, whoever is calling or not: ceilings, spent hours, a done.json
   // whose notice was missed, and stops AWS did not take.

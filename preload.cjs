@@ -40,6 +40,9 @@ contextBridge.exposeInMainWorld('zero', {
   terminal: (payload) => ipcRenderer.invoke('zero:terminal', payload),
   agentUpdate: (payload) => ipcRenderer.invoke('zero:agent-update', payload),
   snapshot: () => ipcRenderer.invoke('zero:snapshot'),
+  // Which thread is on screen, so the approval card in front is its own and
+  // ⌘Y answers the card being read (shared/which-card-is-in-front.mjs).
+  looking: (payload) => ipcRenderer.invoke('zero:looking', payload),
   refreshUsage: (p) => ipcRenderer.invoke('zero:refresh-usage', p),
   accountUsage: (payload) => ipcRenderer.invoke('zero:account-usage', payload),
   assistiveTech: () => ipcRenderer.invoke('zero:assistiveTech'),
@@ -53,6 +56,8 @@ contextBridge.exposeInMainWorld('zero', {
   answer: (payload) => ipcRenderer.invoke('zero:answer', payload),
   sendNow: (payload) => ipcRenderer.invoke('zero:send-now', payload),
   compose: (payload) => ipcRenderer.invoke('zero:compose', payload),
+  // Who takes a thread sent to Auto, when she picks.
+  routeThread: (payload) => ipcRenderer.invoke('zero:route-thread', payload),
   schedule: (payload) => ipcRenderer.invoke('zero:schedule', payload),
   snooze: (payload) => ipcRenderer.invoke('zero:snooze', payload),
   // Feedback to the Agentbox team, from the card the sidebar opens.
@@ -252,6 +257,7 @@ contextBridge.exposeInMainWorld('zero', {
   setThreadPlaces: (payload) => ipcRenderer.invoke('zero:set-thread-places', payload),
   setThreadPins: (payload) => ipcRenderer.invoke('zero:set-thread-pins', payload),
   setThreadOnMac: (payload) => ipcRenderer.invoke('zero:set-thread-on-mac', payload),
+  moveToCloud: (payload) => ipcRenderer.invoke('zero:move-to-cloud', payload),
   setProductHidden: (payload) => ipcRenderer.invoke('zero:set-product-hidden', payload),
   approve: (payload) => ipcRenderer.invoke('zero:approve', payload),
   // The phone door (main/phone-link.mjs): { action: 'status' | 'on' | 'off' | 'reset' | 'via', via }.

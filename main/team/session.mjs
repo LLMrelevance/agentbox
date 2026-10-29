@@ -10,9 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { nameSlug } from '../../shared/product-name.mjs';
+import { CLOUD_ADDRESS, PHONE_SITE } from '../../shared/cloud-address.mjs';
 import { runningAsAFreshUser } from '../../shared/fresh-user-home.mjs';
 import { supabaseBackend } from './supabase-backend.mjs';
 import { signInWithGoogle, cancelGoogleSignIn } from './sign-in.mjs';
+import { plainAuthError } from './auth-words.mjs';
+
+export { plainAuthError };
 
 // A BUILD SOMEONE INSTALLED IGNORES THE TWO TEST SWITCHES BELOW. Found by
 // review 2026-10-01: AGENTBOX_TEAM_CONFIG and AGENTBOX_TEAM_TEST_LOGIN were
@@ -66,7 +70,18 @@ export function teamConfigOnThisMac(home = os.homedir()) {
 // A FRESH COPY HANDED A TEAM FILE IS A SECOND PERSON ON THAT TEAM (2026-10-21):
 // a power tester in her room. It loads that file and no other, so the ⌘K
 // window, which is handed none, stays the single-person app.
-export function loadCloudConfig(appDir, { packaged = isPackagedElectron(), home = os.homedir(), env = process.env } = {}) {
+export function loadCloudConfig(appDir, options = {}) {
+  return withPhoneSite(cloudConfigFound(appDir, options));
+}
+
+// A config for our own database without a site address gets the one that ships.
+function withPhoneSite(c) {
+  if (!c || c.phoneSite) return c;
+  const ours = (u) => String(u).replace(/\/+$/, '') === CLOUD_ADDRESS.supabaseUrl;
+  return ours(c.url) ? { ...c, phoneSite: PHONE_SITE } : c;
+}
+
+function cloudConfigFound(appDir, { packaged = isPackagedElectron(), home = os.homedir(), env = process.env } = {}) {
   if (packaged) return bakedTeam(appDir);
   if (runningAsAFreshUser(env) && !env.AGENTBOX_TEAM_CONFIG) return null;
   const tries = runningAsAFreshUser(env) ? [env.AGENTBOX_TEAM_CONFIG] : [
@@ -223,17 +238,6 @@ export function supabaseSession({ cloudConfig, sessionFile, encrypt = null, decr
       if (client) await client.auth.signOut().catch(() => {});
     },
   };
-}
-
-// The cloud's words, said the way the page says everything else.
-export function plainAuthError(message) {
-  const m = String(message ?? '');
-  if (/invalid login credentials/i.test(m)) return 'That email and password do not match an account.';
-  if (/email not confirmed/i.test(m)) return 'Confirm your email first: follow the link we sent, then sign in.';
-  if (/already registered|already been registered/i.test(m)) return 'There is already an account with that email. Sign in instead.';
-  if (/password should be at least/i.test(m)) return 'Use a password of at least 6 characters.';
-  if (/rate limit/i.test(m)) return 'Too many tries just now. Wait a minute and try again.';
-  return m || 'That did not work. Try again.';
 }
 
 // THE SIGN-IN NEVER LANDS IN THE STORE ROOT. The store is in every worker's

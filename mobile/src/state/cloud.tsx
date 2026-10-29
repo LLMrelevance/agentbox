@@ -9,11 +9,14 @@ import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AppState, Platform } from 'react-native';
 import { cloudClient, type CloudClient } from '../../../renderer/src/cloud-rest';
-import { PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneSlug, phoneStatusLine, phoneView, readCommands, readThreads, splitSlug, type PhoneRows } from '../../../renderer/src/phone-rows';
+import { PROJECTS_SELECT, cloudCarriesOn, macSeenOf, phoneConnectState, phoneSlug, phoneStatusLine, phoneView, readCommands, readSettingsRows, readThreads, splitSlug, type PhoneRows } from '../../../renderer/src/phone-rows';
+import { phoneRepeats, type RepeatSettingsRow } from '../../../renderer/src/phone-repeats';
+import { sendPhoneFeedback, type FeedbackFiles } from '../../../renderer/src/phone-feedback';
 import { phoneSender } from '../../../renderer/src/phone-send';
 import { fileOnPhone, objectsToSign, renewLinks, type Links } from '../../../renderer/src/phone-links';
 import { BUCKET, cloudPlaces } from '../../../renderer/src/cloud-files';
 import { SEND_MAX_BYTES, sendFiles } from '../../../renderer/src/phone-sends-files';
+import { drawFromBytes } from '../lib/files';
 import { toastParts } from '../../../renderer/src/toast-parts';
 import type { Saved } from '../lib/attach';
 import type { Picked } from '../platform/pick';
@@ -24,15 +27,18 @@ import { keptStore } from '../lib/kept';
 import { previewCloud } from '../lib/preview';
 import { ALERTS_KEY, leaveAddress, readAlerts, takeAddressBack, type KeptAlerts } from '../lib/push-device';
 import { phoneTabs } from '../lib/tabs';
+import { isUnread, markSeen as markSeenIn, readSeen } from '../lib/unread';
 import { alertToken, alertTokenIfAllowed, setIconCount } from '../platform/alerts';
-import { persist } from '../platform/persist';
+import { appStore, persist } from '../platform/persist';
 
 export type Cloud = Pick<CloudClient, 'session' | 'signedIn' | 'generation' | 'select' | 'insertCommand' | 'update' | 'putFile' | 'signFiles' | 'signInWithPassword' | 'signInWithIdToken' | 'signUp' | 'googleUrl' | 'finishGoogle' | 'signOut' | 'insert' | 'remove' | 'rpc' | 'listFiles' | 'removeFiles' | 'upsert'>;
 
 const EMPTY: PhoneRows = { projects: [], threads: [], commands: [] };
 const EVERY_MS = 5000;
+const SETTINGS_EVERY_MS = 30_000;
 const PREVIEW = process.env.EXPO_PUBLIC_PREVIEW === '1';
 const APP_VERSION = Constants.expoConfig?.version ?? null;
+const BUILD = Constants.nativeBuildVersion ?? null;
 
 export interface Toast { key: number; line: string; undo: (() => Promise<void>) | null; goes?: { product: string; id: string } }
 
@@ -59,6 +65,8 @@ function useCloudState() {
   const rowsNow = useRef<PhoneRows>(EMPTY);
   const setRows = useCallback((next: PhoneRows) => { rowsNow.current = next; setRowsNow(next); }, []);
   const links = useRef<Links>(new Map());
+  const [settingsRows, setSettingsRows] = useState<RepeatSettingsRow[]>([]);
+  const settingsAt = useRef(-Infinity);
   const [signedAt, setSignedAt] = useState(0);
 
   useEffect(() => {
@@ -79,6 +87,11 @@ function useCloudState() {
         ]);
         if (cloud.generation() !== asked) { cache.current.clear(); return; }
         setRows({ projects, threads, commands });
+        // The computer's settings copy carries its repeating tasks (main/phone-inbox.mjs); it changes far less often.
+        if (Date.now() - settingsAt.current > SETTINGS_EVERY_MS) {
+          settingsAt.current = Date.now();
+          void readSettingsRows(select).then((got) => { if (cloud.generation() === asked) setSettingsRows(got); }, () => { settingsAt.current = -Infinity; });
+        }
         setRead({ error: null, fetchedAt: Date.now(), first: false });
         // Links before the screens draw, so a picture is pointed at its file the moment it is drawn.
         const owner = cloud.session()?.user.id;
@@ -109,7 +122,13 @@ function useCloudState() {
 
   const view = useMemo(() => phoneView(rows, now), [rows, now]);
   const tabs = useMemo(() => phoneTabs(view, now), [view, now]);
+  const repeats = useMemo(() => phoneRepeats(settingsRows, rows.commands, rows.projects, now), [settingsRows, rows.commands, rows.projects, now]);
   const status = signedIn ? phoneStatusLine({ error: read.error, fetchedAt: read.fetchedAt, macSeen: macSeenOf(rows.projects), cloud: cloudCarriesOn(rows.projects) }, now) : null;
+  // No computer has sent this account a project yet: the inbox says how to connect one.
+  const connect = phoneConnectState({ signedIn, started: !read.first, error: read.error, projects: rows.projects, email: cloud?.session()?.user.email });
+  const [seen, setSeen] = useState(() => readSeen(appStore));
+  const markSeen = useCallback((item: { product: string; id: string }) => setSeen((s) => markSeenIn(s, item, appStore)), []);
+  const unread = useCallback((item: { product: string; id: string }) => isUnread(item, seen), [seen]);
   const aliases = useRef(view.aliases);
   aliases.current = view.aliases;
 
@@ -221,13 +240,22 @@ function useCloudState() {
     const where = splitSlug(product);
     const owner = cloud?.session()?.user.id;
     if (!cloud || !where || !owner || !files.length) return [];
-    return sendFiles({ put: (object, bytes, type) => cloud.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
+    const sent = await sendFiles({ put: (object, bytes, type) => cloud.putFile(BUCKET, object, bytes, type), owner, device: where.device, files, maxBytes: SEND_MAX_BYTES });
+    if (drawFromBytes(links.current, sent, files)) setSignedAt(Date.now());
+    return sent;
   }, [cloud]);
 
   /** A file a thread names: its link, or why the phone cannot open it. */
   const fileOf = useCallback((product: string, src: string) => fileOnPhone(view.places, links.current, product, src),
     // `signedAt` is when new links came in, so a picture still arriving is looked up again.
     [view.places, signedAt]);
+
+  const sendFeedback = useCallback(async (text: string, files: FeedbackFiles) => {
+    const cfg = Constants.expoConfig?.extra?.cloud;
+    if (PREVIEW) return { ok: true };
+    if (!cfg?.url) return { ok: false, error: 'This build was made without the cloud’s address.' };
+    return sendPhoneFeedback(cfg, { text, files, os: `${Platform.OS} app`, version: [APP_VERSION, BUILD && `(${BUILD})`].filter(Boolean).join(' ') }, withDeadline(fetch));
+  }, []);
 
   const signedInWith = useCallback(async (how: () => Promise<unknown>) => {
     const out = await how();
@@ -247,15 +275,18 @@ function useCloudState() {
     cache.current.clear();
     links.current.clear();
     setRows(EMPTY);
+    setSettingsRows([]);
+    settingsAt.current = -Infinity;
     setToast(null);
     setSignedIn(false);
   }, [cloud, setRows, keepAlerts]);
 
   return {
-    cloud, opened, signedIn, rows, view, tabs, status, loading: read.first, now, refresh, send, attach, fileOf, toast, say,
+    cloud, opened, signedIn, rows, view, tabs, repeats, status, loading: read.first, now, refresh, send, attach, fileOf, toast, say,
     dismissToast: () => setToast(null), signedInWith, signOut, preview: PREVIEW,
     notice, noticeRead, agreed, answerNotice, withdrawNotice: () => answerNotice(false),
     alerts, turnOnAlerts, turnOffAlerts,
+    connect, markSeen, unread, sendFeedback, version: APP_VERSION, build: BUILD,
     // The one map of her files' links, filled in place; `signedAt` moves when it does.
     links: links.current, signedAt,
   };

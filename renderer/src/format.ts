@@ -221,6 +221,19 @@ const asksToShip = (option: string) => SHIPS.test(bareOption(option).replace(/^[
 // instead of sending is the wrong surprise on an option that said enough.
 const SAYS_NOTHING = /^(?:change|revise|edit|adjust|tweak|amend|rework|redo|fix)\s+(?:something|anything|it|this|that|some of it|a few things|this (?:part|bit)|parts?|bits?)(?:\s+first)?$/i;
 
+// THE OPTION THAT THROWS THE WORK AWAY, which asks first because nothing takes
+// it back (./discard-asks-first.ts says the rest).
+//
+// THE WHOLE OPTION, OR NONE OF IT. "Discard the first layout and ship the
+// second" is an instruction that happens to begin with the word, and a
+// question in front of it would be the app second-guessing a sentence it did
+// not write.
+const DISCARDS = /^(?:discard|bin|delete|drop|throw away|throw out)\s+(?:it|them|this|that|the (?:change|changes|work|edits|diff|lot))(?:\s+away)?$|^(?:discard|throw (?:it|them|the (?:change|changes|lot)) (?:all )?away)$/i;
+
+export function discardsTheChange(option: string): boolean {
+  return DISCARDS.test(bareOption(option));
+}
+
 export function needsYourWords(option: string): boolean {
   const words = bareOption(option);
   return SAYS_NOTHING.test(words) || /^(?:something|anything) else$/i.test(words);
@@ -311,6 +324,21 @@ export function parseRepeat(raw: string): RepeatParse {
     return shapeOf(buried[1], buried[2]);
   }
   return null;
+}
+
+// Repeat's presets, with "Once" first as the way back off rather than as a
+// thing to notice. The When picker, the New thread card's "Repeat it" and the
+// phone app all offer these, and two lists of them would drift the way the two
+// priority lists once did.
+export function repeatPresets(now = Date.now()): Array<{ label: string; rule: RepeatRuleValue | null }> {
+  const weekday = new Date(now).getDay();
+  const dayName = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][weekday];
+  return [
+    { label: 'Once', rule: null },
+    { label: 'Every morning at 8:00am', rule: { every: 'day', at: '08:00' } as RepeatRuleValue },
+    { label: 'Every weekday at 9:00am', rule: { every: 'weekday', at: '09:00' } as RepeatRuleValue },
+    { label: `Every ${dayName} at 9:00am`, rule: { every: 'week', on: weekday, at: '09:00' } as RepeatRuleValue },
+  ];
 }
 
 /**

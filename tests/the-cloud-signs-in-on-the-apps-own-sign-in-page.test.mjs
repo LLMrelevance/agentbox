@@ -77,10 +77,11 @@ describe('whether the cloud is offered on this Mac', () => {
     expect(supervisor(app).cloudStatus()).toMatchObject({ setUp: false, offered: true });
   });
 
-  it('a Mac without them is not, and nor is one already set up on its own AWS', () => {
+  // tests/every-copy-of-the-app-offers-agentbox-cloud
+  it('a Mac without them is offered the cloud every copy ships with, and one already set up on its own AWS is not', () => {
     const app = path.join(tmp, 'app');
     fs.mkdirSync(app, { recursive: true });
-    expect(supervisor(app).cloudStatus()).toMatchObject({ setUp: false, offered: false });
+    expect(supervisor(app).cloudStatus()).toMatchObject({ setUp: false, offered: true });
     offerIn(app);
     fs.mkdirSync(path.join(tmp, '.agentbox'), { recursive: true });
     fs.writeFileSync(cloudConfigPath({}, tmp), JSON.stringify({ region: 'us-east-1', bucket: 'b', runtimeArn: 'arn:x' }));
@@ -152,10 +153,12 @@ describe('the page and the wiring', () => {
 
   // The owner first said the cloud's sign-up needed no name (2026-10-20), then
   // that a third field is what tells sign-up from sign-in (2026-10-23).
+  // The rule moved out of the dimmed button and into what-is-missing.ts
+  // (w-aaedc8f711): an empty name is now said rather than drawn as a dead
+  // button (tests/the-cloud-sign-in-page-says-what-it-waits-on).
   it('creating an account asks a name, for the cloud as for the team', () => {
-    const page = read('renderer/src/team/SignInPage.tsx');
-    expect(page).toContain("{mode === 'sign-up' && (");
-    expect(page).toContain("(mode !== 'sign-up' || !!name.trim())");
+    expect(read('renderer/src/team/SignInPage.tsx')).toContain("{mode === 'sign-up' && (");
+    expect(read('renderer/src/team/what-is-missing.ts')).toContain("mode === 'sign-up' && !name.trim()");
   });
 
   it('the cloud button is drawn on any Mac the cloud is offered to', () => {

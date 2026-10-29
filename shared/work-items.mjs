@@ -161,12 +161,21 @@ export const WORK_ITEM_FIELDS = [
   // where `on` is the message's line uid. A delta like `react`, read back as
   // `edits` and only from the message's own author (shared/message-edits.mjs).
   'edit',
+  // A TEAMMATE'S WORDS ON A THREAD: `{ teammate, name }`, on the line of the
+  // `answer` the app wrote for it. A mark on one line like `inReplyTo`. The
+  // reply is the teammate's, so it starts a turn as yours does, but it is not
+  // yours: the line is the app's, and it carries none of your authority.
+  'from',
   // WHICH COMMAND FROM HER PHONE WROTE THIS LINE (docs/cloud/PHONE-PLAN.md):
   // the command's id, on the line of the reply or the new thread it made. It
   // is how the computer, starting again after stopping half way through a
   // command, knows for certain whether that command already landed, rather
   // than guessing from the words (Codex's third review of step 1, finding 5).
   'fromPhone',
+  // WHO A THREAD SENT TO AUTO WENT TO, AND WHY, as one line on the thread:
+  // `{ to: 'mate:<id>' | 'agent', why, at, by }`, or `{ ask: [two of those], ... }`
+  // while it waits for the person to pick (shared/auto-route.mjs).
+  'routed',
 ];
 
 // THE SUMMARY IS SHARED BETWEEN THE PERSON AND THE AGENT. Everywhere else the
@@ -176,6 +185,20 @@ export const WORK_ITEM_FIELDS = [
 // recorded so the panel can say who touched it last.
 const SHARED_FIELDS = new Set(['problem', 'progress', 'solution', 'blockedBy', 'blocks']);
 const MAX_SUMMARY = 1200;
+
+const ROUTE_TO = /^(agent|mate:[A-Za-z0-9_-]{1,64})$/;
+/** The `routed` field as it is kept, or undefined for anything else. */
+export function cleanRouted(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const why = typeof value.why === 'string' ? value.why.slice(0, 200) : '';
+  const at = Number.isFinite(value.at) ? Math.trunc(value.at) : 0;
+  const by = value.by === 'you' ? 'you' : 'auto';
+  if (Array.isArray(value.ask)) {
+    const ask = [...new Set(value.ask.filter((x) => typeof x === 'string' && ROUTE_TO.test(x)))].slice(0, 3);
+    return ask.length ? { ask, why, at, by } : undefined;
+  }
+  return typeof value.to === 'string' && ROUTE_TO.test(value.to) ? { to: value.to, why, at, by } : undefined;
+}
 
 // A person id or a line id: short, plain, never an object a writer slipped in.
 const MAX_PERSON_CHARS = 64;
@@ -482,6 +505,12 @@ function coerceField(field, value) {
       return value.off === true ? { on, emoji, off: true } : { on, emoji };
     }
     case 'inReplyTo': return shortId(value) ?? undefined;
+    case 'from': {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+      const teammate = shortId(value.teammate);
+      const name = str(value.name, MAX_SHORT);
+      return teammate && name ? { teammate, name } : undefined;
+    }
     case 'edit': {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
       const on = shortId(value.on);
@@ -506,6 +535,7 @@ function coerceField(field, value) {
       if (!Array.isArray(value)) return undefined;
       return [...new Set(value.map(shortId).filter(Boolean))].slice(0, MAX_LABELS);
     }
+    case 'routed': return cleanRouted(value);
     default: return undefined;
   }
 }
@@ -663,7 +693,10 @@ export function foldRawInto(items, lines, touched = null) {
     // the result (see the end of the fold).
     const words = typeof patch.answer === 'string' && patch.answer !== WITHDRAWN ? patch.answer
       : typeof patch.body === 'string' ? patch.body : null;
-    if (line.by && words && words.trim()) {
+    // A teammate's reply, written by the app on this Mac and so stamped with
+    // this person's `by`, is not something this person said.
+    const told = line.source === 'system' && patch.from && typeof patch.answer === 'string' ? patch.from : null;
+    if (line.by && words && words.trim() && !told) {
       (item.said ??= []).push({ uid: line.uid ?? null, by: line.by, ts: line.ts, text: words.trim().slice(0, TALK_TEXT), inReplyTo: patch.inReplyTo ?? null, body: typeof patch.answer !== 'string' });
     }
     // Who closed the chat and when, so `whatWaits` can tell a reopen by your own
@@ -691,7 +724,7 @@ export function foldRawInto(items, lines, touched = null) {
       }
       // WHICH MESSAGE A REPLY ANSWERS belongs to that reply's line alone. Held
       // as a value, the row would carry the newest reply's parent forever.
-      if (field === 'inReplyTo') continue;
+      if (field === 'inReplyTo' || field === 'from') continue;
       if (field === 'edit') {
         (item.editLines ??= []).push({ on: value.on, by: line.by ?? null, ts: line.ts, ...(value.gone ? { gone: true } : { text: value.text }) });
         continue;
@@ -702,10 +735,15 @@ export function foldRawInto(items, lines, touched = null) {
       // ledger any more (see the note beside WORK_ITEM_FIELDS), so
       // the plain rule is the only rule: a weaker writer never overwrites a
       // stronger one's value.
-      if (held && !beats(line, held, field)) continue;
+      // The newest reply is the one a turn answers, whoever wrote it, so a
+      // teammate's later reply moves past one of yours. Yours still always
+      // moves past a teammate's.
+      const toldNow = told && field === 'answer';
+      if (held && !(toldNow && line.ts >= held.ts) && !beats(line, held, field)) continue;
       item[field] = value;
       item.wrote[field] = { ts: line.ts, source: authorityOf(line, field, value) };
       if (line.by) item.wrote[field].by = line.by;
+      if (toldNow) Object.assign(item.wrote[field], { from: told.name, teammate: told.teammate });
     }
 
     // THE APP WRITING A ROW'S NAME IS NOT NEWS ABOUT THE ROW. Lists break ties
@@ -815,7 +853,8 @@ export function threadOf(lines, id) {
     for (const field of THREAD_FIELDS) {
       const text = line.patch?.[field];
       if (typeof text !== 'string' || !text.trim()) continue;
-      turns.push({ ts: line.ts, source: authorityOf(line, field, text), field, text });
+      const from = field === 'answer' && line.source === 'system' ? line.patch.from?.name : null;
+      turns.push({ ts: line.ts, source: authorityOf(line, field, text), field, text, ...(from ? { from } : {}) });
     }
   }
   // Stable by time. Within one millisecond THREAD_FIELDS order decides, so an

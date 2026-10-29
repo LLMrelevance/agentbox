@@ -34,6 +34,7 @@ import { isEffortWord } from '../shared/effort-levels.mjs';
 import { shippedNote } from '../shared/shipped-note.mjs';
 import { machineryPath, removeMachinery } from './store/home.mjs';
 import { Teammates } from './teammates.mjs';
+import { hopOf, HOP_LABEL_PREFIX } from '../shared/teammates.mjs';
 import {
   answerMode as readAnswerMode, answerModes, clearAnswerMode as clearAnswerModeFile, setAnswerMode,
   touchAnswerMode as touchAnswerModeFile,
@@ -388,6 +389,28 @@ export class Store {
     return item;
   }
 
+  // A TEAMMATE'S WORDS ON A THREAD (shared/teammates.mjs, `planWakes`). A reply
+  // like yours, so the next turn carries it and a finished thread opens again,
+  // but written as the app with the teammate named on the line, so it is never
+  // read as yours. `hold` blocks the thread after it until you reply
+  // (`heldForHer`).
+  tellItem(slug, id, { text, from, hold = false, hop = null }) {
+    const { workItemsDisk } = this.modules;
+    const dir = this.productDir(slug);
+    let item = workItemsDisk.updateWorkItem(dir, id, { answer: text, from }, { source: 'system' });
+    // The hop count travels on the thread, so its own hand-offs carry it on.
+    const raise = Number.isInteger(hop) && hop > hopOf(item);
+    const had = item.labels ?? [];
+    const kept = had.filter((l) => l !== CLEAN_LABEL && !(raise && l.startsWith(HOP_LABEL_PREFIX)));
+    const labels = raise ? [...kept, `${HOP_LABEL_PREFIX}${hop}`] : kept;
+    if (labels.join('\n') !== had.join('\n')) item = workItemsDisk.updateWorkItem(dir, id, { labels }, { source: 'system' });
+    // Your own stop or close is yours and outranks this; `stoppedByHer` keeps a
+    // stopped thread stopped.
+    if (hold) item = workItemsDisk.updateWorkItem(dir, id, { status: 'blocked' }, { source: 'system' });
+    else if (item.status === 'done' || item.status === 'blocked') item = workItemsDisk.updateWorkItem(dir, id, { status: 'open' }, { source: 'system' });
+    return item;
+  }
+
   // A personal session's final message, written by the supervisor because
   // personal sessions never learn the store exists. The result is the agent's
   // words (source 'agent'); the status is machinery (source 'system', the
@@ -441,6 +464,14 @@ export class Store {
     const clean = String(label ?? '').trim();
     if (!clean) return null;
     return workItemsDisk.updateWorkItem(this.productDir(slug), id, { label: clean }, { source: 'agent' });
+  }
+
+  // Who a thread sent to Auto went to (shared/auto-route.mjs). On system
+  // authority, so it never locks her labels against a later write, the `ship`
+  // an agent adds among them.
+  routeItem(slug, id, patch) {
+    const { workItemsDisk } = this.modules;
+    return workItemsDisk.updateWorkItem(this.productDir(slug), id, patch, { source: 'system' });
   }
 
   // How urgent a teammate's message is, as the sorter judged it

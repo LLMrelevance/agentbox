@@ -16,6 +16,8 @@ export interface WorkItem {
   pinned?: boolean;
   /** Kept on this Mac whatever the cloud is set to (Supervisor#setThreadOnMac). */
   onMac?: boolean;
+  /** What the cloud handed this thread back for, in the run's own words ("your Stripe key"). */
+  needsMac?: string;
   // WHAT PEOPLE PUT ON EACH MESSAGE IN A CONVERSATION (w-560647d4db): by the
   // message's line uid, then by emoji, then the people on it. Folded out of the
   // presses the ledger holds (shared/work-items.mjs); absent on every row
@@ -92,6 +94,8 @@ export interface WorkItem {
   runner?: string;
   due?: string;
   people?: string[];
+  /** Sent to Auto: who it went to and why, or the two it asks her to pick from (shared/auto-route.mjs). */
+  routed?: { to?: string; ask?: string[]; why: string; at: number; by: 'auto' | 'you' };
   // THE THREAD'S OWN FIELDS (approved 2026-10-01, shared/work-items.mjs).
   // `visibility` absent reads as 'team'. The summary is shared: the agent keeps
   // it current and the person can edit it, and the later write wins.
@@ -218,6 +222,9 @@ export interface TeamState {
   phoneSite?: string | null;
   /** That address as a QR code (svg), drawn on Settings › Phone. It carries no key. */
   phoneSiteQr?: string | null;
+  /** When this computer's threads last reached the web app, and why the last try did not. */
+  phoneSentAt?: number | null;
+  phoneError?: string | null;
   /** The first look for a saved sign-in is over (false while it is still being found). */
   started?: boolean;
   /** This build has an account to sign in to, whether or not Multiplayer is on. */
@@ -403,7 +410,7 @@ export interface TeamChatLine {
 }
 export interface TeamRunLine {
   id: string; kind: 'run'; teammate: string; item: string; product: string; title: string;
-  verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
+  verb: 'picked' | 'passed' | 'queued' | 'sent' | 'answered' | 'finished' | 'stopped'; by?: string; byName?: string; waiting?: boolean; answered?: boolean;
   /** Your words, on an `answered` line. */
   text?: string; ts: number;
   /** The first thing it said, on a `sent` line. */
@@ -435,6 +442,8 @@ export interface RunningSession {
    *  that started before a second engine existed, and every one of those was
    *  Claude Code, which is the reading `engineOf` makes in main/supervisor.mjs. */
   engine?: string;
+  /** On the phone: a run on the computer the cloud could take now (Supervisor#liveFor). */
+  movable?: boolean;
   tail: string[];
   /** Matched, still-running tool calls; absent on an older main process. */
   activity?: { id: string; label: string; detail: string; startedAt: number }[];
@@ -533,6 +542,8 @@ export interface CloudPlan {
   hoursPerMonth?: number;
   running?: number;
   usedSeconds?: number;
+  /** Who bills the plan: Stripe, or nobody because it was set by hand. Absent from older servers. */
+  billing?: 'stripe' | 'given' | null;
   error?: string;
   message?: string;
 }
@@ -733,6 +744,9 @@ export interface AgentTurn {
   // Which person wrote it, on a shared project (the team version). A message
   // from a teammate is drawn with their face and name instead of "You".
   by?: string;
+  /** An agent teammate that handed this thread work: drawn as an agent's
+   *  message under that teammate's name, never as yours. */
+  from?: string;
   // THE MESSAGE'S OWN NAME, the uid of the ledger line it was written as. A
   // reaction is stored against it (w-560647d4db), so only a message that has
   // one can wear chips: a message still on its way has not been written down
@@ -896,6 +910,10 @@ export interface Snapshot {
   phoneWaiting?: { product: string; id: string; at: number; text: string; refused?: string; cloud?: true }[];
   // On the hosted phone: a line saying what it shows may be out of date (cloud-bridge.ts phoneStatusLine).
   phoneStatus?: string | null;
+  // On the hosted phone, signed in to an account no computer has connected to yet (phone-rows.ts phoneConnectState).
+  phoneConnect?: { email: string | null } | null;
+  // On the hosted phone: who it is signed in as, and when a computer of theirs last wrote (0 for never).
+  phoneAccount?: { email: string | null; seenAt: number; cloud: boolean; build?: { sha: string; at: number } | null } | null;
   // The team (main/team/index.mjs). Null or absent on a build with no team
   // cloud, which is the single-person app.
   team?: TeamState | null;
@@ -1335,6 +1353,9 @@ declare global {
   interface Window {
     zero?: {
       snapshot(): Promise<Snapshot>;
+      // The thread on screen, or null anywhere that is not one thread. Optional:
+      // a preload from before this channel existed simply never says.
+      looking?(p: { product: string | null; id: string | null }): Promise<boolean>;
       refreshUsage?(p?: { engine?: 'claude' | 'codex' }): Promise<{ ok: boolean; reading?: Usage; error?: string }>;
       accountUsage?(p: { refresh?: boolean; engine?: 'claude' | 'codex' }): Promise<{ readings: AccountUsageReading[] }>;
       // Whether a screen reader is running, which is what decides xterm's
@@ -1363,8 +1384,10 @@ declare global {
       setThreadPlaces(p: { places: Record<string, number | null> }): Promise<unknown>;
       setThreadPins?(p: { pins: Record<string, true | null> }): Promise<unknown>;
       setThreadOnMac?(p: { onMac: Record<string, true | null> }): Promise<unknown>;
+      moveToCloud?(p: { ids: string[]; product?: string; id?: string }): Promise<{ moving?: number; ok?: boolean }>;
       setProductHidden(p: { product: string; hidden: boolean }): Promise<unknown>;
       compose(p: { product: string; title: string; body?: string; kind?: string; priority?: number; runAt?: number; start?: 'later' | 'now'; labels?: string[]; model?: string; engine?: string; effort?: string; assignee?: string; due?: string; visibility?: 'team' | 'people' | 'private'; visibleTo?: string[] }): Promise<WorkItem>;
+      routeThread?(p: { product: string; id: string; to: string }): Promise<{ ok: true }>;
       // Feedback to the Agentbox team (main/feedback.mjs). Optional: an older
       // main process under a newer window has no such door.
       sendFeedback?(p: { text: string; files: { name: string; type: string; size: number; data: string }[] }): Promise<{ ok: boolean; error?: string }>;
