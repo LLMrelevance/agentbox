@@ -6,10 +6,11 @@
 // `certain` says we may tell them it is missing, and is meant to be hard to earn.
 //
 // The user's login shell is asked first, because it has their real PATH and
-// profile. Then the PATH this app was started with, which a login shell on
-// Debian throws away (/etc/profile sets PATH outright). The fixed list is last,
-// for when neither can answer: a double-clicked Electron app inherits launchd's
-// PATH (/usr/bin:/bin:/usr/sbin:/sbin), which has no nvm, volta or Homebrew. A
+// profile. Our own PATH is read second: a login shell does not always carry
+// the PATH the app was started with, and on Debian /etc/profile replaces it
+// outright. The fixed list is third, for when neither can answer: a
+// double-clicked Electron app inherits launchd's PATH
+// (/usr/bin:/bin:/usr/sbin:/sbin), which has no nvm, volta or Homebrew. A
 // shell probe that throws falls through and does not count as an answer.
 //
 // A path somebody set (`claudeBin`, `codexBin`) wins and is never searched
@@ -39,6 +40,23 @@ export function sharedBinDirs(home = os.homedir()) {
     '/opt/local/bin',                              // MacPorts
     '/usr/bin',                                    // packaged by something system-wide
   ];
+}
+
+/**
+ * The PATH this app was handed, which a terminal launch carries and a login
+ * shell does not always: Debian's /etc/profile overwrites PATH outright, so
+ * `command -v` there answers a confident "not installed" about a program the
+ * app could spawn this second.
+ *
+ * Relative entries are dropped. A "." or a "node_modules/.bin" on PATH would
+ * let whatever folder the app sits in decide what gets spawned.
+ */
+export function pathDirs(env = process.env) {
+  const dirs = new Set();
+  for (const dir of String(env?.PATH ?? '').split(path.delimiter)) {
+    if (dir && path.isAbsolute(dir)) dirs.add(dir);
+  }
+  return [...dirs];
 }
 
 /**
@@ -412,15 +430,6 @@ function askedShell(lookup) {
 }
 
 /**
- * The directories on the PATH the app was started with. Absolute ones only:
- * `.` and the empty entry both mean whatever folder the app sits in, which is
- * nobody's install.
- */
-export function pathDirs(env = process.env) {
-  return String(env?.PATH ?? '').split(path.delimiter).filter((dir) => dir.startsWith('/'));
-}
-
-/**
  * The first trace the tool left behind, or null. Never spawned; it only stops
  * the app saying the tool is missing. A dangling candidate counts too.
  */
@@ -465,13 +474,12 @@ export function findEngine(key, {
     return { path: fromShell.path, found: true, certain: true, from: 'shell', searched, evidence: null };
   }
 
-  // Above the list because it is a fact about this machine and the list is a
-  // guess about it. Only the directories the list does not already hold, so a
-  // hit anywhere the list covers is still the list's, in the list's own order.
-  const onList = new Set(searched);
-  for (const candidate of pathDirs(env).map((dir) => path.join(dir, spec.bin))) {
-    if (onList.has(candidate)) continue;
-    if (exists(candidate)) return { path: candidate, found: true, certain: true, from: 'path', searched, evidence: null };
+  // Our own PATH before the hand-written list, for the reason the shell comes
+  // before both: it is where their terminal really resolves the tool, while
+  // the list is a guess that can still hold a copy they stopped using.
+  for (const dir of pathDirs(env)) {
+    const onPath = path.join(dir, spec.bin);
+    if (exists(onPath)) return { path: onPath, found: true, certain: true, from: 'path', searched, evidence: null };
   }
 
   for (const candidate of searched) {
