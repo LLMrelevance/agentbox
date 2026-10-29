@@ -119,8 +119,10 @@ describe('what a reading of this computer is sure of', () => {
 describe('what the inbox does with it', () => {
   const app = read('renderer/src/App.tsx');
 
+  // `planBar` asks `sureNoPlan` and answers null when it cannot be sure, so
+  // the certainty rule still decides whether there is a bar at all.
   it('raises the bar off the certain answer, not off the bare reading', () => {
-    expect(app).toMatch(/setNoPlan\(sureNoPlan\(/);
+    expect(app).toMatch(/setPlanWords\(planBar\(/);
     expect(app).toMatch(/certain: x\.certain/);
   });
 
