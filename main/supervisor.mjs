@@ -3384,6 +3384,20 @@ export class Supervisor {
     this.wake();
   }
 
+  /** The phone pass has finished joining the cloud's runs of these commands:
+   *  a hand-over still held for one of them is over, as `adoptCloudRun` or
+   *  `takenBack` would have said had the word reached them. */
+  carriedFinished(commands) {
+    const done = new Set(commands ?? []);
+    let changed = false;
+    for (const [item, mark] of Object.entries(this._carried ?? {})) {
+      if (mark?.command && done.has(mark.command)) { delete this._carried[item]; changed = true; }
+    }
+    if (!changed) return;
+    this._saveState();
+    this.wake();
+  }
+
   reapHungSessions(items, now = Date.now()) {
     if (!this.sessions.size) return [];
     const byId = new Map((items ?? []).map((i) => [i.id, i]));
@@ -6135,6 +6149,7 @@ export class Supervisor {
       swap,
       lastStartAt: this._lastStartAt ?? 0,
       heldSince: this._memHeldSince ?? null,
+      roomy: autoAgents({ ...this._machine(), gated: false, nudge: this.config.agentsNudge }),
     });
     if (d.start) {
       if (d.why === 'off' || d.why === 'normal' || d.why === 'no-reading') this._memHeldSince = null;
