@@ -243,7 +243,17 @@ console.log('');
 for (const l of lines) console.log(`  ${l.ok ? '✓' : '✗'} ${l.part.padEnd(17)} ${l.ok ? version : `still ${l.saw}`}`);
 console.log(`  ${imageOk ? '✓' : '✗'} ${'cloud machine'.padEnd(17)} ${imageOk ? 'up to date' : 'not rebuilt'}`);
 if (lines.every((l) => l.ok) && imageOk) {
-  console.log(`\nAgentbox ${version} is out everywhere. Restart Agentbox to run it yourself.\n`);
+  console.log(`\nAgentbox ${version} is out everywhere. Restart Agentbox to run it yourself.`);
+  // MAIN'S OWN NUMBER DOES NOT FOLLOW A RELEASE, and nothing said so (F-147).
+  // The version is written into package.json for this run and taken back out
+  // at step 6, because this folder may not commit (scripts/hooks/pre-commit).
+  // Main went two releases behind in silence, so a clone built from the README
+  // called itself a version that was out before it.
+  if (version !== mainVersion) {
+    console.log(`\nmain still says ${mainVersion}, so anyone who clones it builds a copy calling itself that.`);
+    console.log(`Ship a branch setting "version": "${version}" in package.json and package-lock.json to catch it up.`);
+  }
+  console.log('');
 } else {
   stop('Not every place has the new version yet; the ✗ lines above say which.',
     imageOk ? '' : `For the cloud machine, run: AGENTBOX_CLOUD_CONFIG=${serverFile} node scripts/cloud-setup.mjs`,

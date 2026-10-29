@@ -351,6 +351,10 @@ export const api = {
   async snapshot(): Promise<Snapshot> {
     if (emptyFixtures) {
       const empty = { ...structuredClone(fixtureSnapshot), items: [], approvals: [], supervisor: { paused: false, running: [], capacity: 3 } };
+      // ?noProjects IS A STORE NOBODY HAS USED, which is the only world the
+      // first run draws in: it opens on a count of projects, and the empty
+      // fixture still carries Kestrel and the rest.
+      if (params.has('noProjects')) empty.products = [];
       // AND THE AGENTS THE BAR COUNTS. Real running entries rather than a number
       // poked in, so the bar counts the same array the app counts everywhere
       // else. The inbox stays empty, which is what keeps the idle page up.
@@ -1258,6 +1262,13 @@ export const api = {
     if (useFixtures && engineFixtures === 'nowhere') {
       return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
     }
+    // AND THE SAME MACHINE WITH AN INSTALL RUNNING ON IT. The first probe is
+    // `ready`, which has to answer empty or the gate never opens; every action
+    // after it is the press, and it stays where it is so the screen can be
+    // photographed waiting.
+    if (useFixtures && engineFixtures === 'installing') {
+      return { engine, phase: action === 'ready' ? 'idle' : 'installing', error: null, log: '', found: false, signedIn: false };
+    }
     /*
      * AND THE MACHINE MOST PEOPLE ARRIVE ON (w-e217e577e5): Claude signed in
      * already, nothing else here. Every fixture copy answers `assumeReady` for
@@ -1277,14 +1288,17 @@ export const api = {
     if (!zero?.engineSetup) return assumeReady;
     try {
       const r = await zero.engineSetup({ action, engine });
-      if (!r?.ok) return { ...assumeReady, phase: 'failed', found: false, signedIn: false, error: r?.error ?? 'Setup could not start.' };
+      // A PROBE THAT DID NOT RUN IS NOT A COMPUTER WITH NOTHING ON IT. The
+      // setup card reads this as failed and says so; the inbox bar reads
+      // `certain` and stays down.
+      if (!r?.ok) return { ...assumeReady, phase: 'failed', found: false, signedIn: false, certain: false, error: r?.error ?? 'Setup could not start.' };
       return {
         engine, phase: r.phase ?? 'idle', error: r.error ?? null, log: r.log ?? '',
-        found: !!r.found, signedIn: !!r.signedIn,
+        found: !!r.found, signedIn: !!r.signedIn, certain: r.certain !== false,
         bin: r.bin ?? null, already: !!r.already,
       };
     } catch (e) {
-      return { ...assumeReady, phase: 'failed', found: false, signedIn: false, error: String((e as Error)?.message ?? e) };
+      return { ...assumeReady, phase: 'failed', found: false, signedIn: false, certain: false, error: String((e as Error)?.message ?? e) };
     }
   },
 

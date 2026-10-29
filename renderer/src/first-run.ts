@@ -21,6 +21,29 @@ export function readyEngines(readings: Array<{ engine: Engine; found?: boolean; 
   return (['claude', 'codex'] as const).filter((engine) => readings.some((r) => r?.engine === engine && r.found && r.signedIn));
 }
 
+export const ENGINE_NAME: Record<Engine, string> = { claude: 'Claude Code', codex: 'Codex' };
+
+export type EngineSetup = { engine: Engine; phase: string; error?: string | null } | null;
+
+/**
+ * THE FIRST SCREEN WHILE AN AGENT IS BEING INSTALLED (F-145).
+ *
+ *  The heading is the only line on that screen anybody reads, so it is the one
+ *  that has to change: leaving it on "Install Claude Code or Codex to start"
+ *  for the length of an install told a tester to press again. `running` holds
+ *  both buttons, including the other agent's, because installing two at once
+ *  is not something anybody asked for and the footer can only report one.
+ */
+export function installGate(setup: EngineSetup): { heading: string; running: boolean } {
+  const running = !!setup && ['installing', 'checking', 'signing-in'].includes(setup.phase);
+  if (!running) return { heading: 'Install Claude Code or Codex to start', running: false };
+  const named = ENGINE_NAME[setup!.engine];
+  return {
+    heading: setup!.phase === 'signing-in' ? `Finish signing in to ${named} in your browser` : `Installing ${named}`,
+    running: true,
+  };
+}
+
 export type ListKey = 'up' | 'down' | 'toggle' | 'next' | 'skip' | null;
 
 type KeyLike = { key: string; metaKey?: boolean; ctrlKey?: boolean; shiftKey?: boolean; altKey?: boolean };
