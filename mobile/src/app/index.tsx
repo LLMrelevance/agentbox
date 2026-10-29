@@ -57,22 +57,23 @@ function ThreadRow({ row, first, unread }: { row: Row; first: boolean; unread: b
 }
 
 /** The four tabs under the title, inside the top bar so one line runs under
- * both. The orange mark sits on that line rather than over it. 15pt, which an
- * iPhone set a step up draws at 16.8: the four with two-figure counts run 383pt
- * there, and they scroll sideways on a phone set larger still. */
+ * both. They are the bottom bar as it was, moved up: "the nav at the bottom is
+ * very good so just shift that ui upward, without messing much with spacing".
+ * The bar's line along their top is gone, since the title bar's is under them;
+ * they scroll sideways when they do not fit. */
 function Tabs({ on, counts, pick }: { on: TabId; counts: Record<TabId, number>; pick: (t: TabId) => void }) {
   return (
-    // A scroll view clips what hangs out of it, so it reaches down over the bar's line itself.
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: -1 }} contentContainerStyle={{ paddingLeft: size.inset, paddingRight: size.inset, gap: 18 }}>
-      {TABS.map((t) => (
-        <Pressable key={t.id} onPress={() => pick(t.id)} accessibilityRole="tab" accessibilityState={{ selected: on === t.id }}
-          style={{ height: 45, paddingBottom: 1, flexDirection: 'row', alignItems: 'center' }}>
-          <T style={{ fontSize: 15, fontFamily: on === t.id ? font.medium : font.regular, color: on === t.id ? color.text : color.dim }}>{t.label}</T>
-          {t.id !== 'done' && counts[t.id] > 0 && <T style={{ fontSize: 11.5, fontFamily: font.medium, marginLeft: 6, color: color.faint }}>{counts[t.id]}</T>}
-          {on === t.id && <View style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, backgroundColor: color.accent }} />}
-        </Pressable>
-      ))}
-    </ScrollView>
+    <View style={{ height: size.tabs, flexDirection: 'row', alignItems: 'center' }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', paddingLeft: size.inset, paddingRight: 8, gap: 22 }}>
+        {TABS.map((t) => (
+          <Pressable key={t.id} onPress={() => pick(t.id)} accessibilityRole="tab" accessibilityState={{ selected: on === t.id }}
+            style={{ height: 32, flexDirection: 'row', alignItems: 'center', borderBottomWidth: 2, borderBottomColor: on === t.id ? color.accent : 'transparent' }}>
+            <T style={{ fontSize: 15, lineHeight: 30, color: on === t.id ? color.text : color.dim }}>{t.label}</T>
+            {t.id !== 'done' && counts[t.id] > 0 && <T style={{ fontSize: 11, lineHeight: 30, fontFamily: font.medium, marginLeft: 13, color: color.faint }}>{counts[t.id]}</T>}
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 

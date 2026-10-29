@@ -121,10 +121,10 @@ describe('the tabs on the phone app', () => {
     expect(inbox).toMatch(/below=\{board \? undefined : <Tabs on=\{tab\} counts=\{counts\} pick=\{setTab\} \/>\}/);
     expect(inbox.match(/<Tabs /g)).toHaveLength(1);
   });
-  it('draw no line of their own; the mark lies on the bar\'s', () => {
-    expect(tabs).not.toMatch(/border(Top|Bottom)Width/);
-    expect(tabs).toMatch(/marginBottom: -1/);
-    expect(tabs).toMatch(/bottom: 0, height: 2, backgroundColor: color\.accent/);
+  it('draw no line of their own; the picked word is underlined, as at the bottom', () => {
+    // The look itself is in the-phone-apps-tabs-at-the-top-keep-the-bottom-bars-look.
+    expect(tabs).not.toMatch(/border(Top|Bottom)Width: 1/);
+    expect(tabs).toMatch(/borderBottomWidth: 2, borderBottomColor: on === t\.id \? color\.accent/);
   });
   it('are 15pt, start where the title does, and scroll on a phone set larger still', () => {
     expect(tabs).toMatch(/fontSize: 15,/);
