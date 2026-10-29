@@ -162,6 +162,23 @@ export function lessonsLeft(store: Store): Lesson[] {
   } catch { return []; }
 }
 
+/**
+ * Whether the "↵ Open task" plate may be drawn. A plate promises a key, so it
+ * goes while any card holds the keyboard: with the compose card open, ↵ puts a
+ * newline in the box. App.tsx has held that rule for the hover plates since
+ * they were built, and this is the same rule for the lesson.
+ */
+export function showsOpenLesson({ lessons, focused, fresh, view, modal }: {
+  lessons: Lesson[];
+  focused: boolean;
+  fresh: boolean;
+  view: string;
+  modal: string | null;
+}): boolean {
+  if (!lessons.includes('open') || focused || fresh || modal) return false;
+  return view === 'inbox' || view === 'progress';
+}
+
 export function setLessons(store: Store, lessons: Lesson[]): void {
   try { store.setItem(TEACH_KEY, lessons.join(',')); } catch { /* a lesson missed is not worth a failure */ }
 }
