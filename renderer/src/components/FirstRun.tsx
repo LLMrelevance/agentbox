@@ -214,11 +214,6 @@ export function FirstRunFlow({ snap, home, onDone }: {
     setSetup({ engine, phase: s?.phase ?? 'installing', error: s?.error ?? null });
   }, []);
 
-  const chooseAnother = useCallback(() => {
-    setMenu(null);
-    setBrowsing(true);
-  }, []);
-
   const chooseFolder = useCallback((picked: string) => {
     const folder = bare(picked);
     const verdict = checkProjectFolder(folder, { home });
@@ -230,6 +225,16 @@ export function FirstRunFlow({ snap, home, onDone }: {
     setPlace(folder);
     field.current?.focus();
   }, [home]);
+
+  // The system's folder window has the person's sidebar, recents and search.
+  // Only a browser tab, which has none, gets the picker the app draws.
+  const chooseAnother = useCallback(async () => {
+    setMenu(null);
+    const { path: picked, refused: why, browse } = await api.chooseFolder(at ?? (home || undefined));
+    if (browse) { setBrowsing(true); return; }
+    if (why) { setProblem(why); return; }
+    if (picked) chooseFolder(picked);
+  }, [at, home, chooseFolder]);
 
   /** The folder's project, made now if it has none. `counted` says this press was already counted once. */
   const projectFor = useCallback(async (folder: string, counted = false): Promise<Project | null> => {

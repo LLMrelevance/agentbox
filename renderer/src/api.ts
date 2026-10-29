@@ -1468,6 +1468,8 @@ export const api = {
         const turnedDown = checkProjectFolder('~');
         return { path: null, refused: turnedDown.ok ? undefined : turnedDown.say };
       }
+      // A browser tab's answer, so the picker the app draws can be shot too.
+      if (params.has('drawnPicker')) return { path: null, browse: true };
       return { path: '/Users/you/Desktop/dev/house' };
     }
     const zero = window.zero as any;
