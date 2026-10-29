@@ -61,6 +61,8 @@ export const MAX_HOLD_MS = 10 * 60_000;
 export const SETTLE_MS = 3 * 60_000;
 
 const RANK = { normal: 0, tight: 1, critical: 2 };
+/** `kern.memorystatus_vm_pressure_level`'s warn; 1 is normal and 4 critical. */
+const WARN_LEVEL = 2;
 
 /** The worst of the readings stamped inside `windowMs` of `now`. Pure. */
 export function worstPressure(readings, now, windowMs = SETTLE_MS) {
@@ -95,7 +97,7 @@ export function startDecision({
   const known = reading && (Number.isFinite(reading.level) || Number.isFinite(reading.freePct));
   if (!known || !Number.isFinite(at) || Math.abs(now - at) > staleMs) return { start: true, why: 'no-reading' };
   const readings = running < roomy
-    ? [reading, ...recent].map((r) => (r && r.level < 4 ? { ...r, level: null } : r))
+    ? [reading, ...recent].map((r) => (r?.level === WARN_LEVEL ? { ...r, level: null } : r))
     : [reading, ...recent];
   const pressure = worstPressure(readings, now, settleMs);
   if (pressure === 'normal') return { start: true, why: 'normal' };

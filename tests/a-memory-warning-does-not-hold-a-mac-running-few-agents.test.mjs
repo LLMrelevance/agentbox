@@ -41,6 +41,10 @@ describe('the rule', () => {
     expect(startDecision({ ...base, running: 1, reading: read(55), recent: [read(40, { level: 4, age: 60_000 })] })).toEqual({ start: false, why: 'critical' });
   });
 
+  it('only the kernel\'s warn is set aside, not a level macOS has never been seen to report', () => {
+    expect(startDecision({ ...base, running: 1, reading: read(40, { level: 3 }) })).toEqual({ start: false, why: 'tight' });
+  });
+
   it('without a number for the Mac, a warn holds as it did before', () => {
     expect(startDecision({ ...base, roomy: undefined, running: 1, reading: warn() })).toEqual({ start: false, why: 'tight' });
   });
