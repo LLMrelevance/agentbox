@@ -789,6 +789,13 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
     return { ok: true };
   });
 
+  // RUNS ON THIS MAC TO MOVE TO THE CLOUD, by id.
+  ipcMain.handle('zero:move-to-cloud', (_e, { ids }) => {
+    const out = supervisor.moveToCloud(ids);
+    push();
+    return out;
+  });
+
   // PINNED THREADS (w-20323283e6): id to true, or null to unpin.
   ipcMain.handle('zero:set-thread-pins', (_e, { pins }) => {
     supervisor.setThreadPins(pins);
