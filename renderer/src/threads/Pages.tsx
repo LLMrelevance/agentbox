@@ -548,9 +548,10 @@ export function FilteredEmpty({ view, hidden, onClear }: { view: TabView; hidden
 const ClearMark = () => <svg className="th-clear-mark" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5" /></svg>;
 
 /** The other tabs, empty: one quiet line where the rows would be. */
-export function EmptyTab({ view }: { view: TabView }) {
+export function EmptyTab({ view, starting = false }: { view: TabView; starting?: boolean }) {
   const words: Partial<Record<TabView, string>> = {
-    progress: 'Nothing is running.',
+    // `starting`: a task was just sent and its row has not arrived yet.
+    progress: starting ? 'Starting your task…' : 'Nothing is running.',
     snoozed: 'Nothing is waiting for later. "Add it to Later" on a new thread writes one down without starting it.',
     // A finished thread waits in Needs you until its owner closes it, which a
     // persona read as the app losing it.

@@ -6032,6 +6032,12 @@ export default function App() {
   // Its row arrives with a snapshot or two after the send.
   const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
   useEffect(() => { if (landAt >= 0) { setSelected(landAt); setLandOn(null); } }, [landAt]);
+  // A task that could not start goes straight to Needs you, so follow it there.
+  useEffect(() => {
+    if (!landOn) return;
+    const tab = tabOfState(tabState.get(landOn) ?? null);
+    if (tab && tab !== view) setView(tab);
+  }, [landOn, tabState, view]);
   // A row that never comes must not take the cursor later, while you are elsewhere.
   useEffect(() => {
     if (!landOn) return undefined;
@@ -6868,7 +6874,7 @@ export default function App() {
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
                       ? run === null && !landing && <InboxClear slot={setClearSlot} />
-                      : <EmptyTab view={view} />
+                      : <EmptyTab view={view} starting={!!landOn} />
                 ) : <List
                   lead={view === 'inbox' && search === null && roomsUi.mentions.length
                     ? <MentionRows mentions={roomsUi.mentions} faces={roomsUi.faces} now={now} onOpen={roomsUi.openMention} /> : null}

@@ -114,6 +114,8 @@ export function FirstRunFlow({ snap, home, onDone }: {
   // Projects this run made, by folder, until a snapshot carries them.
   const [made, setMade] = useState<Record<string, Project>>({});
   const [extra, setExtra] = useState<FolderChoice[]>([]);
+  // The system's folder window can take a couple of seconds to appear.
+  const [opening, setOpening] = useState(false);
   const [browsing, setBrowsing] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [text, setText] = useState('');
@@ -281,12 +283,14 @@ export function FirstRunFlow({ snap, home, onDone }: {
   // The system's folder window has the person's sidebar, recents and search.
   // Only a browser tab, which has none, gets the picker the app draws.
   const chooseAnother = useCallback(async () => {
-    if (busy) return;
-    const { path: picked, refused: why, browse } = await api.chooseFolder(places[0]?.folder ?? (home || undefined));
+    if (busy || opening) return;
+    setOpening(true);
+    const { path: picked, refused: why, browse } = await api.chooseFolder(places[0]?.folder ?? (home || undefined))
+      .finally(() => setOpening(false));
     if (browse) { setBrowsing(true); return; }
     if (why) { setProblem(why); return; }
     if (picked) chooseFolder(picked);
-  }, [busy, places, home, chooseFolder]);
+  }, [busy, opening, places, home, chooseFolder]);
 
   const pickPlace = useCallback((i: number) => {
     const folder = places[i]?.folder;
@@ -335,7 +339,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
         return;
       }
       if (screen === 'where') {
-        if (busy) return;
+        if (busy || opening) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(places.length, c + 1)); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(0, c - 1)); }
         else if (e.key === 'Enter') { e.preventDefault(); pickPlace(cursor); }
@@ -359,7 +363,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [screen, leaving, hasReady, chats, cursor, busy, places, idea, text, browsing, go, start, startSetup, bringIn, next, skip, pickPlace, pickIdea]);
+  }, [screen, leaving, hasReady, chats, cursor, busy, opening, places, idea, text, browsing, go, start, startSetup, bringIn, next, skip, pickPlace, pickIdea]);
 
   useEffect(() => {
     if (browsing) document.querySelector<HTMLInputElement>('.first-run .fp-path')?.focus();
@@ -502,9 +506,12 @@ export function FirstRunFlow({ snap, home, onDone }: {
               </div>
             ) : (
               <div className="ob-actions ob-in" style={{ animationDelay: '0.2s', marginTop: 40 }}>
-                <button type="button" className="ob-btn" disabled={busy} onClick={() => void chooseAnother()}>Choose its folder <Key k="↵" /></button>
+                <button type="button" className={`ob-btn${busy || opening ? ' ob-plain' : ''}`} disabled={busy || opening} onClick={() => void chooseAnother()}>
+                  {opening ? 'Opening the folder window…' : busy ? 'Sending…' : <>Choose its folder <Key k="↵" /></>}
+                </button>
               </div>
             )}
+            {places.length > 0 && (opening || busy) && <p className="ob-working">{opening ? 'Opening the folder window…' : 'Sending…'}</p>}
             {problem && <p className="ob-refused">{problem}</p>}
           </div>
           {places.length > 0 && <Legend pairs={[[['↑', '↓'], 'Move'], [['↵'], 'Send']]} />}

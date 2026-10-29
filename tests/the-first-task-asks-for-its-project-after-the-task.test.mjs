@@ -56,7 +56,8 @@ describe('the project screen', () => {
   it('gives a new user the welcome screen’s button, not a lone row', () => {
     // The welcome's own: a centered ob-btn 40px under the heading, with its key.
     expect(where).toContain("<div className=\"ob-actions ob-in\" style={{ animationDelay: '0.2s', marginTop: 40 }}>");
-    expect(where).toMatch(/className="ob-btn"[^>]*onClick=\{\(\) => void chooseAnother\(\)\}>Choose its folder <Key k="↵" \/><\/button>/);
+    expect(where).toMatch(/className=\{`ob-btn[^>]*onClick=\{\(\) => void chooseAnother\(\)\}>/);
+    expect(where).toContain('<>Choose its folder <Key k="↵" /></>');
     expect(where).not.toContain('ob-alone');
   });
 });
