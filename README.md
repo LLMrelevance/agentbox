@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  Free and open source. A Mac app, or in your browser on any platform with <code>npx agentbox-app</code>,<br>
+  Free and open source. A Mac app, or in your browser on Linux with <code>npx agentbox-app</code>,<br>
   on the Claude Code or Codex plan you already have. No server, no account, no extra subscription.
 </p>
 
