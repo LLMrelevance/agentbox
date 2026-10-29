@@ -29,6 +29,9 @@ export interface EngineSetupState {
   bin?: string | null;
   /** Whether it was on the computer before this setup started. */
   already?: boolean;
+  /** Whether this reading established anything: false when the search or the
+   *  sign-in check did not answer, which is not the same as a no. */
+  certain?: boolean;
 }
 
 export const COPY = {
@@ -145,16 +148,14 @@ export function needsPlan(readiness: Array<Pick<EngineSetupState, 'found' | 'sig
 }
 
 /**
- * WHETHER THE INBOX MAY SAY IT OUT LOUD (F-141).
+ * AND WHETHER THE BAR MAY SAY SO OUT LOUD. `barSay` is an absolute claim about
+ *  what the app will do, so only a certain no raises it.
  *
- * `needsPlan` asks a question, and asking one whose answer is already yes
- * costs nothing. The bar makes a CLAIM, that no agent can start, off a probe
- * taken once when the walk ends. An agent that started is the app disagreeing
- * with its own probe, so the agent wins. Nothing runs on a computer with no
- * plan, which leaves the sentence everywhere it is still true.
+ *  The walk keeps `needsPlan`: it asks a question and offers a way past, so
+ *  asking on an unsure reading costs a click. This tells rather than asks.
  */
-export function planBarShows({ noPlan, agentsRan }: { noPlan: boolean; agentsRan: boolean }): boolean {
-  return noPlan && !agentsRan;
+export function sureNoPlan(readings: Array<Pick<EngineSetupState, 'found' | 'signedIn' | 'certain'>>): boolean {
+  return needsPlan(readings) && readings.every((r) => r.certain !== false);
 }
 
 /**
