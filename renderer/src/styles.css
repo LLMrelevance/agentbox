@@ -9249,6 +9249,10 @@ button.code-skip:hover::after, button.code-skip:hover::before { background: var(
 #needs-its-key strong { display: block; font-size: 17px; font-weight: 600; }
 #needs-its-key p { margin-top: 10px; color: var(--text-dim); font-size: 14px; line-height: 1.5; }
 #needs-its-key code { font-family: var(--mono); font-size: .95em; }
+/* THE SCREEN THAT DIED TWICE (renderer/src/main.tsx). The same sentence the
+   boundary shows, in plain html: React has unmounted the root by now, so
+   `.boot-stuck` has nothing left to draw it. */
+#screen-died { position: fixed; inset: 0; z-index: 10000; display: grid; place-items: center; padding: 32px; background: var(--surface); color: var(--text-dim); font-size: 14px; line-height: 1.5; text-align: center; }
 /* Her Mac turned a reply from the phone down (renderer/src/cloud-bridge.ts). */
 .msg-sending.msg-refused { color: var(--code-minus); }
 

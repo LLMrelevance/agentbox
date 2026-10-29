@@ -1,11 +1,9 @@
-// Without this, a throw anywhere in the screen unmounts the whole tree and
-// leaves an empty window that only ⌘R brings back.
+// Without this, a throw while a child renders unmounts the whole tree and
+// leaves an empty window that only ⌘R brings back. A throw it cannot see is
+// caught by the window itself (../after-a-crash comeBackFromABlankScreen).
 import { Component, type ReactNode } from 'react';
 import { LogoOrbit } from './LogoOrbit';
-import { afterACrash, writeHeldBeforeReload } from '../after-a-crash';
-import { chord } from '../this-keyboard';
-
-export const CRASHED_TWICE = `This screen hit an error twice in a row. Press ${chord('⌘R')} to reload it.`;
+import { afterACrash, CRASHED_TWICE, screenDrew, writeHeldBeforeReload } from '../after-a-crash';
 
 type Props = {
   children: ReactNode;
@@ -26,6 +24,10 @@ export class ScreenCrash extends Component<Props, { crashed: 'reload' | 'stay' |
   static getDerivedStateFromError() {
     return { crashed: 'reload' as const };
   }
+
+  // The root has children from here on, so an empty one later is a screen that
+  // died rather than one still coming up (../after-a-crash, main.tsx).
+  componentDidMount() { screenDrew(); }
 
   componentDidCatch(error: Error) {
     // A caught error never reaches the window's 'error' listener in main.tsx.
