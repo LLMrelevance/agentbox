@@ -9,7 +9,8 @@
 // profile. The fixed list is for when it cannot answer: a double-clicked
 // Electron app inherits launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin), which
 // has no nvm, volta or Homebrew. A shell probe that throws falls through to the
-// list and does not count as an answer.
+// list and does not count as an answer. Our own PATH is searched after the
+// list, because a login shell on Debian throws it away (`pathDirs`).
 //
 // A path somebody set (`claudeBin`, `codexBin`) wins and is never searched
 // around; that is what makes "point at it yourself" work (main/ipc.mjs,
@@ -57,6 +58,22 @@ export function versionedBinPaths(bin, home = os.homedir(), readdir = defaultRea
 
 function defaultReaddir(dir) {
   try { return fs.readdirSync(dir); } catch { return []; }
+}
+
+/**
+ * The PATH the app itself was started with, as directories.
+ *
+ * A login shell is asked first because it has the person's real PATH, and on
+ * Debian it does not: /etc/profile sets PATH outright, so the shell throws
+ * away the PATH we were handed. The README starts the app with `npm start`
+ * from a terminal, where that PATH is the person's own, and a Codex sitting on
+ * it was called missing (F-140).
+ *
+ * Empty and relative entries are dropped. An empty one means the current
+ * directory to a shell, and we spawn what we find here.
+ */
+export function pathDirs(env = process.env) {
+  return String(env?.PATH ?? '').split(path.delimiter).filter((dir) => dir && path.isAbsolute(dir));
 }
 
 /**
@@ -428,6 +445,10 @@ export function installEvidence(key, {
  * { path, found, certain, from, searched, evidence }. A configured path that
  * does not exist is still returned as the path, so a spawn fails naming the
  * path they chose, with found false and certain true.
+ *
+ * `searched` is the fixed list for this home and nothing else, so it reads the
+ * same on every machine; the PATH tried after it is whatever this run was
+ * handed.
  */
 export function findEngine(key, {
   configured = null,
@@ -457,6 +478,11 @@ export function findEngine(key, {
 
   for (const candidate of searched) {
     if (exists(candidate)) return { path: candidate, found: true, certain: true, from: 'disk', searched, evidence: null };
+  }
+
+  for (const dir of pathDirs(env)) {
+    const candidate = path.join(dir, spec.bin);
+    if (exists(candidate)) return { path: candidate, found: true, certain: true, from: 'path', searched, evidence: null };
   }
 
   for (const candidate of spec.appCopies(home, readdir)) {
