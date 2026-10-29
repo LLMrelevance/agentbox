@@ -3777,6 +3777,7 @@ export default function App() {
       // would never happen.
       setReloaded(!!info?.reloaded);
       if (crashed) return;
+      if (info?.revived) { showToast(info.revived); return; }
       if (info?.recovered) { showToast(info.recovered); return; }
       if (!info?.reloaded) return;
       const stamp = info.builtAt

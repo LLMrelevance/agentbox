@@ -38,7 +38,8 @@ import { dataFolderName, isNewUserBuild } from '../shared/side-build.mjs';
 import { runningAsAFreshUser } from '../shared/fresh-user-home.mjs';
 import { newUserWindow } from './new-user-window.mjs';
 import { openFreshUser } from './fresh-user.mjs';
-import { installCrashReports, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
+import { installCrashReports, report as reportCrash, reportFromRenderer, pending as pendingCrashes, setTransport } from './crash-report.mjs';
+import { keepThePageAlive } from './when-the-page-stops.mjs';
 import { createAnalytics, createDailyCount } from './analytics.mjs';
 import { createUpdater } from './updater.mjs';
 import { quitStep, flushBeforeQuit, quitThenExit } from './quit-sequence.mjs';
@@ -285,6 +286,8 @@ let lastReloadAt = 0;
 // The wake sweep's one line, and whether there is a page to say it to yet.
 let pendingRecovery = null;
 let pageReady = false;
+// The line the page shows after this process reloaded it from a crash or a freeze.
+let pendingRevived = null;
 
 function reloadRenderer() {
   // The chord can now arrive twice, from the menu accelerator and from
@@ -754,6 +757,14 @@ async function createWindow() {
   // to saying "Agentbox" as soon as it drew anything.
   window.on('page-title-updated', (e) => e.preventDefault());
 
+  keepThePageAlive({
+    window,
+    dialog,
+    name: Name,
+    report: reportCrash,
+    onRevived: (line) => { reloadRequested = true; pendingRevived = line; },
+  });
+
   // THE MENU IS A BAR INSIDE THE WINDOW on Linux and Windows. On macOS it is
   // the system menu, so it stays. The menu itself stays everywhere: the Ctrl
   // chords are bound to it, and taking the menu out would take them with it.
@@ -1073,10 +1084,11 @@ async function createWindow() {
   ipcMain.handle('zero:boot-info', () => {
     const info = {
       reloaded: reloadRequested, builtAt: builtAt(), recovered: pendingRecovery,
-      screenDetail: currentScreenDetail(),
+      revived: pendingRevived, screenDetail: currentScreenDetail(),
     };
     reloadRequested = false;
     pendingRecovery = null;
+    pendingRevived = null;
     return info;
   });
   // The window's own uncaught errors. The renderer cannot write a report
