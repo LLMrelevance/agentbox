@@ -36,6 +36,15 @@ describe('the box on a phone', () => {
     expect(phone).not.toContain('palette-foot');
   });
 
+  // The tiles were picked; drawn with one line each, "General agent
+  // instructions…" read "General agent instr…" (w-33611c2122).
+  it('lays the commands out as tiles before anything is typed, every name whole', () => {
+    expect(phone).toContain('class="palette-list palette-tiles"');
+    expect(desk).not.toContain('palette-tiles');
+    const css = fs.readFileSync(new URL('../renderer/src/phone.css', import.meta.url), 'utf8');
+    expect(css).toMatch(/\.palette-tiles \.palette-label \{[^}]*white-space: normal;[^}]*text-overflow: clip;/);
+  });
+
   it('offers nothing about the Mac or its keyboard', () => {
     for (const label of ['Keyboard shortcuts', 'Check for updates', 'Take the tutorial', 'Search threads']) {
       expect(rows(desk)).toContain(label);
