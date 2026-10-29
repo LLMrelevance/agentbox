@@ -73,7 +73,9 @@ describe('finding Codex', () => {
     ['pnpm on macOS', `${HOME}/Library/pnpm/codex`],
     ["the standalone store, when CODEX_INSTALL_DIR put the link somewhere we do not know", `${HOME}/.codex/packages/standalone/current/bin/codex`],
   ])('finds it after %s', (_how, where) => {
-    const found = findCodexBin({ home: HOME, exists: only(where), shellLookup: noShell });
+    // `env: {}` because this is about the list: /usr/local/bin is also on the
+    // PATH of whatever machine runs the suite, which is a source of its own.
+    const found = findCodexBin({ home: HOME, env: {}, exists: only(where), shellLookup: noShell });
     expect(found).toMatchObject({ path: where, found: true, from: 'disk' });
   });
 
