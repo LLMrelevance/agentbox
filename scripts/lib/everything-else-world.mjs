@@ -12,8 +12,10 @@ const products = [
 ];
 const nameOf = Object.fromEntries(products.map((p) => [p.slug, p.name]));
 
-const ME = { id: 'p-me', email: 'you@example.com', name: 'Alex Rivera', avatarUrl: null, role: 'owner' };
-const MAYA = { id: 'p-maya', email: 'maya@example.com', name: 'Maya Chen', avatarUrl: null, role: 'member' };
+// Most people on a team have a photo, so these get a drawn head and shoulders. Nobody's face.
+const portrait = (bg, skin, hair) => `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" fill="${bg}"/><ellipse cx="32" cy="62" rx="24" ry="16" fill="${hair}" opacity=".85"/><circle cx="32" cy="27" r="13" fill="${skin}"/><path d="M19 25c0-9 6-14 13-14s13 5 13 14c-3-5-8-7-13-7s-10 2-13 7z" fill="${hair}"/></svg>`)}`;
+const ME = { id: 'p-me', email: 'you@example.com', name: 'Alex Rivera', avatarUrl: portrait('#5b6b73', '#e0b49a', '#3a2a22'), role: 'owner' };
+const MAYA = { id: 'p-maya', email: 'maya@example.com', name: 'Maya Chen', avatarUrl: portrait('#7a6252', '#efc8a8', '#1f1a18'), role: 'member' };
 const JUN = { id: 'p-jun', email: 'jun@example.com', name: 'Jun Park', avatarUrl: null, role: 'member' };
 
 let n = 0;
@@ -63,22 +65,39 @@ const NEEDS = [
   'Two logo rounds are ready to compare', 'The ship failed on a red test',
 ];
 
+// What each running agent is doing this minute, as its session's newest line says.
+const DOING = [
+  'Running the test suite', 'Reading the board column code', 'Editing the cloud start retry', 'Searching thread summaries',
+  'Writing the notification copy', 'Profiling the first paint', 'Importing 41 Codex threads', 'Grouping approval cards',
+  'Drafting the changelog', 'Writing three price page versions', 'Waiting on a network retry', 'Checking read state on the phone',
+  'Cutting two setup screens', 'Reading the start log', 'Laying out the usage email', 'Drawing the waveform on Paper',
+];
 const projOf = (i) => (i % 5 === 3 ? 'agentbox' : i % 9 === 4 ? 'personal' : 'agentbox-team');
 const items = [];
 const running = [];
+const queued = [];
 RUNNING.forEach((title, i) => {
-  const it = item({ title, product: projOf(i), status: 'claimed', priority: i % 4 === 0 ? 3 : 2, updatedAt: NOW - (i * 7 + 2) * min,
+  const started = NOW - (i * 11 + 4) * min;
+  const it = item({ title, product: projOf(i), status: 'claimed', priority: i % 4 === 0 ? 3 : 2, createdAt: started - 2 * min, updatedAt: NOW - (i * 7 + 2) * min,
     claim: { holder: 'x', leaseUntil: NOW + hour }, labels: ['founder'] });
   items.push(it);
-  if (i < 16) running.push({ itemId: it.id, product: it.product, startedAt: NOW - (i * 5 + 3) * min, tail: [] });
+  if (i < 16) running.push({ itemId: it.id, product: it.product, startedAt: started, tail: [DOING[i]], activity: [{ id: `a${i}`, label: DOING[i], detail: '', startedAt: NOW - min }] });
+  else queued.push(it.id);
 });
 LATER.forEach(([title, hrs], i) => {
   items.push(item({ title, product: projOf(i + 1), status: 'open', runAt: NOW + hrs * hour, priority: i % 6 === 5 ? 3 : 2, updatedAt: NOW - (i + 1) * hour,
     labels: ['founder'], wrote: { runAt: { ts: NOW - hour, source: 'founder' } } }));
 });
 DONE.forEach((title, i) => {
-  items.push(item({ title, product: projOf(i + 2), status: 'done', updatedAt: NOW - (i * 17 + 5) * min, labels: ['founder'] }));
+  const at = NOW - (i * 13 + 5) * min;
+  items.push(item({ title, product: projOf(i + 2), status: 'done', createdAt: at - (25 + (i * 37) % 70) * min, updatedAt: at, labels: ['founder'],
+    wrote: { status: { ts: at, source: 'agent' } } }));
 });
+// Yesterday, for a day to set today against.
+for (let i = 0; i < 21; i += 1) {
+  const at = NOW - 24 * hour - (i * 19 + 40) * min;
+  items.push(item({ title: `Yesterday's thread ${i + 1}`, status: 'done', createdAt: at - 40 * min, updatedAt: at, labels: ['founder'], wrote: { status: { ts: at, source: 'agent' } } }));
+}
 NEEDS.forEach((title, i) => {
   items.push(item({ title, product: projOf(i), status: 'open', kind: 'question', priority: i === 1 ? 4 : 2, updatedAt: NOW - (i * 23 + 4) * min,
     result: 'Ready for you.', labels: [] }));
@@ -98,13 +117,16 @@ const mates = [
   mate({ id: 'm-notes', name: 'Release notes', letter: 'N', role: 'Writes the changelog', now: 'Nothing to write today' }),
   mate({ id: 'm-design', name: 'Designer', letter: 'D', role: 'Draws options', now: 'Drawing the price page', paused: false }),
 ];
-const mateRuns = [['m-qa', 'Test the board keyboard map'], ['m-support', 'Reply to the billing emails'], ['m-design', 'Five price page options']];
-for (const [id, title] of mateRuns) {
-  const it = item({ title, status: 'claimed', labels: [`teammate:${id}`], claim: { holder: 'x', leaseUntil: NOW + hour }, updatedAt: NOW - 12 * min });
+const mateRuns = [['m-qa', 'Test the board keyboard map', 'Pressing J and K on a full board', 14], ['m-support', 'Reply to the billing emails', 'Answering the second email', 31], ['m-design', 'Five price page options', 'Drawing option four', 52]];
+for (const [id, title, doing, ago] of mateRuns) {
+  const it = item({ title, status: 'claimed', labels: [`teammate:${id}`], claim: { holder: 'x', leaseUntil: NOW + hour }, createdAt: NOW - (ago + 1) * min, updatedAt: NOW - 3 * min });
   items.push(it);
-  running.push({ itemId: it.id, product: it.product, startedAt: NOW - 9 * min, tail: [] });
+  running.push({ itemId: it.id, product: it.product, startedAt: NOW - ago * min, tail: [doing], activity: [{ id: `m${ago}`, label: doing, detail: '', startedAt: NOW - min }] });
   const m = mates.find((t) => t.id === id);
   m.running = { id: it.id, product: it.product };
+}
+for (const [id, title, ago] of [['m-qa', 'Test the sign-in screen', 95], ['m-qa', 'Test the cloud button', 210], ['m-support', 'Reply to the refund email', 140], ['m-notes', 'Write Tuesday\'s notes', 400], ['m-design', 'Three hero options', 260]]) {
+  items.push(item({ title, status: 'done', labels: [`teammate:${id}`], createdAt: NOW - (ago + 30) * min, updatedAt: NOW - ago * min, wrote: { status: { ts: NOW - ago * min, source: 'agent' } } }));
 }
 mates.find((t) => t.id === 'm-growth').waiting = [{ id: 'w-gm1', product: 'agentbox-team', title: 'Post A is ready to send' }];
 
@@ -117,6 +139,8 @@ const cards = [
   card('p-maya', 'Brand colours for the launch', 'running', 4), card('p-maya', 'Customer call notes, week 43', 'running', 22),
   card('p-maya', 'Sales deck for the team plan', 'running', 40), card('p-maya', 'Hiring page draft', 'scheduled', 90),
   card('p-maya', 'Press list for November', 'done', 60), card('p-maya', 'Pricing survey results', 'waiting', 15),
+  card('p-maya', 'Launch email, second draft', 'done', 150), card('p-maya', 'Competitor pricing table', 'done', 230), card('p-maya', 'Webinar outline', 'done', 330),
+  card('p-maya', 'Case study with the design agency', 'scheduled', 600),
   card('p-jun', 'Repo access for the new laptop', 'waiting', 35), card('p-jun', 'Benchmarks for cloud starts', 'done', 120),
 ];
 
@@ -129,9 +153,9 @@ const teamRoom = {
   id: 'r-team', name: 'Northwind', kind: 'room', teamId: 't-1', listed: true, inviteOnly: false, role: 'owner', members: 3,
   createdAt: NOW - 30 * 24 * hour, pinned: true, muted: false, unread: 2, readAt: NOW - 2 * hour, lastAt: NOW - 18 * min, agents: 19,
   wall: [
-    wallCard(ME, { agents: 16, level: 53, workingOn: 'Fix mobile inbox crowding' }),
-    wallCard(MAYA, { agents: 3, level: 31, workingOn: 'Brand colours for the launch' }),
-    wallCard(JUN, { away: true, agents: null }),
+    wallCard(ME, { agents: 16, level: 53, workingOn: 'Fix mobile inbox crowding', hoursToday: 41, hoursWeek: 236, streak: 19 }),
+    wallCard(MAYA, { agents: 3, level: 31, workingOn: 'Brand colours for the launch', hoursToday: 9, hoursWeek: 58, streak: 7 }),
+    wallCard(JUN, { away: true, agents: null, hoursToday: 0, hoursWeek: 12, streak: 0 }),
   ],
   people: [ME, MAYA, JUN].map((p) => ({ id: p.id, name: p.name, avatarUrl: p.avatarUrl })),
 };
@@ -161,7 +185,7 @@ const profile = {
 export const world = {
   products, items, approvals: [],
   supervisor: {
-    paused: false, pausedProducts: [], running, stalled: [], queued: [], scheduled: [],
+    paused: false, pausedProducts: [], running, stalled: [], queued, scheduled: [],
     productOrder: ['agentbox-team', 'agentbox', 'personal'], hiddenProducts: [], personalProducts: ['personal'], capacity: 20,
   },
   restartNeeded: null,

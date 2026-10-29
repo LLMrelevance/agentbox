@@ -37,7 +37,8 @@ const errors = [];
 page.on('pageerror', (e) => errors.push(String(e.message)));
 const folded = (flags.find((f) => f.startsWith('--fold=')) ?? '--fold=progress,later,done').slice('--fold='.length).split(',').filter(Boolean);
 const open = (flags.find((f) => f.startsWith('--open=')) ?? '--open=').slice('--open='.length);
-await page.addInitScript(({ snap, look, folded, open }) => {
+const list = flags.includes('--list');
+await page.addInitScript(({ snap, look, folded, open, list }) => {
   window.__SNAP__ = snap;
   const ok = async () => ({ ok: false });
   window.zero = new Proxy({
@@ -52,9 +53,10 @@ await page.addInitScript(({ snap, look, folded, open }) => {
     localStorage.setItem('agentbox.yourThreads.folded', JSON.stringify(folded));
     localStorage.setItem('agentbox.everything.hidden', JSON.stringify({ 'room:r-design': 1 }));
     if (look) localStorage.setItem('agentbox.everything.look', look);
+    if (list) localStorage.setItem('agentbox.everything.view', 'list');
     if (open) localStorage.setItem('agentbox.everything.calmOpen', open);
   }
-}, { snap: world, look, folded, open });
+}, { snap: world, look, folded, open, list });
 await page.goto(origin);
 await page.evaluate(async () => { await document.fonts.ready; });
 await page.waitForTimeout(1500);
@@ -63,8 +65,10 @@ if (!flags.includes('--needs')) {
   if (await tab.count()) await tab.click(); else errors.push('no Everything else tab');
   await page.waitForTimeout(900);
 }
-for (const f of flags.filter((x) => x.startsWith('--click='))) {
-  await page.getByText(f.slice('--click='.length), { exact: false }).first().click();
+for (const f of flags.filter((x) => /^--(click|card|css)=/.test(x))) {
+  const [flag, what] = [f.slice(2, f.indexOf('=')), f.slice(f.indexOf('=') + 1)];
+  const target = flag === 'card' ? page.locator(`.ev-card[data-key="${what}"]`) : flag === 'css' ? page.locator(what) : page.getByText(what, { exact: false });
+  await target.first().click();
   await page.waitForTimeout(700);
 }
 await page.mouse.move(W - 5, H - 5);

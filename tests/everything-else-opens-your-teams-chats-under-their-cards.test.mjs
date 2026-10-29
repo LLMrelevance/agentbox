@@ -56,17 +56,18 @@ describe('the cards', () => {
     expect(html).toMatch(/class="ev-card me on"/);
   });
 
-  it('draw a chat as a chat: no fill, its people\'s faces, a speech mark and its newest line, never agents', () => {
+  // The newest line went with what people are on (tests/a-card-says-who-not-what-they-are-on).
+  it('draw a chat as a chat: no fill, its people\'s faces and a speech mark, never agents', () => {
     const html = strip();
     const chat = html.slice(html.indexOf('ev-card chat'), html.indexOf('ev-card person'));
     expect(chat).toContain('ev-bubble');
     // One person's face, square (tests/two-people-in-a-chat-show-as-two-square-faces).
     expect(chat).toContain('rm-pic');
-    expect(chat).toContain('Theo: Lock screen works');
-    expect(chat).not.toContain('AGENTS WORKING');
+    expect(chat).not.toContain('Theo: Lock screen works');
+    expect(chat).not.toContain('AGENTS');
     const person = html.slice(html.indexOf('ev-card person'));
     expect(person).not.toContain('ev-bubble');
-    expect(person).toContain('14 AGENTS WORKING');
+    expect(person).toContain('14 AGENTS');
   });
 
   // They used to shrink to one line while a chat was open; they stay as they
@@ -85,9 +86,9 @@ describe('the cards', () => {
 });
 
 describe('a card opens the chat the Chats page held, under the cards', () => {
-  it('has no Chats page or sidebar row of its own with a team on', () => {
-    expect(app).toContain('groups={teamMode ? null : roomsUi.live ? roomsUi.sidebarGroups(');
-    expect(app).toContain('<ChatsContext.Provider value={teamMode ? null : chatsValue}>');
+  // The sidebar's Chats row came back (w-2b3e1a85e5); a card still opens its chat here.
+  it('keeps the Chats list off the page while a card opened the chat', () => {
+    expect(app).toContain('<ChatsContext.Provider value={teamMode && !chatsPage ? null : chatsValue}>');
   });
 
   it('draws the teammate chat, the group chat and a direct record under the cards', () => {

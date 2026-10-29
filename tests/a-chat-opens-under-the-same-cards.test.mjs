@@ -30,7 +30,7 @@ describe('the cards over an open chat', () => {
       const html = renderToStaticMarkup(h(TeamStrip, { members, picked, onPick() {}, onMove() {} }));
       expect(html).toContain('class="ev-strip"');
       expect(html.match(/class="ev-t"/g)).toHaveLength(3);
-      expect(html).toContain('14 AGENTS WORKING');
+      expect(html).toContain('14 AGENTS');
     }
   });
 
