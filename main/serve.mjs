@@ -40,6 +40,7 @@ import { registerIpc } from './ipc.mjs';
 import { reportFromRenderer } from './crash-report.mjs';
 import * as workItemsDisk from './store/work-items.mjs';
 import { createTeamService, teamStateFile } from './team/index.mjs';
+import { ensurePersonalProject } from './team/projects.mjs';
 import { loadCloudConfig, supabaseSession, headlessSessionFile } from './team/session.mjs';
 import { roomsSetup } from './team/room-setup.mjs';
 import { appHome, carryMisplacedMachinery, storeRootEnv } from './store/home.mjs';
@@ -189,6 +190,13 @@ export async function bootHeadless({ dataDir = repoRoot, appDir = repoRoot, user
   Object.assign(process.env, storeRootEnv(config.storeRoot));
   carryMisplacedMachinery(inheritedHome, config.storeRoot);
   keepAnswerModesIn({ userDir, storeRoot: config.storeRoot });
+  // EVERYBODY HAS SOMEWHERE TO SEND A THREAD, ON THIS DOOR TOO. main/main.mjs
+  // says why and makes it for the desktop; this is the door `npx agentbox-app`
+  // comes through. Before the store, as there: it reads the account root as it
+  // opens, so a project made after that is one the first snapshot does not carry.
+  try {
+    ensurePersonalProject(config.accountRoot);
+  } catch (err) { console.warn(`zero: could not make My Workspace: ${err.message}`); }
   const store = await new Store(config).init();
   const supervisor = new Supervisor(config, store, appDir, dataDir, userDir);
   const window = broadcastingWindow();

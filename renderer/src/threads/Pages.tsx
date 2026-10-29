@@ -17,7 +17,7 @@ import { notStarted, rowTitle } from '../list-rules';
 import { toApproveWords } from '../threads-made';
 import { DONE } from '../done-word';
 import {
-  boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, entryScore, filteredEmptyWords, finishedAt, sentAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
+  boardColumns, columnTo, conversationSlugs, DEFAULT_COLUMN_ORDER, emptyTabWords, entryScore, filteredEmptyWords, finishedAt, sentAt, isDirect, isFiltered, nextPrivacy, dropWithPins, projectChoices, slotUnder,
   backWords, timeHeading, updatedWords,
   type BoardEntry, type Display, type PageId, type Privacy, type UpdatedWindow,
 } from './page-rules';
@@ -555,17 +555,10 @@ export function FilteredEmpty({ view, hidden, onClear }: { view: TabView; hidden
  *  view is clear, which is true whether you cleared it or never filled it. */
 const ClearMark = () => <svg className="th-clear-mark" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="square" aria-hidden="true"><path d="m4 12.5 5 5L20 6.5" /></svg>;
 
-/** The other tabs, empty: one quiet line where the rows would be. */
+/** The other tabs, empty: one quiet line where the rows would be. The words
+ *  are in ./page-rules (`emptyTabWords`), where a test can read them. */
 export function EmptyTab({ view, starting = false }: { view: TabView; starting?: boolean }) {
-  const words: Partial<Record<TabView, string>> = {
-    // `starting`: a task was just sent and its row has not arrived yet.
-    progress: starting ? 'Starting your task…' : 'Nothing is running.',
-    snoozed: 'Nothing is waiting for later. "Add it to Later" on a new thread writes one down without starting it.',
-    // A finished thread waits in Needs you until its owner closes it, which a
-    // persona read as the app losing it.
-    done: 'Nothing closed yet. A finished thread waits in Needs you until you close it.',
-  };
-  return <div className="th-empty"><span>{words[view] ?? 'Nothing here.'}</span></div>;
+  return <div className="th-empty"><span>{emptyTabWords(view, starting)}</span></div>;
 }
 
 /* ------------------------------------------------------------ one thread's cells */
