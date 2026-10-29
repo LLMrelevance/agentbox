@@ -474,6 +474,8 @@ async function createWindow() {
       apply: (cmd) => phoneApply(cmd),
       // The Settings pages' model, read through the window's own handler.
       readSettings: () => phoneSettings?.() ?? null,
+      pins: () => supervisor.threadPins,
+      repeats: () => store.listRepeats(),
       version: app.getVersion(),
       live: (slug, id) => supervisor.liveFor(slug, id),
       // Why each thread nothing runs on is waiting, so the phone does not read it as "Nothing running".

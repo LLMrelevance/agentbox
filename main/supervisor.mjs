@@ -987,7 +987,13 @@ export class Supervisor {
   // Founder interrupt: kill the child now. The exit handler reaps the session;
   // heartbeats stop with the process, so the claim lapses on its own.
   stopSession(itemId) {
-    if (this._preparing?.delete(itemId)) return true;
+    const preparing = this._preparing?.get(itemId);
+    if (preparing) {
+      this._preparing.delete(itemId);
+      // A start that never began delivered nothing, as at a quit.
+      if (preparing.opts?.continuation && preparing.item?.answer) this.redeliverAnswer(preparing.item, preparing.item.answer);
+      return true;
+    }
     const session = this.sessions.get(itemId);
     if (!session) {
       const joined = this._comingHome?.get(itemId);
@@ -7810,9 +7816,12 @@ export class Supervisor {
     // A CONVERSATION GOING BACK TO WORK IS NOT TOLD AGAIN WHAT IT ALREADY HEARD
     // (`_noteHeard`). Only that conversation: a fork or a fresh session needs
     // every word.
+    // Not `_answerDelivered`: that mark is written when a start is picked, and
+    // a start still being set up is taken over by the next reply, so the mark
+    // stands on words no agent read (w-5f577f2cae).
     if (continuation && item.answer && this.store?.readHistory) {
       const conversation = forkFrom ? null : resumeId;
-      const answer = queuedReplyText(item, this.store.readHistory(item.product, item.id), (row) => this._answerDelivered(row) || this._heardIn(row, conversation));
+      const answer = queuedReplyText(item, this.store.readHistory(item.product, item.id), (row) => this._heardIn(row, conversation));
       if (answer !== item.answer) item = { ...item, answer };
     } else if (continuation && toldBy(item)) {
       item = { ...item, answer: framedTeammate(toldBy(item).name, item.answer) };

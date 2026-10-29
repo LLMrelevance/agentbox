@@ -222,11 +222,12 @@ describe('what a demo never shows', () => {
     // not anything of anybody's. Another product's name was that default until 2026-09-22
     // and is banned by name, so a demo can never quietly start writing to a
     // folder somebody may still have.
+    // A runner called "agent" must not reject the app's own name.
     const banned = [
       '/Users/',
-      path.basename(os.homedir()),
+      os.homedir(),
       os.userInfo().username,
-    ].filter((w) => w && w.length > 2);
+    ].filter((w) => w && w.length > 2 && !Name.toLowerCase().includes(w.toLowerCase()));
     for (const word of banned) {
       expect(all.includes(word)).toBe(false);
     }

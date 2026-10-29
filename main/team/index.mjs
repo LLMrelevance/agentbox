@@ -219,6 +219,8 @@ export function createTeamService({
       liveOf: (slug, id) => phone.live?.(slug, id) ?? null,
       approvalsOf: () => phone.approvals?.() ?? [],
       readSettings: phone.readSettings ?? null,
+      pinsOf: () => phone.pins?.() ?? {},
+      repeatsOf: phone.repeats ?? null,
       version: phone.version ?? '',
       idleMs: phone.idleMs ?? null,
       // The lid shut: projects whose threads carry on in the cloud, and runs it started (shared/cloud-kit.mjs).

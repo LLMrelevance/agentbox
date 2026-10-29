@@ -65,7 +65,7 @@ import { sameRule, type RepeatShape as RepeatRuleValue } from '../../../shared/r
 import { collectFiles, fromPaste, persistAttachments, type PendingAttachment } from '../attachments';
 import { onPictureLinks, pictureLinksVersion, pictureUrl, sentPictureLink } from '../picture';
 import { Listening, MicButton, useWebDictation } from './WebDictation';
-import { playerShelf } from '../player-shelf';
+import { firstFrameSrc, playerShelf } from '../player-shelf';
 import { handleCopyOut, blockCopyText } from '../copy-out';
 import { diagramSource } from '../diagram-fence';
 import { DiagramBlock } from './DiagramBlock';
@@ -322,7 +322,9 @@ const players = playerShelf<HTMLMediaElement>({
     const player = document.createElement(film ? 'video' : 'audio');
     player.controls = true;
     player.preload = 'metadata';
-    player.src = url;
+    // Kept in the page on an iPhone, which otherwise opens it full screen.
+    if (film) (player as HTMLVideoElement).playsInline = true;
+    player.src = film ? firstFrameSrc(url) : url;
     return player;
   },
   drop: (player) => { player.pause(); player.removeAttribute('src'); player.load(); player.remove(); },

@@ -5,7 +5,7 @@
 
 import { useContext, useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { Product, RepeatRule, RunningSession, ThreadCard, View, WorkItem } from '../types';
-import { ago, dayAndTime, dayLabel, previewText, stamp } from '../format';
+import { ago, dayAndTime, dayLabel, stamp } from '../format';
 import { REST_HEADING, URGENT_HEADING, clickIntent, rowKeys, rowSummary, rowTitle, walkRowKeys } from '../list-rules';
 import { isUrgentRow } from '../interrupt';
 // THE SAME PREDICATE THE PANE USES, not a second copy of the rule. The row and
@@ -18,7 +18,7 @@ import { isUpdateRow, UPDATE_ID } from '../update-row';
 import { IMPORT_KEYS, JUST_IMPORTED_WORD, NOT_IMPORTED_HEADING, NOT_IMPORTED_KEYS, isImportRow, isNotImportedRow, justImported, type ImportChoice } from '../import-row';
 import { splitHits } from '../search';
 import type { ThreadSearchDetails } from '../threads/search';
-import { clockLabel, isCleanRun, nextRunAt } from '../../../shared/repeats.mjs';
+import { nextRunWords, repeatRow, repeatTag } from '../repeat-words';
 import { Face, TeamRowEnd, type TeamView } from '../team/people';
 import { CloudOfferRow, RepeatMark, RowCells, SectionHead, TableHead, ThreadCells, WaitingContext } from '../threads/Pages';
 import type { StackKey, StackSection } from '../threads/stack-rules';
@@ -77,48 +77,8 @@ function Hits({ text, terms, phrase }: { text: string; terms?: string[]; phrase?
   );
 }
 
-// What a repeating task's row says, which is the two things she opened this tab
-// for: when it runs next, and how the last one went. Pure, so the wording is
-// pinned by a test rather than read off a screenshot.
-export function repeatRow(rule: RepeatRule, last: WorkItem | null, now = Date.now()): { when: string; last: string } {
-  const next = nextRunAt(rule, now);
-  const when = next
-    ? `${new Date(next).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })} ${dayLabel(next, now).toLowerCase()}`
-    : 'not scheduled';
-  if (!last) return { when, last: 'not run yet' };
-  if (last.status === 'open' || last.status === 'claimed') return { when, last: `running, started ${ago(last.createdAt, now)}` };
-  if (isCleanRun(last)) return { when, last: `last run ${stamp(last.updatedAt, now)}, clean` };
-  // Anything that is not explicitly clean is something she should look at, and
-  // the row says so in the same words the inbox would.
-  return { when, last: `last run ${stamp(last.updatedAt, now)}, ${previewText(last.result) || 'needs a look'}` };
-}
-
-// THE SCHEDULE, IN FAINT WORDS AFTER A REPEATING TASK'S TITLE (w-4189a5c1a0).
-// With the repeat mark before the title it is what makes the row a repeating
-// task, so it replaces the "Repeating" heading the table used to draw above
-// it, and it is read off the rule: the chip it replaces said "daily" on every
-// rule, weekly ones included. It carries the hour too, because the time column
-// is 96px and "Tomorrow 10:00 AM" ran past the page's right edge in the first
-// drawing. Lower case, because it trails the title as a phrase, not a label.
-export function repeatTag(rule: RepeatRule): string {
-  const days = rule.every === 'weekday' ? 'weekdays'
-    : rule.every === 'week' ? `every ${new Date(2026, 0, 4 + (rule.on ?? 0)).toLocaleDateString(undefined, { weekday: 'long' })}`
-      : 'every day';
-  return `${days} at ${clockLabel(rule.at).replace(':00', '')}`;
-}
-
-// Which day it next runs, for the table's time column, in that column's own
-// short words: Today, Tomorrow, a weekday inside the week, a date past it.
-export function nextRunWords(rule: RepeatRule, now = Date.now()): string {
-  const next = nextRunAt(rule, now);
-  if (!next) return 'Not scheduled';
-  const midnight = (ts: number) => new Date(ts).setHours(0, 0, 0, 0);
-  const days = Math.round((midnight(next) - midnight(now)) / 86_400_000);
-  const d = new Date(next);
-  return days === 0 ? 'Today' : days === 1 ? 'Tomorrow'
-    : days < 7 ? d.toLocaleDateString(undefined, { weekday: 'long' })
-      : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
+// A repeating task's words, kept where the phone app can read them too.
+export { repeatRow, repeatTag, nextRunWords };
 
 // The day groups, and the key each one is drawn under. KEYED BY THE FIRST ROW
 // IN THE GROUP, NOT BY THE LABEL: this list is ordered by what matters most,

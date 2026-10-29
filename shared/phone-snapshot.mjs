@@ -23,7 +23,7 @@ const ROW_FIELDS = [
   'id', 'title', 'label', 'body', 'kind', 'labels', 'priority', 'parent', 'status',
   'result', 'note', 'answer', 'runAt', 'snoozedUntil', 'answeredThrough',
   'engine', 'model', 'start', 'due', 'problem', 'progress', 'solution',
-  'createdAt', 'updatedAt',
+  'createdAt', 'updatedAt', 'pinned',
 ];
 // The fields a line in a thread's history may carry in its patch: what the
 // thread view draws as the conversation and its state changes.
@@ -125,6 +125,18 @@ function pick(obj, fields, n, ctx) {
 }
 
 export const bytesOf = (value) => new TextEncoder().encode(JSON.stringify(value)).length;
+
+// THE REPEATING TASKS OF THE PROJECTS ON HER PHONE, cleaned as a thread's
+// words are, riding with the computer's settings copy.
+const REPEAT_FIELDS = ['id', 'title', 'body', 'priority', 'every', 'on', 'at', 'engine', 'model', 'createdAt', 'updatedAt', 'served', 'lastOccurrence'];
+export const REPEATS_MAX = 200;
+export function phoneRepeatsOf(rules, slugs, { home = null } = {}) {
+  const on = new Set(slugs);
+  return (Array.isArray(rules) ? rules : [])
+    .filter((r) => r && !r.endedAt && on.has(r.product) && typeof r.id === 'string')
+    .slice(0, REPEATS_MAX)
+    .map((r) => ({ product: r.product, ...pick(r, REPEAT_FIELDS, 4000, { home }) }));
+}
 
 // `item` is the folded row; `history` is store.readHistory for it. `home` is
 // her home folder, written ~ in the copy.

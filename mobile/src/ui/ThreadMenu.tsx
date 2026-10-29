@@ -6,15 +6,19 @@ import { useState } from 'react';
 import { parseWhen } from '../../../renderer/src/format';
 import { laterRows, typedLater, typedLine } from '../lib/later';
 import { TimeBox, TypingSheet } from './Later';
+import { Pin } from './icons';
 import { SheetHead, SheetRow, SheetSep } from './parts';
 
-export function ThreadMenu({ open, close, now, laterNow, runNow, moveToCloud = false, onLater, onBack, onRunNow, onMoveToCloud, onClose }: {
+export function ThreadMenu({ open, close, now, laterNow, runNow, moveToCloud = false, pinned, onPin, onLater, onBack, onRunNow, onMoveToCloud, onClose }: {
   open: boolean; close: () => void; now: number;
   /** Already put off: "Now (back to inbox)" comes first. */
   laterNow: boolean;
   runNow: boolean;
   /** Its agent runs on the computer and the cloud could take it now. */
   moveToCloud?: boolean;
+  /** Pin thread or Unpin thread; null where it cannot be pinned (a closed thread, one no computer has made). */
+  pinned: boolean | null;
+  onPin: (pin: boolean) => void;
   onLater: (until: number, label: string) => void;
   onBack: () => void;
   onRunNow: () => void;
@@ -44,6 +48,7 @@ export function ThreadMenu({ open, close, now, laterNow, runNow, moveToCloud = f
       <SheetSep />
       {moveToCloud && <SheetRow label="Move to cloud" aside="On your computer now" onPress={() => { done(); onMoveToCloud?.(); }} />}
       {runNow && <SheetRow label="Run now" onPress={() => { done(); onRunNow(); }} />}
+      {pinned !== null && <SheetRow label={pinned ? 'Unpin thread' : 'Pin thread'} lead={<Pin size={15} />} onPress={() => { done(); onPin(!pinned); }} />}
       <SheetRow label="Close this thread" onPress={() => { done(); onClose(); }} />
     </TypingSheet>
   );
