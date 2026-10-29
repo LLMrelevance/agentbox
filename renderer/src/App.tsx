@@ -146,7 +146,7 @@ import { TutorialOffer } from './components/TutorialOffer';
 import { holdForStoppedAgent, neverWarned, rememberWarned } from './stopped-agent';
 import { comeBackTo, neverOffered, offerOnNewProject, rememberOffered } from './tutorial';
 import { FirstRunFlow, OpenLesson } from './components/FirstRun';
-import { landing as firstRunLanding, lessonsLeft, setLessons, type Lesson } from './first-run';
+import { landing as firstRunLanding, lessonsLeft, setLessons, showsOpenLesson, type Lesson } from './first-run';
 import {
   ANSWER_AFTER_MS, COACHED, COPY as WALK_COPY, FIRST_RUN_LABEL, advance as advanceRun, afterCommand, beatRows, coach, closingRefused, firstRunDone,
   finishedCleared, firstRunNeeded, projectsOfTheirOwn, inboxCleared, laterCleared, laterId, laterIndex,
@@ -6102,17 +6102,18 @@ export default function App() {
   // it: a glance at Needs you in the meantime must not take the line away.
   useEffect(() => { if (justSent && list.length && view === 'progress') setJustSent(false); }, [justSent, list.length, view]);
 
-  // ↵ beside the row you are on, until a thread is opened.
+  // ↵ beside the row you are on, until a thread is opened, and never while a
+  // card has the keyboard (`showsOpenLesson`).
   const [lessonAt, setLessonAt] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
-    if (!lessons.includes('open') || focused || fresh || (view !== 'inbox' && view !== 'progress')) { setLessonAt(null); return; }
+    if (!showsOpenLesson({ lessons, focused: !!focused, fresh, view, modal })) { setLessonAt(null); return; }
     const title = document.querySelector('.list-pane .row.selected .th-cell-title') ?? document.querySelector('.list-pane .th-cell-title');
     if (!title) { setLessonAt(null); return; }
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
     setLessonAt((previous) => lessonPosition(previous, { left: r.right + 20, top: r.top + r.height / 2 - 17 }));
-  }, [lessons, focused, fresh, view, list, selected]);
+  }, [lessons, focused, fresh, view, modal, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
   // The first option's key lit, until a thread that offered options is left.
@@ -6940,7 +6941,7 @@ export default function App() {
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
                       ? run === null && !landing && <InboxClear slot={setClearSlot} />
-                      : <EmptyTab view={view} starting={!!landOn || justSent} />
+                      : <EmptyTab view={view} starting={!!landOn || justSent} waiting={needsYouCount.inbox} />
                 ) : <List
                   lead={view === 'inbox' && search === null && roomsUi.mentions.length
                     ? <MentionRows mentions={roomsUi.mentions} faces={roomsUi.faces} now={now} onOpen={roomsUi.openMention} /> : null}

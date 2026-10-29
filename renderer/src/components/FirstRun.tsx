@@ -19,14 +19,13 @@ import { WhenPicker, WHEN_NOW, type WhenValue } from './When';
 import FolderPicker from './FolderPicker';
 import { checkProjectFolder } from '../../../shared/project-folder-check.mjs';
 import {
-  chatChoices, chatsHeadline, FIRST_RUN_STEP, firstRunOf, folderChoices, ideasFor, isSend, listKey, previousScreen, projectsToMake, readyEngines, stepsFor,
+  ENGINE_NAME, chatChoices, chatsHeadline, FIRST_RUN_STEP, firstRunOf, folderChoices, ideasFor, installGate, isSend, listKey, previousScreen, projectsToMake, readyEngines, stepsFor,
   type Engine, type FolderChoice, type Screen, type Step,
 } from '../first-run';
 import './first-run.css';
 
 type Project = { slug: string; name: string };
 
-const ENGINE_NAME: Record<Engine, string> = { claude: 'Claude Code', codex: 'Codex' };
 const SEND = MAC ? ['⌘', '↵'] : ['Ctrl', '↵'];
 const LEAVE_MS = 260;
 const IDEAS = ideasFor();
@@ -108,6 +107,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const [ready, setReady] = useState<Engine[] | undefined>(undefined);
   const hasReady = !!ready?.length;
   const [setup, setSetup] = useState<{ engine: Engine; phase: string; error: string | null } | null>(null);
+  const gate = installGate(setup);
   const [threads, setThreads] = useState<SessionThread[] | null>(null);
   const [chatTicks, setChatTicks] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState(0);
@@ -291,12 +291,13 @@ export function FirstRunFlow({ snap, home, onDone }: {
   const chooseAnother = useCallback(async () => {
     if (busy || opening) return;
     setOpening(true);
-    const { path: picked, refused: why, browse } = await api.chooseFolder(places[0]?.folder ?? (home || undefined))
+    // No folder named leaves it to main, which knows what is on this disk.
+    const { path: picked, refused: why, browse } = await api.chooseFolder(places[0]?.folder)
       .finally(() => setOpening(false));
     if (browse) { setBrowsing(true); return; }
     if (why) { setProblem(why); return; }
     if (picked) chooseFolder(picked);
-  }, [busy, opening, places, home, chooseFolder]);
+  }, [busy, opening, places, chooseFolder]);
 
   const pickPlace = useCallback((i: number) => {
     const folder = places[i]?.folder;
@@ -326,8 +327,8 @@ export function FirstRunFlow({ snap, home, onDone }: {
       if ((e.target as Element | null)?.closest('.ob-back') && (e.key === 'Enter' || e.key === ' ')) return;
       if (screen === 'welcome') {
         if (e.key === 'Enter' && hasReady) { e.preventDefault(); start(); }
-        else if (!hasReady && e.key === '1') startSetup('claude');
-        else if (!hasReady && e.key === '2') startSetup('codex');
+        else if (!hasReady && !gate.running && e.key === '1') startSetup('claude');
+        else if (!hasReady && !gate.running && e.key === '2') startSetup('codex');
         return;
       }
       if (screen === 'chats') {
@@ -369,7 +370,7 @@ export function FirstRunFlow({ snap, home, onDone }: {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [screen, leaving, hasReady, chats, cursor, busy, opening, places, idea, text, browsing, go, start, startSetup, bringIn, next, skip, pickPlace, pickIdea]);
+  }, [screen, leaving, hasReady, gate.running, chats, cursor, busy, opening, places, idea, text, browsing, go, start, startSetup, bringIn, next, skip, pickPlace, pickIdea]);
 
   useEffect(() => {
     if (browsing) document.querySelector<HTMLInputElement>('.first-run .fp-path')?.focus();
@@ -399,10 +400,10 @@ export function FirstRunFlow({ snap, home, onDone }: {
             <Mark />
             {ready && !hasReady ? (
               <>
-                <h1 className="ob-big ob-in" style={{ animationDelay: '1.3s' }}>Install Claude Code or Codex to start</h1>
+                <h1 className="ob-big ob-in" style={{ animationDelay: '1.3s' }}>{gate.heading}</h1>
                 <div className="ob-actions ob-in" style={{ animationDelay: '1.6s', marginTop: 40 }}>
-                  <button type="button" className="ob-btn" onClick={() => startSetup('claude')}>Install Claude Code <Key k="1" /></button>
-                  <button type="button" className="ob-btn" onClick={() => startSetup('codex')}>Install Codex <Key k="2" /></button>
+                  <button type="button" className="ob-btn" disabled={gate.running} onClick={() => startSetup('claude')}>Install Claude Code <Key k="1" /></button>
+                  <button type="button" className="ob-btn" disabled={gate.running} onClick={() => startSetup('codex')}>Install Codex <Key k="2" /></button>
                 </div>
               </>
             ) : (

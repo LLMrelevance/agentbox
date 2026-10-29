@@ -56,6 +56,11 @@ const emptyFixtures = params.get('fixtures') === 'empty';
 // "Three agents working." without this.
 // The number is hers to pass; nothing else about the fixture changes.
 const workingFixtures = Math.max(0, Math.min(99, Number(params.get('working') ?? 0) || 0));
+// ?waiting=2 puts two threads in Needs you with nothing running, which is
+// where a first task sits once its agent has finished and asked a question.
+// Without it the In progress tab's empty line, all of F-142, cannot be
+// photographed: the empty fixture has no inbox and the full one is never idle.
+const waitingFixtures = Math.max(0, Math.min(99, Number(params.get('waiting') ?? 0) || 0));
 // ?fixtures=crowded reproduces a real crowded picker: twenty two projects,
 // duplicates and scratch included. That is the only shape where the composer's
 // chips WRAP, and ranking-by-dragging was written against a single row, so it
@@ -351,6 +356,10 @@ export const api = {
   async snapshot(): Promise<Snapshot> {
     if (emptyFixtures) {
       const empty = { ...structuredClone(fixtureSnapshot), items: [], approvals: [], supervisor: { paused: false, running: [], capacity: 3 } };
+      // ?noProjects IS A STORE NOBODY HAS USED, which is the only world the
+      // first run draws in: it opens on a count of projects, and the empty
+      // fixture still carries Kestrel and the rest.
+      if (params.has('noProjects')) empty.products = [];
       // AND THE AGENTS THE BAR COUNTS. Real running entries rather than a number
       // poked in, so the bar counts the same array the app counts everywhere
       // else. The inbox stays empty, which is what keeps the idle page up.
@@ -359,6 +368,16 @@ export const api = {
           itemId: `w-working-${i + 1}`, product: 'kestrel', startedAt: Date.now() - (i + 1) * 60_000,
           tail: ['tool: Read'],
         })) as typeof empty.supervisor.running;
+      }
+      if (waitingFixtures) {
+        const now = Date.now();
+        empty.items = Array.from({ length: waitingFixtures }, (_x, i) => ({
+          id: `w-waiting-${i + 1}`, product: 'kestrel', productName: 'Kestrel',
+          status: 'open', kind: 'task', title: 'README usage section with example call',
+          labels: [], priority: 1, epoch: 1, claim: null,
+          result: 'Which name and email should the commit use?',
+          createdAt: now - (i + 1) * 60_000, updatedAt: now - (i + 1) * 60_000,
+        })) as typeof empty.items;
       }
       // AND THE SECOND CODING AGENT, LAST, OVER WHICHEVER WORLD IS UP. It is
       // applied at all four exits rather than once around them because each
@@ -1257,6 +1276,13 @@ export const api = {
      */
     if (useFixtures && engineFixtures === 'nowhere') {
       return { engine, phase: 'idle', error: null, log: '', found: false, signedIn: false };
+    }
+    // AND THE SAME MACHINE WITH AN INSTALL RUNNING ON IT. The first probe is
+    // `ready`, which has to answer empty or the gate never opens; every action
+    // after it is the press, and it stays where it is so the screen can be
+    // photographed waiting.
+    if (useFixtures && engineFixtures === 'installing') {
+      return { engine, phase: action === 'ready' ? 'idle' : 'installing', error: null, log: '', found: false, signedIn: false };
     }
     /*
      * AND THE MACHINE MOST PEOPLE ARRIVE ON (w-e217e577e5): Claude signed in
