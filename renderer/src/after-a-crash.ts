@@ -1,6 +1,8 @@
 // What the window does when the screen throws: reload once on its own, and
 // only stop and ask when a reload it made itself crashed again straight away.
 
+import { chord } from './this-keyboard';
+
 export type CrashStore = Pick<Storage, 'getItem' | 'setItem'>;
 
 export const CRASH_RELOAD_KEY = 'agentbox.crash-reloaded-at';
@@ -11,6 +13,9 @@ export const CRASH_LOOP_MS = 60_000;
 const TOLD_WITHIN_MS = 15_000;
 
 export const RELOADED_AFTER_A_CRASH = 'The screen hit an error and reloaded itself';
+// Here rather than in the boundary that draws it, because the blank-screen
+// recovery below draws the same sentence when React is gone.
+export const CRASHED_TWICE = `This screen hit an error twice in a row. Press ${chord('⌘R')} to reload it.`;
 
 const reloadedAt = (store: CrashStore) => {
   const at = Number(store.getItem(CRASH_RELOAD_KEY));
@@ -29,6 +34,34 @@ export function afterACrash(now: number, store: () => CrashStore = () => session
   } catch {
     return 'stay';
   }
+}
+
+// WHEN THE THROW NEVER REACHES THE BOUNDARY. React can answer an update loop
+// by unmounting the whole root instead of handing it to ScreenCrash, and then
+// the window's error listener is the only thing still running. So it does what
+// the boundary would have (main.tsx).
+let drew = false;
+
+/** Called from the screen itself. A root empty before this is boot, not death. */
+export function screenDrew(yes = true) { drew = yes; }
+
+export function theScreenDied(root: { childElementCount: number } | null | undefined): boolean {
+  return drew && !!root && root.childElementCount === 0;
+}
+
+/** The same one reload and the same refusal to loop as `afterACrash`. */
+export function comeBackFromABlankScreen({ root, now, store, reload, say }: {
+  root: { childElementCount: number } | null | undefined;
+  now: number;
+  store?: () => CrashStore;
+  reload: () => void;
+  say: (words: string) => void;
+}): 'reload' | 'stay' | null {
+  if (!theScreenDied(root)) return null;
+  const next = afterACrash(now, store);
+  if (next === 'stay') { say(CRASHED_TWICE); return 'stay'; }
+  reload();
+  return 'reload';
 }
 
 let told = false;

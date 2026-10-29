@@ -1288,14 +1288,17 @@ export const api = {
     if (!zero?.engineSetup) return assumeReady;
     try {
       const r = await zero.engineSetup({ action, engine });
-      if (!r?.ok) return { ...assumeReady, phase: 'failed', found: false, signedIn: false, error: r?.error ?? 'Setup could not start.' };
+      // A PROBE THAT DID NOT RUN IS NOT A COMPUTER WITH NOTHING ON IT. The
+      // setup card reads this as failed and says so; the inbox bar reads
+      // `certain` and stays down.
+      if (!r?.ok) return { ...assumeReady, phase: 'failed', found: false, signedIn: false, certain: false, error: r?.error ?? 'Setup could not start.' };
       return {
         engine, phase: r.phase ?? 'idle', error: r.error ?? null, log: r.log ?? '',
-        found: !!r.found, signedIn: !!r.signedIn,
+        found: !!r.found, signedIn: !!r.signedIn, certain: r.certain !== false,
         bin: r.bin ?? null, already: !!r.already,
       };
     } catch (e) {
-      return { ...assumeReady, phase: 'failed', found: false, signedIn: false, error: String((e as Error)?.message ?? e) };
+      return { ...assumeReady, phase: 'failed', found: false, signedIn: false, certain: false, error: String((e as Error)?.message ?? e) };
     }
   },
 

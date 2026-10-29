@@ -1721,8 +1721,10 @@ export function registerIpc({ store, supervisor, config, window, analytics = NO_
   const engineSetup = createEngineSetup({
     find: (engine) => {
       const finders = {
-        claude: async () => { const s = await lookAgainFor('claude', config); return { found: s.claudeFound, path: s.claudeBin }; },
-        codex: async () => { const s = await lookAgainFor('codex', config); return { found: s.found, path: s.bin }; },
+        // `certain` travels with the answer, so a search that established
+        // nothing does not read as a computer with nothing on it.
+        claude: async () => { const s = await lookAgainFor('claude', config); return { found: s.claudeFound, path: s.claudeBin, certain: s.claudeCertain }; },
+        codex: async () => { const s = await lookAgainFor('codex', config); return { found: s.found, path: s.bin, certain: s.certain }; },
       };
       return finders[engine]?.() ?? { found: false, path: null };
     },
