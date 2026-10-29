@@ -138,7 +138,7 @@ import { PlanBar, PlanSetupCard } from './components/PlanSetup';
 import { CloudSetup } from './components/CloudSetup';
 import { SETUP, newlyFailedSignIns } from './cloud-setup';
 import { AppMark } from './components/AppMark';
-import { sureNoPlan, type Plan } from './plan-setup';
+import { planBar, type BarWords, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
 import { ModeScreen, isModeVariant } from './components/ModeScreen';
 import { practiceRemembered, rememberProject, rememberedProject } from './compose-project';
@@ -1169,10 +1169,14 @@ export default function App() {
   // reach the main process reads as ready, so the bar never appears by guess.
   // `sureNoPlan` is the rest of that promise: a probe that did not answer is
   // not a no either, and this bar tells rather than asks, so it has to be sure.
-  const [noPlan, setNoPlan] = useState(false);
+  // The readings are kept whole rather than boiled down to a yes or no,
+  // because which tool is on the disk decides the words and the order (F-151).
+  const [planWords, setPlanWords] = useState<BarWords | null>(null);
   const checkPlan = useCallback(async () => {
     const r = await Promise.all([api.engineSetup('ready', 'claude'), api.engineSetup('ready', 'codex')]);
-    setNoPlan(sureNoPlan(r.map((x) => ({ found: !!x.found, signedIn: !!x.signedIn, certain: x.certain }))));
+    setPlanWords(planBar(r.map((x) => ({
+      engine: x.engine, found: !!x.found, signedIn: !!x.signedIn, certain: x.certain,
+    }))));
   }, []);
   useEffect(() => { if (!run) void checkPlan(); }, [run, checkPlan]);
 
@@ -6700,7 +6704,7 @@ export default function App() {
                   agents cannot start. The bar is back the moment nothing is
                   running, which is when a row's line about what stopped it
                   points here. */}
-              {noPlan && !snap.supervisor.running?.length && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
+              {planWords && !snap.supervisor.running?.length && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar words={planWords} onSetup={setSetupPlan} />}
               {teammatesShown ? teammatesUi.page : focusedRepeat ? (
                 <RepeatFocus
                   rule={focusedRepeat}
