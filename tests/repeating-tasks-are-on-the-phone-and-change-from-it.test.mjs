@@ -65,7 +65,7 @@ describe('the settings copy the Mac sends', () => {
   });
 
   it('writes her home folder as ~ and hides a key in the words', async () => {
-    const m = mac({ rules: [rule('r-1', { body: `Read ${HOME}/notes.md with sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789` })] });
+    const m = mac({ rules: [rule('r-1', { body: `Read ${HOME}/notes.md with sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789` })] }); // public-check: allow (a fake key, to prove it is hidden)
     await m.inbox.syncOnce();
     const body = (await m.carried())[0].body;
     expect(body).toContain('~/notes.md');
