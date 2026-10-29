@@ -6294,8 +6294,8 @@ export default function App() {
   // top bar (phone.css).
   const narrowSidebar = !onPhone();
   // The sidebar's Search row and ⌘K search threads on a desktop; a phone has
-  // neither, so only there does the list draw its own magnifier.
-  const searchInTheList = onPhone() ? openSearch : undefined;
+  // neither, so only there does the list draw a magnifier, and it opens ⌘K.
+  const searchInTheList = onPhone() ? () => setModal('palette') : undefined;
   const sideFolded = !railOpen;
   // A teammate's direct record is one of your groups, so Groups is the page it is on.
   const directOpen = !!focused && isDirect(snap?.products.find((p) => p.slug === focused.product));
@@ -7242,6 +7242,7 @@ export default function App() {
           component here, we no longer use this". */}
       <Palette
         open={modal === 'palette'}
+        phone={onPhone()}
         cloud={snap.cloud?.setUp ? snap.cloud : null}
         onCloudMode={(mode) => { setModal(null); void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
         onFirstRun={walkAgain}
@@ -7345,7 +7346,8 @@ export default function App() {
           }
           // The same row the hint and the keys are on, so ⌘K opened over a
           // row cannot mean a different task than E pressed over it.
-          const target = focused ?? pointed;
+          // A phone draws no pointed row, so only the open thread.
+          const target = focused ?? (onPhone() ? null : pointed);
           if (!target) return [];
           const options = itemOptions(target);
           const recommended = options.find((o) => o.recommended) ?? options[0];

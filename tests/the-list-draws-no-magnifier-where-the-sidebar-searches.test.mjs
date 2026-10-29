@@ -4,8 +4,8 @@
 // magnifier at the right end of the Needs you / In progress row (and in the
 // board's header) was a second way to the same place. Measured in App.tsx:
 // both StateTabs and, on the board, HeaderActions were handed `openSearch`
-// on every screen. A phone has no sidebar and no ⌘K, so there the magnifier
-// is still the only way to search, and it stays.
+// on every screen. A phone has no sidebar and no ⌘K key, so there the
+// magnifier stays, and it opens ⌘K (command-k-on-a-phone).
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 
@@ -23,7 +23,7 @@ const elements = (name) => {
 
 describe('the list and the board leave search to the sidebar', () => {
   it('is drawn only on a phone', () => {
-    expect(app).toMatch(/const searchInTheList = onPhone\(\) \? openSearch : undefined;/);
+    expect(app).toMatch(/const searchInTheList = onPhone\(\) \? \(\) => setModal\('palette'\) : undefined;/);
   });
 
   it('every tab row is handed only that', () => {
