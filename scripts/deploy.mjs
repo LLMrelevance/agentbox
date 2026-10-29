@@ -10,7 +10,7 @@
 //   1. the Mac app: built, signed and notarised (about 15 minutes)
 //   2. npm, for `npx agentbox-app`
 //   3. the download on agentbox.ac, and the feed installed copies update from
-//   4. the cloud server
+//   4. the cloud machine's image, then the cloud server
 // and ends by reading each one back and saying which has the new version.
 //
 // The Mac build goes first because it is the slow step and the one most likely
@@ -38,12 +38,12 @@ const SERVER = 'agentbox-gateway';
 const REGION = 'us-east-1';
 
 const pkgPath = path.join(repo, 'package.json');
-let versionWritten = false;
+let packageWritten = false;
 
 function restorePackageJson() {
-  if (!versionWritten) return;
+  if (!packageWritten) return;
   spawnSync('git', ['checkout', '--', 'package.json'], { cwd: repo });
-  versionWritten = false;
+  packageWritten = false;
 }
 
 function stop(...lines) {
@@ -106,9 +106,10 @@ const identity = quiet('security', ['find-identity', '-v', '-p', 'codesigning'])
 if (!identity) missing.push('No Developer ID certificate in the Keychain, so nothing can be signed (Xcode → Settings → Accounts → Manage Certificates).');
 const team = identity?.[1];
 
-let posthog = false;
-try { posthog = Boolean(JSON.parse(fs.readFileSync(path.join(repo, 'zero.config.json'), 'utf8')).posthogKey); } catch {}
-if (!posthog && !process.env.AGENTBOX_POSTHOG_KEY) missing.push('No "posthogKey" in zero.config.json in this folder, so the app would count nobody.');
+// The environment first, as scripts/release.mjs reads it for the Mac build.
+let posthog = process.env.AGENTBOX_POSTHOG_KEY?.trim() || null;
+try { posthog ||= JSON.parse(fs.readFileSync(path.join(repo, 'zero.config.json'), 'utf8')).posthogKey?.trim() || null; } catch {}
+if (!posthog) missing.push('No "posthogKey" in zero.config.json in this folder, so the app would count nobody.');
 
 const home = path.join(os.homedir(), '.agentbox');
 if (![path.join(repo, 'cloud', 'team.config.json'), path.join(home, 'team.config.json')].some((f) => fs.existsSync(f))) {
@@ -169,14 +170,13 @@ if (checkOnly) {
   process.exit(0);
 }
 
-// The version goes into package.json for this run only, because every step
-// below reads it from there. It is put back at the end, so main's file is
-// never edited in this folder.
-if (version !== JSON.parse(fs.readFileSync(pkgPath, 'utf8')).version) {
-  const text = fs.readFileSync(pkgPath, 'utf8');
-  fs.writeFileSync(pkgPath, text.replace(/("version":\s*")[^"]+(")/, `$1${version}$2`));
-  versionWritten = true;
-}
+// The version and the counting key go into package.json for this run only,
+// because every step below reads the version from there and `npm publish` packs
+// the file as it stands: the key is what lets `npx agentbox-app` count, as
+// electron-builder's extraMetadata does for the Mac app. It is put back at the
+// end, so main's file never carries either.
+fs.writeFileSync(pkgPath, `${JSON.stringify({ ...JSON.parse(fs.readFileSync(pkgPath, 'utf8')), version, bakedPosthogKey: posthog }, null, 2)}\n`);
+packageWritten = true;
 process.on('exit', restorePackageJson);
 process.on('SIGINT', () => { restorePackageJson(); process.exit(130); });
 
@@ -206,14 +206,20 @@ if (!live('npm', ['publish'], { AGENTBOX_PUBLISH_ANYWAY: '1' })) {
 // 6. THE DOWNLOAD AND THE UPDATE FEED. publish-download.mjs checks the file
 // the website hands out against this build before it says it is done.
 say('putting the Mac app on agentbox.ac and in the update feed');
-if (!live('node', ['scripts/publish-download.mjs', `release/Agentbox-${version}-universal.dmg`, '--publish'])) {
+if (!live('node', ['scripts/publish-download.mjs', `release/Agentbox-${version}-universal.dmg`, '--publish'],
+  { AGENTBOX_RELEASE_COMMIT: commit })) {
   stop(`npm has ${version} and the website does not yet. The reason is just above.`,
     `To finish, run: node scripts/publish-download.mjs release/Agentbox-${version}-universal.dmg --publish`);
 }
 restorePackageJson();
 
 // ---------------------------------------------------------------------------
-// 7. THE CLOUD SERVER, from the same commit.
+// 7. THE CLOUD MACHINE'S IMAGE, which every cloud run starts from. Built only
+// when cloud/sandbox/ or this Mac's Claude Code or Codex version changed.
+say('updating the cloud machine (a few minutes when it changed)');
+const imageOk = live('node', ['scripts/cloud-setup.mjs'], { AGENTBOX_CLOUD_CONFIG: serverFile });
+
+// The cloud server, from the same commit.
 say('updating the cloud server');
 const serverOk = live('node', ['scripts/cloud-gateway-setup.mjs'], { AGENTBOX_CLOUD_CONFIG: serverFile });
 
@@ -235,9 +241,21 @@ const lines = whatIsLive({
 });
 console.log('');
 for (const l of lines) console.log(`  ${l.ok ? '✓' : '✗'} ${l.part.padEnd(17)} ${l.ok ? version : `still ${l.saw}`}`);
-if (lines.every((l) => l.ok)) {
-  console.log(`\nAgentbox ${version} is out everywhere. Restart Agentbox to run it yourself.\n`);
+console.log(`  ${imageOk ? '✓' : '✗'} ${'cloud machine'.padEnd(17)} ${imageOk ? 'up to date' : 'not rebuilt'}`);
+if (lines.every((l) => l.ok) && imageOk) {
+  console.log(`\nAgentbox ${version} is out everywhere. Restart Agentbox to run it yourself.`);
+  // MAIN'S OWN NUMBER DOES NOT FOLLOW A RELEASE, and nothing said so (F-147).
+  // The version is written into package.json for this run and taken back out
+  // at step 6, because this folder may not commit (scripts/hooks/pre-commit).
+  // Main went two releases behind in silence, so a clone built from the README
+  // called itself a version that was out before it.
+  if (version !== mainVersion) {
+    console.log(`\nmain still says ${mainVersion}, so anyone who clones it builds a copy calling itself that.`);
+    console.log(`Ship a branch setting "version": "${version}" in package.json and package-lock.json to catch it up.`);
+  }
+  console.log('');
 } else {
   stop('Not every place has the new version yet; the ✗ lines above say which.',
+    imageOk ? '' : `For the cloud machine, run: AGENTBOX_CLOUD_CONFIG=${serverFile} node scripts/cloud-setup.mjs`,
     lines.find((l) => l.part === 'cloud server' && !l.ok) ? `For the cloud server, run: AGENTBOX_CLOUD_CONFIG=${serverFile} node scripts/cloud-gateway-setup.mjs` : '');
 }

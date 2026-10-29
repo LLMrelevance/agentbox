@@ -29,6 +29,9 @@ export interface EngineSetupState {
   bin?: string | null;
   /** Whether it was on the computer before this setup started. */
   already?: boolean;
+  /** Whether this reading established anything: false when the search or the
+   *  sign-in check did not answer, which is not the same as a no. */
+  certain?: boolean;
 }
 
 export const COPY = {
@@ -142,6 +145,17 @@ export function enginesFor(plan: Plan): Engine[] {
  */
 export function needsPlan(readiness: Array<Pick<EngineSetupState, 'found' | 'signedIn'>>): boolean {
   return !readiness.some((r) => r.found && r.signedIn);
+}
+
+/**
+ * AND WHETHER THE BAR MAY SAY SO OUT LOUD. `barSay` is an absolute claim about
+ *  what the app will do, so only a certain no raises it.
+ *
+ *  The walk keeps `needsPlan`: it asks a question and offers a way past, so
+ *  asking on an unsure reading costs a click. This tells rather than asks.
+ */
+export function sureNoPlan(readings: Array<Pick<EngineSetupState, 'found' | 'signedIn' | 'certain'>>): boolean {
+  return needsPlan(readings) && readings.every((r) => r.certain !== false);
 }
 
 /**

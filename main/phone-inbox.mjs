@@ -34,7 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import os from 'node:os';
-import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
+import { threadSnapshot, threadsWorthCarrying, snapshotKey, checkCommand, madeHere, hideSecrets, bytesOf, phoneChoices, phoneApproval, phoneRepeatsOf, SNAPSHOT_LIMITS } from '../shared/phone-snapshot.mjs';
 import { phoneSettingsOf, settingRoute } from '../shared/phone-settings.mjs';
 import { createPhoneUploads, UPLOAD_LIMITS } from './phone-uploads.mjs';
 import { createPhoneAlerts } from './phone-alerts.mjs';
@@ -96,6 +96,10 @@ export function createPhoneInbox({
   approvalsOf = () => [],
   // async () -> the window's settings model (main/settings.mjs readSettings); none sends no settings.
   readSettings = null,
+  // () -> { [threadId]: true }, the threads pinned on this computer.
+  pinsOf = () => ({}),
+  // () -> every project's repeating tasks (store.listRepeats); they ride with the settings.
+  repeatsOf = null,
   version = '',
   // This computer as her phone names it.
   name = os.hostname().replace(/\.local$/i, ''),
@@ -128,6 +132,9 @@ export function createPhoneInbox({
   toCarry = null,
   handedOver = () => {},
   takenBack = () => {},
+  // Every pass, the commands of runs it has finished joining, so a hand-over
+  // still held for one of them is let go (Supervisor#carriedFinished).
+  carriedFinished = () => {},
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -173,13 +180,14 @@ export function createPhoneInbox({
       return { label: label.length > 160 ? `${label.slice(0, 159)}…` : label, startedAt: Number(d?.startedAt) || now() };
     });
     const was = lives.get(sk);
-    const sameRun = was && was.since === raw.since && was.where === raw.where;
+    const movable = raw.where !== 'cloud' && raw.movable === true;
+    const sameRun = was && was.since === raw.since && was.where === raw.where && !!was.movable === movable;
     const runId = raw.runId ?? (sameRun ? was.runId : undefined);
     const same = sameRun && was.runId === runId;
     const steps = (l) => JSON.stringify(l.doing.map((d) => d.label));
     if (same && now() - was.at < STEP_EVERY_MS) return was;
     if (same && now() - was.at < STILL_RUNNING_MS && steps(was) === steps({ doing })) return was;
-    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now(),
+    const live = { since: Number(raw.since) || now(), where: raw.where === 'cloud' ? 'cloud' : 'mac', doing, at: now(), ...(movable ? { movable } : {}),
       ...(raw.where === 'cloud' && /^[A-Za-z0-9._-]{1,120}$/.test(runId ?? '') ? { runId } : {}),
     };
     lives.set(sk, live);
@@ -202,6 +210,8 @@ export function createPhoneInbox({
     try { waits = waitsOf(); } catch { /* the supervisor's trouble, not the phone's */ }
     const waitOf = (item) => waits?.byId?.[item.id] ?? (waits?.paused && item.status !== 'done' ? { state: 'paused' } : null);
     const known = new Set(chosen.map((p) => p.slug));
+    let pins = {};
+    try { pins = pinsOf() ?? {}; } catch { /* the supervisor's trouble, not the phone's */ }
     for (const p of chosen) {
       await breathe();
       const key = `project:${p.slug}`;
@@ -218,7 +228,8 @@ export function createPhoneInbox({
       const rows = threadsWorthCarrying(listItems(p.slug), { now: now() });
       const batch = [];
       const here = new Set();
-      for (const item of rows) {
+      for (const raw of rows) {
+        const item = pins[raw.id] === true ? { ...raw, pinned: true } : raw;
         if (here.size && here.size % THREADS_PER_TURN === 0) await breathe();
         here.add(item.id);
         const sk = `${p.slug}:${item.id}`;
@@ -291,6 +302,9 @@ export function createPhoneInbox({
     let carried = null;
     try { carried = phoneSettingsOf(await readSettings(), { version }); } catch (err) { troubled('read', err); return false; }
     if (!carried) return false;
+    if (repeatsOf) {
+      try { carried = { ...carried, repeats: phoneRepeatsOf(repeatsOf(), projects().map((p) => p.slug), { home }) }; } catch (err) { troubled('read the repeating tasks for', err); }
+    }
     const key = JSON.stringify(carried);
     if (key === settings.key && now() - settings.sentAt < SETTINGS_HEARTBEAT_MS) return false;
     still();
@@ -554,6 +568,9 @@ export function createPhoneInbox({
       save();
     }
     for (const [k, v] of Object.entries(state.adopted)) if (!(now() - (v?.at ?? 0) < ADOPTED_KEPT_MS)) delete state.adopted[k];
+    // A reply is in `placed`; a fresh row's Run now only in `marked`.
+    const finished = [...new Set(Object.values(state.adopted).filter((r) => r?.done).flatMap((r) => [...(r.placed ?? []), ...(r.marked ?? [])]))];
+    try { carriedFinished(finished); } catch { /* the supervisor's trouble, not the phone's */ }
     return n;
   }
 
@@ -684,6 +701,7 @@ const ROUTES = {
   snooze: (c) => ['zero:snooze', { product: c.project, id: c.item, snoozedUntil: c.payload.until }],
   stop: (c) => ['zero:stop-session', { product: c.project, id: c.item }],
   'run-now': (c) => ['zero:run-now', { product: c.project, id: c.item }],
+  'move-to-cloud': (c) => ['zero:move-to-cloud', { ids: [c.item] }],
   'send-now': (c) => ['zero:send-now', { product: c.project, id: c.item }],
   reopen: (c) => ['zero:reopen', { product: c.project, id: c.item }],
   schedule: (c) => ['zero:schedule', { product: c.project, id: c.item, runAt: c.payload.runAt }],

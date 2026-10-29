@@ -30,6 +30,7 @@ import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pic
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
 import { LogoOrbit } from './components/LogoOrbit';
+import { cameBackFromACrash, keepHeldWriter, RELOADED_AFTER_A_CRASH } from './after-a-crash';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
@@ -73,6 +74,7 @@ import { ago, closesTheTask, discardsTheChange, itemOptions, liveOption, needsYo
 import { discardAsk } from './discard-asks-first';
 import {
   draftKey, hasDraft, readDraft, restoreDraft, restoreFailedDraft, readComposeDraft, restoreComposeDraft, saveDraft, clearComposeDraft,
+  markReplyInFlight, replyLanded, repliesInFlight, bringBackUnsent,
   type SentDraft, type ComposeDraft,
 } from './drafts';
 import { approvalStage, approvalClickAllowed } from './approval-stage';
@@ -136,7 +138,7 @@ import { PlanBar, PlanSetupCard } from './components/PlanSetup';
 import { CloudSetup } from './components/CloudSetup';
 import { SETUP, newlyFailedSignIns } from './cloud-setup';
 import { AppMark } from './components/AppMark';
-import { needsPlan, type Plan } from './plan-setup';
+import { sureNoPlan, type Plan } from './plan-setup';
 import { PRACTICE_REPLY, PRACTICE_ROWS, PRACTICE_SLUG } from '../../shared/first-run-practice.mjs';
 import { ModeScreen, isModeVariant } from './components/ModeScreen';
 import { practiceRemembered, rememberProject, rememberedProject } from './compose-project';
@@ -145,7 +147,7 @@ import { TutorialOffer } from './components/TutorialOffer';
 import { holdForStoppedAgent, neverWarned, rememberWarned } from './stopped-agent';
 import { comeBackTo, neverOffered, offerOnNewProject, rememberOffered } from './tutorial';
 import { FirstRunFlow, OpenLesson } from './components/FirstRun';
-import { landing as firstRunLanding, lessonsLeft, setLessons, type Lesson } from './first-run';
+import { landing as firstRunLanding, lessonsLeft, setLessons, showsOpenLesson, type Lesson } from './first-run';
 import {
   ANSWER_AFTER_MS, COACHED, COPY as WALK_COPY, FIRST_RUN_LABEL, advance as advanceRun, afterCommand, beatRows, coach, closingRefused, firstRunDone,
   finishedCleared, firstRunNeeded, projectsOfTheirOwn, inboxCleared, laterCleared, laterId, laterIndex,
@@ -178,11 +180,13 @@ import { Face, TeamContext, firstName, teamView } from './team/people';
 import { FaceHover } from './team/status';
 import { TeamPage } from './team/TeamPage';
 import { ProjectShare, ProjectWho } from './team/ProjectShare';
-import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
+import { ConnectComputer, EmptyTab, FilteredEmpty, HeaderActions, INBOX_TABS, InboxBoard, InboxClear, LiveContext, CloudContext, MoveToCloudContext, CloudOfferContext, FreeAgentContext, StateTabs, WaitingContext } from './threads/Pages';
 import { cloudOffer, type OfferGo } from './cloud-upgrade';
 import { FleetContext, queuedWithHeld, type Fleet } from './fleet';
+import { factsFor } from './status-word';
 import { isCarrying } from './threads/row-drag';
 import { MessagePerson, TeammateCard } from './threads/Summary';
+import type { PlaceAct } from './threads/ThreadMenu';
 import { SignInPage } from './team/SignInPage';
 import { DEFAULT_DISPLAY, boardColumns, boardSideways, boardWalk, readColumnOrder, writeColumnOrder, conversationSlugs, conversationWith, crumbTab, flipView, isDirect, nextTab, pageDisplay, pageFor, peopleInConversation, readDisplay, readPrivacy, rowSharing, writeDisplay, writePrivacy, keeps as keepsDisplay, overlayPins, overlayPlaces, dropWithPins, rankScore, sorted as sortedByDisplay, tabOfState, type Display, type Privacy, type Unsaved, type UnsavedPins } from './threads/page-rules';
 import { inboxEveryone, mergeRows, needsWord, normalizePicked, othersInView, readPicked, teammateRows, writePicked } from './threads/people-rules';
@@ -1163,10 +1167,12 @@ export default function App() {
   // says so with the same two plans the walk asks about. Asked when the walk
   // ends and again after a setup from the bar finishes; a page that cannot
   // reach the main process reads as ready, so the bar never appears by guess.
+  // `sureNoPlan` is the rest of that promise: a probe that did not answer is
+  // not a no either, and this bar tells rather than asks, so it has to be sure.
   const [noPlan, setNoPlan] = useState(false);
   const checkPlan = useCallback(async () => {
     const r = await Promise.all([api.engineSetup('ready', 'claude'), api.engineSetup('ready', 'codex')]);
-    setNoPlan(needsPlan(r.map((x) => ({ found: !!x.found, signedIn: !!x.signedIn }))));
+    setNoPlan(sureNoPlan(r.map((x) => ({ found: !!x.found, signedIn: !!x.signedIn, certain: x.certain }))));
   }, []);
   useEffect(() => { if (!run) void checkPlan(); }, [run, checkPlan]);
 
@@ -1691,6 +1697,8 @@ export default function App() {
   // (./phone-holds).
   useEffect(() => {
     const off = window.zero?.onWriteHeld?.(flushPending);
+    // Not taken back on unmount: a crash unmounts this, and that is when it is needed.
+    keepHeldWriter(flushPending);
     const onHide = () => { void flushPending(); };
     window.addEventListener('pagehide', onHide);
     const offHidden = onPhone() ? writeHeldWhenHidden(document, flushPending) : null;
@@ -3772,6 +3780,8 @@ export default function App() {
   // common reason ⌘R "does nothing" is that the renderer was never rebuilt,
   // which a build time that has not moved makes obvious.
   useEffect(() => {
+    const crashed = cameBackFromACrash(Date.now());
+    if (crashed) showToast(RELOADED_AFTER_A_CRASH);
     // No bridge at all (a plain browser, a screenshot harness): nobody is going
     // to answer, so say "fresh launch" now rather than leave the boot screen
     // waiting on a promise that does not exist.
@@ -3789,6 +3799,8 @@ export default function App() {
       // over, so a second call would answer "fresh launch" and the restore
       // would never happen.
       setReloaded(!!info?.reloaded);
+      if (crashed) return;
+      if (info?.revived) { showToast(info.revived); return; }
       if (info?.recovered) { showToast(info.recovered); return; }
       if (!info?.reloaded) return;
       const stamp = info.builtAt
@@ -4230,6 +4242,10 @@ export default function App() {
     // these would be a write into nothing. Both behave like a task in every way
     // she can see and in none that she cannot.
     if (item.agent || isTroubleRow(item) || isUpdateRow(item)) return;
+    // The box has already emptied; the words stay stored until the write lands
+    // and the next load puts them back if it never does (drafts.ts).
+    const inFlight = sent ? markReplyInFlight(item, sent, text) : null;
+    const landed = () => { if (inFlight !== null) replyLanded(item, inFlight); };
     // Replying to a blocked item is the redirect: it goes straight back to
     // the agent with your words; nothing acts on a blocked item otherwise.
     //
@@ -4251,6 +4267,7 @@ export default function App() {
     // is looking. If she is not, the words wait in this row's box and a toast
     // she can click says where.
     const putBack = (error: unknown) => {
+      landed();
       restoreFailedDraft(item, sent?.words ?? text, sent?.attachments ?? []);
       const here = focusedNow.current?.id === item.id && focusedNow.current?.product === item.product;
       if (here) {
@@ -4268,6 +4285,7 @@ export default function App() {
     // reply but forces you to do 'e'".
     if (runRef.current?.step === 'answer' && runRef.current.item === item.id) {
       await api.answer({ product: item.product, id: item.id, answer: text, ...(status ? { status } : {}) });
+      landed();
       fire({ t: 'replied', at: Date.now() });
       await refresh();
       return;
@@ -4371,6 +4389,7 @@ export default function App() {
         // only so the queue cannot grow for as long as the app is open; nothing
         // she sees turns on it.
         accepted: async () => {
+          landed();
           await refresh();
           setTimeout(() => setSending((q) => q.filter((s) => s !== mine && s !== gone)), LANDED_MS);
         },
@@ -4416,6 +4435,7 @@ export default function App() {
         // her message was back in a box she is not looking at, which is the
         // same broken promise this whole row is about.
         restore: (): Restored => {
+          landed();
           setSending((q) => q.filter((s) => s !== mine));
           const back = restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []);
           if (back) setModal('reply');
@@ -4465,6 +4485,7 @@ export default function App() {
     setSending((q) => [...q, mine]);
     const restore = (): Restored => {
       setSending((q) => q.filter((s) => s !== mine));
+      landed();
       return restoreDraft(item, sent?.words ?? text, sent?.attachments ?? []) ? { item } : null;
     };
     // A REPLY IS A CLAIM ON NOW, so it cancels a schedule rather than queueing
@@ -4509,6 +4530,7 @@ export default function App() {
         putBack(error);
         return;
       }
+      landed();
       setTimeout(() => setSending((q) => q.filter((s) => s !== mine)), LANDED_MS);
       if (wasScheduled) {
         if (priorRunAt > Date.now()) await api.schedule({ product: item.product, id: item.id, runAt: 0 });
@@ -4535,6 +4557,28 @@ export default function App() {
     }, talking ? 'Sent' : `Sent → ${item.productName}`, restore, stay, { product: item.product, id: item.id }, undid, holdsReplies(onPhone()) ? UNDO_GRACE_MS : 0);
   }, [deferCommit, snap?.supervisor.running, snap?.products, showToast, refresh, markSeen, pushUndo, startChatAgents, fire, movesOn]);
   answerWithRef.current = answerWith;
+
+  // A REPLY THE LAST PAGE NEVER SAW LAND goes back in its box (drafts.ts). It
+  // waits out the undo hold first, so a send another open window is still
+  // holding has the chance to land and let go of its own words.
+  const phoneWaitingRef = useRef(snap?.phoneWaiting);
+  phoneWaitingRef.current = snap?.phoneWaiting;
+  const toastRef = useRef(showToast);
+  toastRef.current = showToast;
+  const loaded = !!snap;
+  useEffect(() => {
+    if (!loaded) return;
+    const timers = repliesInFlight().map((left) => setTimeout(async () => {
+      const still = new Set((repliesInFlight().find((r) => r.product === left.product && r.id === left.id)?.replies ?? []).map((r) => r.at));
+      const replies = left.replies.filter((r) => still.has(r.at));
+      if (!replies.length) return;
+      const history = await api.itemHistory({ product: left.product, id: left.id }).catch(() => ({ ok: false, lines: [] }));
+      const waiting = (phoneWaitingRef.current ?? []).filter((w) => w.product === left.product && w.id === left.id).map((w) => w.text);
+      const back = bringBackUnsent(left, replies, history.ok ? history.lines : [], waiting);
+      if (back) toastRef.current(back === 1 ? 'Your reply didn’t send. It’s back in the box.' : `${back} replies didn’t send. They’re back in the box.`, { product: left.product, id: left.id });
+    }, Math.max(0, Math.max(...left.replies.map((r) => r.at)) + UNDO_GRACE_MS + 5000 - Date.now())));
+    return () => timers.forEach(clearTimeout);
+  }, [loaded]);
 
   /* ------------------------ answering one of her agents -------------------- */
   // THE ONE THING AGENTBOX SAYS OUT LOUD TO THE REST OF HER MACHINE. The reply goes
@@ -6057,6 +6101,12 @@ export default function App() {
   // Its row arrives with a snapshot or two after the send.
   const landAt = landOn ? list.findIndex((i) => i.id === landOn) : -1;
   useEffect(() => { if (landAt >= 0) { setSelected(landAt); setLandOn(null); } }, [landAt]);
+  // A task that could not start goes straight to Needs you, so follow it there.
+  useEffect(() => {
+    if (!landOn) return;
+    const tab = tabOfState(tabState.get(landOn) ?? null);
+    if (tab && tab !== view) setView(tab);
+  }, [landOn, tabState, view]);
   // A row that never comes must not take the cursor later, while you are elsewhere.
   useEffect(() => {
     if (!landOn) return undefined;
@@ -6064,17 +6114,31 @@ export default function App() {
     return () => clearTimeout(t);
   }, [landOn]);
 
-  // ↵ beside the row you are on, until a thread is opened.
+  // AND THE SAME MOMENT FOR EVERY OTHER SEND. `landOn` is the walk's own
+  // landing and nothing else sets it, so every task sent from the compose card
+  // spent its round trip under "Nothing is running."
+  const [justSent, setJustSent] = useState(false);
+  useEffect(() => {
+    if (!justSent) return undefined;
+    const t = setTimeout(() => setJustSent(false), 15_000);
+    return () => clearTimeout(t);
+  }, [justSent]);
+  // The row arriving is what ends it, and only on the tab that was waiting for
+  // it: a glance at Needs you in the meantime must not take the line away.
+  useEffect(() => { if (justSent && list.length && view === 'progress') setJustSent(false); }, [justSent, list.length, view]);
+
+  // ↵ beside the row you are on, until a thread is opened, and never while a
+  // card has the keyboard (`showsOpenLesson`).
   const [lessonAt, setLessonAt] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
-    if (!lessons.includes('open') || focused || fresh || (view !== 'inbox' && view !== 'progress')) { setLessonAt(null); return; }
+    if (!showsOpenLesson({ lessons, focused: !!focused, fresh, view, modal })) { setLessonAt(null); return; }
     const title = document.querySelector('.list-pane .row.selected .th-cell-title') ?? document.querySelector('.list-pane .th-cell-title');
     if (!title) { setLessonAt(null); return; }
     const range = document.createRange();
     range.selectNodeContents(title);
     const r = range.getBoundingClientRect();
     setLessonAt((previous) => lessonPosition(previous, { left: r.right + 20, top: r.top + r.height / 2 - 17 }));
-  }, [lessons, focused, fresh, view, list, selected]);
+  }, [lessons, focused, fresh, view, modal, list, selected]);
   useEffect(() => { if (focused) dropLesson('open'); }, [focused, dropLesson]);
 
   // The first option's key lit, until a thread that offered options is left.
@@ -6149,7 +6213,14 @@ export default function App() {
   const ruleOf = (item: WorkItem) => repeats.find((r) => r.product === item.product && r.id === ruleIdOf(item)) ?? null;
   const focusedRule = focused ? ruleOf(focused) : null;
 
-  const placeThread = (item: WorkItem, keep: boolean) => {
+  const moveToCloud = async (ids: string[], product?: string) => {
+    const moving = await api.moveToCloud(ids, product);
+    showToast(moving
+      ? `Moving ${moving === 1 ? 'this thread' : `${moving} threads`} to the cloud. ${moving === 1 ? 'It keeps' : 'They keep'} working until the cloud has room.`
+      : 'The cloud can’t take this thread right now');
+  };
+  const placeThread = (item: WorkItem, keep: PlaceAct) => {
+    if (keep === 'move') { void moveToCloud([item.id], item.product); return; }
     void api.setThreadOnMac({ [item.id]: keep ? true : null });
     showToast(keep ? 'This thread now runs only on this Mac' : 'This thread can run on the cloud again');
   };
@@ -6327,12 +6398,17 @@ export default function App() {
   // from below, so the class and the card cannot disagree about what is asked.
   const stage = approvalStage(snap?.approvals, answered, frontApproval.current, signInGate || phoneSignInSettling);
   const cardOnScreen = !!stage.card;
+  const mover = {
+    ids: new Set([...(snap?.cloud?.movable ?? []), ...(snap?.supervisor.running ?? []).filter((r) => r.movable).map((r) => r.itemId)]),
+    move: (id: string, product: string) => { void moveToCloud([id], product); },
+  };
 
   return (
     <TeamContext.Provider value={team}>
     <ChatAgentsContext.Provider value={chatAgents}>
     <LiveContext.Provider value={liveIds}>
     <CloudContext.Provider value={cloudIds}>
+    <MoveToCloudContext.Provider value={mover}>
     <FleetContext.Provider value={fleet}>
     <WaitingContext.Provider value={waitingByThread}>
     <TeammatesContext.Provider value={teammatesById}>
@@ -6539,6 +6615,7 @@ export default function App() {
               onCloudMode={(mode) => { void api.setWorkspaceSetting({ key: 'cloudRuns', value: mode }); }}
               onCloudWhenOn={(mode) => { void api.setWorkspaceSetting({ key: 'cloudWhenOn', value: mode }); }}
               onCloudSetUp={() => setCloudSetupOpen(true)}
+              onCloudMove={(ids) => { void moveToCloud(ids); }}
               filters={!roomShown && (!evOn || evKey === 'me' || !!evBoardEl)}
               view={roomShown ? roomsUi.viewButton : null}
             />
@@ -6639,7 +6716,12 @@ export default function App() {
       )}
       <div ref={setArtifactBody} hidden={settingsOpen || teamShown} className="body">
             <main className={`list-pane${focused || focusedRepeat ? ' pinned' : ''}${roomShown ? ' rm-open' : ''}${teammatesShown ? ' tq-open' : ''}${evFill ? ' ev-open' : ''}`}>
-              {noPlan && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
+              {/* AND A RUNNING AGENT IS PROOF THE SENTENCE IS FALSE. Whatever
+                  the probe decided, a page drawing a live run cannot also say
+                  agents cannot start. The bar is back the moment nothing is
+                  running, which is when a row's line about what stopped it
+                  points here. */}
+              {noPlan && !snap.supervisor.running?.length && !run && !focused && !focusedRepeat && !teammatesShown && <PlanBar onSetup={setSetupPlan} />}
               {teammatesShown ? (evOn ? <>{evTabsRow}{evTop}<div className="ev-space">{teammatesUi.page}</div></> : teammatesUi.page) : focusedRepeat ? (
                 <RepeatFocus
                   rule={focusedRepeat}
@@ -6825,28 +6907,19 @@ export default function App() {
                   onSnooze={walking ? undefined : () => openSnooze(focused)}
                   onReopen={() => sendBack(focused)}
                   session={snap.supervisor.running.find((r) => r.itemId === focused.id) ?? null}
-                  // WHAT THE FLEET IS DOING ABOUT THIS ROW. All of it was
-                  // already on the snapshot; the pane simply never read any of
-                  // it, so a task she opened could not say whether an agent was
-                  // on it, waiting for a slot, or not coming. `inProgress` is
-                  // the tab's own rule rather than a fourth definition of what
-                  // is under way: `stoppable` IS `belongsInProgress`, and one
-                  // rule is the point of that file.
+                  // WHAT THE FLEET IS DOING ABOUT THIS ROW, through `factsFor`,
+                  // which is the builder every row already reads. Written out
+                  // by hand here, it fell a fact behind the rows and the pane
+                  // said the wrong thing (w-93ab9b1fcb). What is added below is
+                  // only what no row needs. `inProgress` is the tab's own rule
+                  // rather than a fourth definition of what is under way:
+                  // `stoppable` IS `belongsInProgress`, and one rule is the
+                  // point of that file.
                   live={{
-                    queued: snap.supervisor.queued,
-                    signInNeeded: snap.supervisor.signInNeeded,
-                    atLimit: snap.supervisor.atLimit,
-                    runNow: snap.supervisor.runNow,
-                    paused: snap.supervisor.paused,
+                    ...factsFor(fleet, focused.id),
                     running: snap.supervisor.running.length,
                     capacity: snap.supervisor.capacity,
                     inProgress: belongsInProgress(focused, { deferredUntil: dueAt(focused), now, live: liveIds.has(focused.id), shipping: shippingIds.has(focused.id), stopped: stalledIds.has(focused.id) }),
-                    shipping: shippingIds.has(focused.id),
-                    // A run ended on this row and wrote nothing down. The pane
-                    // says so wherever the row is sitting, which is why this one
-                    // fact is read above the In progress test in live-line.
-                    silent: snap.supervisor.silent?.[focused.id] ?? null,
-                    whyNotCloud: snap.supervisor.whyNotCloud?.[focused.id] ?? null,
                   }}
                   stoppable={!walking && stoppableNow(focused)}
                 />
@@ -6911,7 +6984,7 @@ export default function App() {
                       // same thing louder: "Nothing needs you" and "You finished
                       // the tutorial" were drawn one on top of the other.
                       ? run === null && !landing && <InboxClear slot={setClearSlot} />
-                      : <EmptyTab view={view} />
+                      : <EmptyTab view={view} starting={!!landOn || justSent} waiting={needsYouCount.inbox} />
                 ) : <List
                   lead={view === 'inbox' && search === null && roomsUi.mentions.length
                     ? <MentionRows mentions={roomsUi.mentions} faces={roomsUi.faces} now={now} onOpen={roomsUi.openMention} /> : null}
@@ -7103,6 +7176,8 @@ export default function App() {
               setView(later ? 'snoozed' : 'progress');
               setSelected(0);
               setMultiSel(new Set());
+              // …and what that tab says while it waits for the row.
+              if (!later) setJustSent(true);
             }
           }}
           // A send that did not stand puts the card back with the words in it,
@@ -7110,6 +7185,7 @@ export default function App() {
           // where the words are.
           onFailed={(said, back) => {
             doneSending();
+            setJustSent(false);
             if (modalNow.current) { showToast(`${said} Your words are in the new thread card.`); return; }
             setComposeInitial(back.to ? back : null);
             setModal('compose');
@@ -8133,6 +8209,7 @@ export default function App() {
     </TeammatesContext.Provider>
     </WaitingContext.Provider>
     </FleetContext.Provider>
+    </MoveToCloudContext.Provider>
     </CloudContext.Provider>
     </LiveContext.Provider>
     </ChatAgentsContext.Provider>

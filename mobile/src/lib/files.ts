@@ -13,6 +13,17 @@ import { sentFileName } from '../../../renderer/src/phone-sends-files';
 
 type Places = Map<string, Place>;
 
+/**
+ * What a film in the phone's player shows: a centred spinner until it can
+ * play, one centred play button then, and the system's controls only once
+ * tapped, so its own loading glyphs never stand in for the film.
+ */
+export function filmFace({ status, tapped }: { status: string; tapped: boolean }): 'loading' | 'play' | 'controls' | 'error' {
+  if (status === 'error') return 'error';
+  if (tapped) return 'controls';
+  return status === 'readyToPlay' ? 'play' : 'loading';
+}
+
 export type Opening =
   | { kind: 'web'; url: string }
   | { kind: 'picture' | 'doc' | 'page' | 'media'; src: string; link: string; name: string }
