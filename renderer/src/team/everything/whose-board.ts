@@ -12,15 +12,32 @@ export interface WhoseBoard {
   mineOnly: boolean;
 }
 
-/** Null where the card opens a conversation instead: a chat, a card's Messages, New teammate. */
-export function whoseBoard(key: string | null, tab: EvTab, { me, people, team }: { me: string | null; people: readonly string[]; team: string | null }): WhoseBoard | null {
+interface Who {
+  me: string | null; people: readonly string[]; team: string | null;
+  /** Whether a person shares any threads with the team. */
+  shares?: (personId: string) => boolean;
+}
+
+/** Null where there is no work to draw: a chat, a card's Messages, New teammate, a person who shares nothing. */
+export function whoseBoard(key: string | null, tab: EvTab, { me, people, team, shares = () => true }: Who): WhoseBoard | null {
   if (!me) return null;
   if (key === null || key === 'me') return { picked: [me], mate: null, mineOnly: true };
   if (tab !== 'agents') return null;
   if (team && key === team) return { picked: [me, ...people.filter((p) => p !== me)], mate: null, mineOnly: false };
-  if (key.startsWith('person:')) return { picked: [key.slice('person:'.length)], mate: null, mineOnly: false };
+  if (key.startsWith('person:')) return shares(key.slice('person:'.length)) ? { picked: [key.slice('person:'.length)], mate: null, mineOnly: false } : null;
   if (key.startsWith('mate:')) return { picked: [me], mate: key.slice('mate:'.length), mineOnly: false };
   return null;
+}
+
+/** What a picked card opens: its work under the cards, or its chat on the Chats page.
+ *  A person who shares no threads has no work to show, so their chat, if you have one. */
+export function cardOpens(key: string, { team, shares, hasChat }: { team: string | null; shares: (personId: string) => boolean; hasChat: (personId: string) => boolean }): EvTab {
+  if (key === 'me' || key.startsWith('mate:') || key === team) return 'agents';
+  if (key.startsWith('person:')) {
+    const id = key.slice('person:'.length);
+    return shares(id) || !hasChat(id) ? 'agents' : 'messages';
+  }
+  return 'messages';
 }
 
 export function boardItems<T>(items: readonly T[], board: WhoseBoard, mateOf: (item: T) => string | null): T[] {

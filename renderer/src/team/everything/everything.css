@@ -1,7 +1,4 @@
-/* Everything else (w-b5f23cff71): the team's cards, the bar over the open one, its space. */
-.ev-page { display: flex; flex-direction: column; min-height: 0; }
-.list-pane.ev-open { display: flex; flex-direction: column; overflow: hidden; }
-.ev-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+/* Everything else (w-b5f23cff71): the team's cards, the bar over the open one, its work. */
 
 /* A face over a name over the agents line: narrow, so a row holds most of a team. */
 .ev-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 10px var(--row-r, 24px) 4px var(--text-x, 32px); flex: none; }
@@ -38,20 +35,14 @@
 .ev-bn em { font-style: normal; color: var(--text-faint); margin-left: 8px; }
 .ev-bar .tm-tabs { margin-left: 22px; align-self: stretch; }
 .ev-bar .tm-tab { height: 43px; line-height: 43px; }
-.ev-slot { display: flex; align-items: center; min-width: 0; margin-left: auto; }
-/* An open conversation names its person; the bar already did. */
-.ev-slot .cx-person { display: none; }
 .ev-right { margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); white-space: nowrap; }
-.ev-slot + .ev-right { margin-left: 16px; }
 .ev-right .live-mark { width: 13px; height: 13px; gap: 1.5px; color: var(--text); }
-
-.ev-space { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.ev-space > .gr-page, .ev-space > .focus-pane { flex: 1; min-height: 0; }
-.ev-space .tq-chats .tq-lines, .ev-space .gr-chat .rm-full .rm-chat-list { padding-left: var(--text-x, 32px); }
-.ev-space .rm-compose.tq-compose { margin-left: var(--text-x, 32px); }
-/* A person's conversation sits on the bar's edge, not beside the Chats list it used to have. */
-.ev-open .cx-frame-main .focus, .ev-open .cx-frame-main .focus-dock-inner { margin-left: calc(var(--text-x, 32px) - 32px); }
-.ev-space .gr-side.tq-details { background: none; }
+/* The way to their chat, on the Chats page. */
+.ev-msg { flex: none; display: inline-flex; align-items: center; height: 28px; padding: 0 11px 0 10px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: var(--radius); background: none; font: inherit; font-size: 13px; color: var(--text-dim); cursor: pointer; }
+.ev-msg:hover { color: var(--text); border-color: var(--text-faint); background: var(--wash); }
+.ev-msg .ev-bubble { color: inherit; }
+.ev-right + .ev-msg { margin-left: 16px; }
+.ev-bn + .ev-msg { margin-left: auto; }
 .ev-rows { padding-top: 4px; }
 /* Inside a teammate's own space every row is theirs; the name on each says nothing. */
 .ev-rows .tq-from { display: none; }

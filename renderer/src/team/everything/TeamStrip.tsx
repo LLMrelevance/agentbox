@@ -115,17 +115,17 @@ export function HiddenList({ hidden, onShow, startOpen = false }: { hidden: Memb
 }
 
 /** Over the open card's space: whose it is, its tabs, and anything it carries on the right. */
-export function SpaceBar({ m, tabs, onTab, right, slot }: {
+export function SpaceBar({ m, tabs, onTab, right, onMessage }: {
   m: Member; tabs: { id: string; label: string; count?: number; on: boolean }[]; onTab?: (id: string) => void; right?: ReactNode;
-  /** Where an open conversation draws its own buttons. */
-  slot?: (el: HTMLDivElement | null) => void;
+  /** Their chat, which is on the Chats page. */
+  onMessage?: () => void;
 }) {
   return <div className="ev-bar">
     <MemberFace m={m} size={22} />
     <span className="ev-bn">{m.kind === 'me' ? 'Your threads' : m.name}{m.role && <em>{m.role}</em>}</span>
     {tabs.length > 0 && <div className="tm-tabs">{tabs.map((t) => <button type="button" key={t.id} className={`tm-tab${t.on ? ' on' : ''}`} onClick={() => onTab?.(t.id)}>{t.label}{!!t.count && <b>{t.count}</b>}</button>)}</div>}
-    {slot && <div className="ev-slot" ref={slot} />}
     {right != null && <span className="ev-right">{right}</span>}
+    {onMessage && <button type="button" className="ev-msg" onClick={onMessage}>{BUBBLE}Message</button>}
   </div>;
 }
 

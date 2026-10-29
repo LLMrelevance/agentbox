@@ -86,8 +86,10 @@ describe('the team chat\'s Agents', () => {
 });
 
 describe('in the app', () => {
-  it('opens the team chat under a person\'s bar, and only other chats under the bar with no tabs', () => {
-    expect(app).toMatch(/evMember\.kind === 'chat' && !evMember\.team \? <SpaceBar m=\{evMember\} tabs=\{\[\]\}/);
+  // Other chats open on the Chats page, never under the cards (w-2b3e1a85e5).
+  it('opens the Team under a person\'s bar, and no other chat under the cards', () => {
+    expect(app).toMatch(/: <SpaceBar m=\{evMember\} tabs=\{\[\]\} onMessage=/);
+    expect(app).not.toMatch(/evMember\.kind === 'chat' && !evMember\.team \? <SpaceBar/);
   });
 
   it('opens its Messages as the team\'s chat and its Agents under the cards', () => {

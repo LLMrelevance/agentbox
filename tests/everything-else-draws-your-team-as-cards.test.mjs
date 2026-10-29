@@ -6,6 +6,7 @@
 // right under them (the teammate chat, the group chat, the direct record),
 // so a short chat starts at the top as those chats always did. Checked on the
 // built app with a made-up team (scripts/scratch, designs/w-b5f23cff71).
+// Since w-2b3e1a85e5 a card opens work under the cards and its chat on the Chats page.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { createElement as h } from 'react';
@@ -71,7 +72,7 @@ describe('the cards', () => {
   });
 
   // They used to shrink to one line while a chat was open; they stay as they
-  // are now (tests/a-chat-opens-under-the-same-cards).
+  // are now (tests/the-cards-are-the-same-whoever-is-picked).
 
   it('end with a card that makes a new AI teammate', () => {
     expect(strip({ onAdd() {} })).toContain('New teammate');
@@ -85,18 +86,8 @@ describe('the cards', () => {
   });
 });
 
-describe('a card opens the chat the Chats page held, under the cards', () => {
-  // The sidebar's Chats row came back (w-2b3e1a85e5); a card still opens its chat here.
-  it('keeps the Chats list off the page while a card opened the chat', () => {
-    expect(app).toContain('<ChatsContext.Provider value={teamMode && !chatsPage ? null : chatsValue}>');
-  });
-
-  it('draws the teammate chat, the group chat and a direct record under the cards', () => {
-    expect(app).toContain('<div className="ev-space">{teammatesUi.page}</div>');
-    expect(app).toContain('<div className="ev-space">{roomsUi.page}</div>');
-    expect(app).toMatch(/\{inTeamChat && <>\{evTabsRow\}\{evTop\}<\/>\}\s*<ChatsFrame/);
-  });
-
+// The chat itself is on the Chats page (w-2b3e1a85e5, tests/messages-open-on-the-chats-page-and-nowhere-else).
+describe('a card opens its chat', () => {
   it('opens a person\'s direct record, else your chat with them in Groups', () => {
     expect(app).toMatch(/const talk = person \? directWith\(person\) : null;\s*const chat = person && !talk \? personChats\.get\(person\) : undefined;/);
   });

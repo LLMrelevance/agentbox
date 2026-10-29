@@ -17,6 +17,8 @@ const portrait = (bg, skin, hair) => `data:image/svg+xml,${encodeURIComponent(`<
 const ME = { id: 'p-me', email: 'you@example.com', name: 'Alex Rivera', avatarUrl: portrait('#5b6b73', '#e0b49a', '#3a2a22'), role: 'owner' };
 const MAYA = { id: 'p-maya', email: 'maya@example.com', name: 'Maya Chen', avatarUrl: portrait('#7a6252', '#efc8a8', '#1f1a18'), role: 'member' };
 const JUN = { id: 'p-jun', email: 'jun@example.com', name: 'Jun Park', avatarUrl: null, role: 'member' };
+// Shares nothing and has no chat with you yet.
+const PRIYA = { id: 'p-priya', email: 'priya@example.com', name: 'Priya Shah', avatarUrl: portrait('#5d6658', '#c99878', '#2b201b'), role: 'member' };
 
 let n = 0;
 const item = (o) => {
@@ -141,8 +143,8 @@ const cards = [
   card('p-maya', 'Press list for November', 'done', 60), card('p-maya', 'Pricing survey results', 'waiting', 15),
   card('p-maya', 'Launch email, second draft', 'done', 150), card('p-maya', 'Competitor pricing table', 'done', 230), card('p-maya', 'Webinar outline', 'done', 330),
   card('p-maya', 'Case study with the design agency', 'scheduled', 600),
-  card('p-jun', 'Repo access for the new laptop', 'waiting', 35), card('p-jun', 'Benchmarks for cloud starts', 'done', 120),
 ];
+// Jun shares no threads with the team, as many people won't.
 
 const wallCard = (p, o) => ({
   id: p.id, me: p.id === ME.id, name: p.name, avatarUrl: p.avatarUrl, headline: null, bio: null, agents: 0, level: null,
@@ -168,12 +170,14 @@ const group = (id, name, people, last, ago, unread) => ({
 const groups = [
   group('r-launch', 'Launch crew', [ME, MAYA, JUN], 'Maya: the deck is in the shared folder', 48, 1),
   group('r-design', 'Design review', [ME, MAYA], 'You: looks good, ship it', 300, 0),
+  group('r-jun', 'Jun Park', [ME, JUN], 'Jun: can I get access to the repo today?', 35, 1),
 ];
 const msg = (roomId, by, body, ago) => ({ id: `${roomId}-${ago}`, roomId, by, body, inReplyTo: null, mentions: [], at: NOW - ago * min });
 const messages = {
   'r-team': [msg('r-team', 'p-me', 'On it after lunch', 70), msg('r-team', 'p-maya', 'Pushed the new colours, can someone look before 4?', 18)],
   'r-launch': [msg('r-launch', 'p-maya', 'the deck is in the shared folder', 48)],
   'r-design': [msg('r-design', 'p-me', 'looks good, ship it', 300)],
+  'r-jun': [msg('r-jun', 'p-me', 'Welcome aboard. Shout if anything is blocked', 400), msg('r-jun', 'p-jun', 'Thanks! Setting up the new laptop now', 120), msg('r-jun', 'p-jun', 'Can I get access to the repo today?', 35)],
 };
 for (const g of groups) delete g._last;
 
@@ -195,7 +199,7 @@ export const world = {
   team: {
     configured: true, started: true, canSignIn: true, settling: false, since: NOW - 30 * 24 * hour, sent: [],
     signedIn: true, signingIn: null, me: ME, team: { id: 't-1', name: 'Northwind' }, invites: [],
-    people: [ME, MAYA, JUN], cards, lastSyncAt: NOW - min, error: null,
+    people: [ME, MAYA, JUN, PRIYA], cards, lastSyncAt: NOW - min, error: null,
     rooms: { on: true, ready: true, rooms: [teamRoom, ...groups], messages, me: profile, ranks: {}, invites: [], mentions: [], error: null },
   },
 };

@@ -24,7 +24,7 @@ const items = [mine, later, mateRun];
 const state = new Map([['w-1', 'running'], ['w-2', 'scheduled'], ['w-3', 'running']]);
 const card = { personId: 'p-maya', threadId: 't-9', visible: true, title: 'Maya brand colours', project: 'App', state: 'running', priority: 2, problem: null, progress: null, solution: null, blockedBy: [], blocks: [], people: null, updatedAt: now - 120_000 };
 const mateOf = (i) => (i.labels.find((l) => l.startsWith('teammate:')) ?? '').slice('teammate:'.length) || null;
-const who = { me: 'p-me', people: ['p-me', 'p-maya'], team: 'room:r-team' };
+const who = { me: 'p-me', people: ['p-me', 'p-maya', 'p-jun'], team: 'room:r-team', shares: (id) => id === 'p-maya' };
 
 function titles(key, tab = 'agents') {
   const board = whoseBoard(key, tab, who);
@@ -52,6 +52,12 @@ describe('the board under the cards', () => {
 
   it('holds only that person\'s shared threads with a person picked', () => {
     expect(titles('person:p-maya').all).toEqual(['Maya brand colours']);
+  });
+
+  // "a good portion of people won't have that publicly available"
+  it('is no board for a person who shares no threads, and a line that says so', () => {
+    expect(whoseBoard('person:p-jun', 'agents', who)).toBeNull();
+    expect(read('renderer/src/App.tsx')).toContain('shares no threads with the team.</p>');
   });
 
   it('holds only that teammate\'s runs with an AI teammate picked', () => {
@@ -104,9 +110,9 @@ describe('in the app', () => {
     expect(app).toMatch(/case 'b': case 'B':\s*if \(teamMode\) \{/);
   });
 
-  it('opens a person, an AI teammate or the Team on their work, their Messages a tab away', () => {
-    expect(app).toMatch(/label: 'Threads'/);
-    expect(app).not.toMatch(/label: 'Agents'/);
+  // Their chat is on the Chats page (tests/messages-open-on-the-chats-page-and-nowhere-else).
+  it('opens a person, an AI teammate or the Team on their work, with no tabs over it', () => {
+    expect(app).not.toMatch(/label: 'Agents'|label: 'Threads'/);
   });
 
   it('keeps View and filters over every board, not only yours', () => {

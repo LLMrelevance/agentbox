@@ -111,9 +111,8 @@ describe('the sidebar', () => {
     expect(hook).not.toMatch(/<TeammatesRail /);
     expect(page).not.toMatch(/tm-tabs|function Roster\(/);
     const app = fs.readFileSync(new URL('../renderer/src/App.tsx', import.meta.url), 'utf8');
-    // With a team on, a chat a card opened is under the cards with no list (w-b5f23cff71);
-    // one opened from the sidebar's Chats row is on this page (w-2b3e1a85e5).
-    expect(app).toMatch(/<ChatsContext\.Provider value=\{teamMode && !chatsPage \? null : chatsValue\}>/);
+    // With a team on too: every chat is on this page (w-2b3e1a85e5).
+    expect(app).toMatch(/<ChatsContext\.Provider value=\{chatsValue\}>/);
   });
 });
 
