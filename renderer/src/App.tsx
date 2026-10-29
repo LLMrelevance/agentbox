@@ -30,6 +30,7 @@ import { AIMED_AT_THE_THREAD_YOU_LEFT, pickLandsHere, type Arrival } from './pic
 import { freshCopy, staysOnTheTask, stillFollowing, wayOut, type Followed } from './stay-with-a-command';
 import { List } from './components/List';
 import { LogoOrbit } from './components/LogoOrbit';
+import { cameBackFromACrash, keepHeldWriter, RELOADED_AFTER_A_CRASH } from './after-a-crash';
 import { isTroubleRow, troubleRow } from './trouble-row';
 import { importAnswer, isImportRow, isNotImportedRow, justImported, type ImportChoice } from './import-row';
 import { lookedAtNow, needsYouLit } from './needs-you';
@@ -1690,6 +1691,8 @@ export default function App() {
   // (./phone-holds).
   useEffect(() => {
     const off = window.zero?.onWriteHeld?.(flushPending);
+    // Not taken back on unmount: a crash unmounts this, and that is when it is needed.
+    keepHeldWriter(flushPending);
     const onHide = () => { void flushPending(); };
     window.addEventListener('pagehide', onHide);
     const offHidden = onPhone() ? writeHeldWhenHidden(document, flushPending) : null;
@@ -3752,6 +3755,8 @@ export default function App() {
   // common reason ⌘R "does nothing" is that the renderer was never rebuilt,
   // which a build time that has not moved makes obvious.
   useEffect(() => {
+    const crashed = cameBackFromACrash(Date.now());
+    if (crashed) showToast(RELOADED_AFTER_A_CRASH);
     // No bridge at all (a plain browser, a screenshot harness): nobody is going
     // to answer, so say "fresh launch" now rather than leave the boot screen
     // waiting on a promise that does not exist.
@@ -3769,6 +3774,7 @@ export default function App() {
       // over, so a second call would answer "fresh launch" and the restore
       // would never happen.
       setReloaded(!!info?.reloaded);
+      if (crashed) return;
       if (info?.recovered) { showToast(info.recovered); return; }
       if (!info?.reloaded) return;
       const stamp = info.builtAt
