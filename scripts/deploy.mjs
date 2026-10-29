@@ -206,7 +206,8 @@ if (!live('npm', ['publish'], { AGENTBOX_PUBLISH_ANYWAY: '1' })) {
 // 6. THE DOWNLOAD AND THE UPDATE FEED. publish-download.mjs checks the file
 // the website hands out against this build before it says it is done.
 say('putting the Mac app on agentbox.ac and in the update feed');
-if (!live('node', ['scripts/publish-download.mjs', `release/Agentbox-${version}-universal.dmg`, '--publish'])) {
+if (!live('node', ['scripts/publish-download.mjs', `release/Agentbox-${version}-universal.dmg`, '--publish'],
+  { AGENTBOX_RELEASE_COMMIT: commit })) {
   stop(`npm has ${version} and the website does not yet. The reason is just above.`,
     `To finish, run: node scripts/publish-download.mjs release/Agentbox-${version}-universal.dmg --publish`);
 }
