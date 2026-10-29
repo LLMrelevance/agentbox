@@ -3,7 +3,7 @@
 
 import { cloudCommands, type CloudMode, type CloudStatus } from '../cloud-menu';
 import { chord } from '../this-keyboard';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { Product, View } from '../types';
 import { DONE } from '../done-word';
 import { commandKeys } from '../palette-keys';
@@ -25,7 +25,7 @@ export interface Command {
   run: () => void;
 }
 
-export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true }: {
+export function Palette({ products, supervisorPaused, itemCommands = [], batch = false, order = [], look, machine = 'dark', onSetLook, staleFiles = [], updateReady = null, onInstallUpdate, onCheckUpdate, moveToApplications = false, onMoveToApplications, filtering = false, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onNewProject, onNewThread, onStanding, onSettings, onUsage, onShortcuts, roomsOn = false, groups = [], onGroups, onPickGroup, teammates = null, onTeammates, onPauseTeammate, boardUp = false, onFlipView, keyHints, onSetKeyHints, onSearch, findThreads, onSearchFor, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, onClose, cloud = null, onCloudMode, open = true }: {
   products: Product[];
   supervisorPaused: boolean;
   itemCommands?: Command[];
@@ -89,6 +89,10 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
   boardUp?: boolean;
   onFlipView?: () => void;
   onSearch: () => void;
+  /** The threads a query finds, best first. Absent, the box finds commands only. */
+  findThreads?: (query: string) => Command[];
+  /** Opens the thread search with this query already typed. */
+  onSearchFor?: (query: string) => void;
   /** Walks the welcome screen again on this install, to test the first run. */
   onFirstRun: () => void;
   /** The tutorial alone: the practice project, with no setup screens before
@@ -359,11 +363,27 @@ export function Palette({ products, supervisorPaused, itemCommands = [], batch =
     },
 
   ], [itemCommands, batch, products, supervisorPaused, order, onNewProject, onNewThread, filtering, onOpenFilter, onClearFilter, onView, onPause, onResume, onRankFirst, onOpenProjects, onStanding, onSettings, onShortcuts, look, machine, onSetLook, staleFiles, updateReady, onInstallUpdate, moveToApplications, onMoveToApplications, boardUp, onFlipView, keyHints, onSetKeyHints, onSearch, onFirstRun, onTutorial, onImportAgents, onFreshUser, onDemo, cloud, onCloudMode]);
-  return open ? <PaletteBox commands={commands} onClose={onClose} /> : null;
+  return open ? <PaletteBox commands={commands} findThreads={findThreads} onSearchFor={onSearchFor} onClose={onClose} /> : null;
+}
+
+/** How many threads the box lists under the commands before "See all". */
+export const THREADS_SHOWN = 5;
+
+/** The thread rows a query adds under the matching commands: the best few,
+ *  then one row that opens the full search when there are more. */
+export function threadRows(query: string, findThreads?: (q: string) => Command[], onSearchFor?: (q: string) => void): Command[] {
+  const q = query.trim();
+  if (!q || !findThreads) return [];
+  const found = findThreads(q);
+  const rows = found.slice(0, THREADS_SHOWN);
+  if (found.length > THREADS_SHOWN && onSearchFor) {
+    rows.push({ id: 'all-threads', label: `See all ${found.length} threads`, run: () => onSearchFor(q) });
+  }
+  return rows;
 }
 
 // The box itself, mounted fresh each time ⌘K opens, so it starts empty and focused.
-function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () => void }) {
+function PaletteBox({ commands, findThreads, onSearchFor, onClose }: { commands: Command[]; findThreads?: (q: string) => Command[]; onSearchFor?: (q: string) => void; onClose: () => void }) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -373,13 +393,15 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
 
   useEffect(() => inputRef.current?.focus(), []);
 
-  const filtered = useMemo(() => {
+  const matched = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return commands;
     // Ranked as well as filtered, so "rem" puts Remind Me above Remote Control
     // (../palette-rows).
     return rankMatches(q, commands.filter((c) => matchesQuery(q, c)));
   }, [commands, query]);
+  const threads = useMemo(() => threadRows(query, findThreads, onSearchFor), [query, findThreads, onSearchFor]);
+  const filtered = useMemo(() => [...matched, ...threads], [matched, threads]);
 
   // Unique keys, so two lists sharing an id cannot leave a stale row alive
   // through the filter (../palette-keys).
@@ -402,7 +424,7 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
             className="palette-input"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Type a command…"
+            placeholder={findThreads ? 'Search threads or type a command…' : 'Type a command…'}
             onKeyDown={(e) => {
               if (e.key === 'Escape') onClose();
               // Clamped at 0 as well as at the end, because with nothing matching
@@ -416,10 +438,10 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
         </div>
         <div className="palette-list" ref={listRef}>
           {filtered.length === 0 && <div className="palette-empty">{emptyLine(query)}</div>}
-          {filtered.map((c, i) => (
+          {filtered.map((c, i) => (<Fragment key={keys[i]}>
+            {i === matched.length && <div className="palette-section">Threads</div>}
             <div
-              key={keys[i]}
-              className={`palette-item ${i === selected ? 'selected' : ''}`}
+              className={`palette-item ${i >= matched.length ? 'palette-thread ' : ''}${i === selected ? 'selected' : ''}`}
               onClick={c.run}
               onMouseEnter={() => setSelected(i)}
             >
@@ -427,7 +449,7 @@ function PaletteBox({ commands, onClose }: { commands: Command[]; onClose: () =>
               <span className="palette-label">{c.label}</span>
               {c.keyHint ? <span className="palette-key">{c.keyHint}</span> : c.hint && <span className="palette-hint">{c.hint}</span>}
             </div>
-          ))}
+          </Fragment>))}
         </div>
         <div className="palette-foot" aria-hidden="true"><span><b>↑ ↓</b> move</span><span><b>↵</b> select</span></div>
       </div>

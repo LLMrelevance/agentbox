@@ -2443,6 +2443,15 @@ export default function App() {
     requestAnimationFrame(() => searchRef.current?.focus());
   }, [view, selected]);
 
+  const searchFor = useCallback((q: string) => {
+    if (search === null) searchReturn.current = { view, selected };
+    setSearch(q);
+    setFocused(null);
+    setModal(null);
+    setSelected(0);
+    requestAnimationFrame(() => searchRef.current?.focus());
+  }, [search, view, selected]);
+
   const closeSearch = useCallback(() => {
     setSearch(null);
     const back = searchReturn.current;
@@ -3217,6 +3226,13 @@ export default function App() {
     return arrivedAt(items.find((i) => i.id === focused.id && i.product === focused.product) ?? focused);
   }, [focused, items]);
   useEffect(() => { if (focused) markSeen(focused); }, [focusedArrival]); // eslint-disable-line react-hooks/exhaustive-deps
+  // ⌘K finds threads with the same search as the list's own field.
+  const findThreads = useCallback((q: string) => searchThreads(items, q, searchContext).map(({ item }) => ({
+    id: `thread-${item.product}-${item.id}`,
+    label: threadSearchDetails(item, searchContext).title,
+    hint: snap?.products.find((p) => p.slug === item.product)?.name ?? item.product,
+    run: () => { setModal(null); if (search !== null) closeSearch(); setFocused(item); markSeen(item); },
+  })), [items, searchContext, snap?.products, search, closeSearch, markSeen]);
   // J AND K FROM AN OPEN THREAD OR AN OPEN TEAMMATE CARD (w-fb16bcaeba): open
   // the next stop, whoever's it is. Yours opens as your thread, theirs as
   // their card, exactly as a click on its row would.
@@ -6401,6 +6417,7 @@ export default function App() {
           the sidebar for the single-player launch (w-1b574413db, 2026-10-04).
           `onInvite` is still handed in, for the account menu. */}
       <WorkspaceNavigation
+        onPalette={() => setModal('palette')}
         update={announcesUpdate(snap?.update, { walking, closed: '' }) ? { installing: !!snap?.update?.installing, version: snap?.update?.newVersion, changes: snap?.update?.changes, behind: snap?.update?.behind, error: snap?.update?.error } : null}
         onUpdate={() => { void api.updateInstall(); }}
         /* AND THE COPY THAT CANNOT UPDATE ITSELF FROM WHERE IT IS
@@ -7276,6 +7293,8 @@ export default function App() {
         keyHints={keyHints}
         onSetKeyHints={(v) => { setModal(null); setHints(v); }}
         onSearch={openSearch}
+        findThreads={findThreads}
+        onSearchFor={searchFor}
         itemCommands={(() => {
           // A cmd-A (or shift-J/K) selection turns the palette into batch
           // mode: every command it offers acts on the whole selection, and
