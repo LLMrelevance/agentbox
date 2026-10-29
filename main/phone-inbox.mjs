@@ -132,6 +132,9 @@ export function createPhoneInbox({
   toCarry = null,
   handedOver = () => {},
   takenBack = () => {},
+  // Every pass, the commands of runs it has finished joining, so a hand-over
+  // still held for one of them is let go (Supervisor#carriedFinished).
+  carriedFinished = () => {},
 }) {
   const state = readState(stateFile);
   const save = () => writeState(stateFile, state);
@@ -565,6 +568,9 @@ export function createPhoneInbox({
       save();
     }
     for (const [k, v] of Object.entries(state.adopted)) if (!(now() - (v?.at ?? 0) < ADOPTED_KEPT_MS)) delete state.adopted[k];
+    // A reply is in `placed`; a fresh row's Run now only in `marked`.
+    const finished = [...new Set(Object.values(state.adopted).filter((r) => r?.done).flatMap((r) => [...(r.placed ?? []), ...(r.marked ?? [])]))];
+    try { carriedFinished(finished); } catch { /* the supervisor's trouble, not the phone's */ }
     return n;
   }
 
