@@ -10,7 +10,7 @@
 //   1. the Mac app: built, signed and notarised (about 15 minutes)
 //   2. npm, for `npx agentbox-app`
 //   3. the download on agentbox.ac, and the feed installed copies update from
-//   4. the cloud server
+//   4. the cloud machine's image, then the cloud server
 // and ends by reading each one back and saying which has the new version.
 //
 // The Mac build goes first because it is the slow step and the one most likely
@@ -213,7 +213,12 @@ if (!live('node', ['scripts/publish-download.mjs', `release/Agentbox-${version}-
 restorePackageJson();
 
 // ---------------------------------------------------------------------------
-// 7. THE CLOUD SERVER, from the same commit.
+// 7. THE CLOUD MACHINE'S IMAGE, which every cloud run starts from. Built only
+// when cloud/sandbox/ or this Mac's Claude Code or Codex version changed.
+say('updating the cloud machine (a few minutes when it changed)');
+const imageOk = live('node', ['scripts/cloud-setup.mjs'], { AGENTBOX_CLOUD_CONFIG: serverFile });
+
+// The cloud server, from the same commit.
 say('updating the cloud server');
 const serverOk = live('node', ['scripts/cloud-gateway-setup.mjs'], { AGENTBOX_CLOUD_CONFIG: serverFile });
 
@@ -235,9 +240,11 @@ const lines = whatIsLive({
 });
 console.log('');
 for (const l of lines) console.log(`  ${l.ok ? '✓' : '✗'} ${l.part.padEnd(17)} ${l.ok ? version : `still ${l.saw}`}`);
-if (lines.every((l) => l.ok)) {
+console.log(`  ${imageOk ? '✓' : '✗'} ${'cloud machine'.padEnd(17)} ${imageOk ? 'up to date' : 'not rebuilt'}`);
+if (lines.every((l) => l.ok) && imageOk) {
   console.log(`\nAgentbox ${version} is out everywhere. Restart Agentbox to run it yourself.\n`);
 } else {
   stop('Not every place has the new version yet; the ✗ lines above say which.',
+    imageOk ? '' : `For the cloud machine, run: AGENTBOX_CLOUD_CONFIG=${serverFile} node scripts/cloud-setup.mjs`,
     lines.find((l) => l.part === 'cloud server' && !l.ok) ? `For the cloud server, run: AGENTBOX_CLOUD_CONFIG=${serverFile} node scripts/cloud-gateway-setup.mjs` : '');
 }
