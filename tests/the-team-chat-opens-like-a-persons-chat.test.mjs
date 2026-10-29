@@ -29,16 +29,18 @@ const team = (wall, mates = [], mateAgents = new Map()) => buildMembers({
   ],
 });
 
+// Yours were left out while the Team's tab listed only the others' threads. Its
+// board is everybody's work now, yours included (w-2b3e1a85e5), so its count is too.
 describe('the team chat\'s count', () => {
-  it('is every agent the people on your team and your AI teammates run, yours left out', () => {
+  it('is every agent the team runs: you, the people on your team and your AI teammates', () => {
     const members = team([card('p-me', 'Sam Rivera', 3, true), card('p-maya', 'Maya Chen', 5), card('p-theo', 'Theo Park', 2), card('p-priya', 'Priya Nair', 0)],
       [mate('t-ada', 'Ada'), mate('t-rex', 'Rex')], new Map([['t-ada', 2], ['t-rex', 1]]));
-    expect(members.find((m) => m.key === 'room:r-team').agents).toBe(10);
+    expect(members.find((m) => m.key === 'room:r-team').agents).toBe(13);
   });
 
   it('adds nothing for someone who keeps their agents to themselves', () => {
     const members = team([card('p-me', 'Sam Rivera', 3, true), card('p-maya', 'Maya Chen', null), card('p-theo', 'Theo Park', 2), card('p-priya', 'Priya Nair', null)]);
-    expect(members.find((m) => m.key === 'room:r-team').agents).toBe(2);
+    expect(members.find((m) => m.key === 'room:r-team').agents).toBe(5);
   });
 
   it('is only the team chat\'s: another chat runs no agents', () => {

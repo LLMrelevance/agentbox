@@ -89,7 +89,8 @@ export function buildMembers({ me, people = [], wall = null, cards = [], teammat
     out.push({ key: `mate:${t.id}`, kind: 'mate', name: t.name, letter: t.letter || t.name.slice(0, 1), role: t.role, agents, starting: !!t.running && !agents, now });
   }
   const teamCard = out.find((m) => m.team);
-  if (teamCard) teamCard.agents = out.reduce((n, m) => n + (m.kind === 'person' || m.kind === 'mate' ? m.agents ?? 0 : 0), 0);
+  // Yours too: the Team's board is everybody's work.
+  if (teamCard) teamCard.agents = out.reduce((n, m) => n + (m.kind === 'chat' ? 0 : m.agents ?? 0), 0);
   // A chat with one person is that person's card; a chat with several, or a group, is a chat of its own.
   const theirs = new Set(personChats.values());
   const others = chats.filter((c) => c !== team && !theirs.has(c.key) && !(c.key.startsWith('direct:') && c.faces.length <= 1)).slice().sort((a, b) => b.at - a.at);
